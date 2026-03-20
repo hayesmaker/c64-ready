@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>C64 Ready</title>
+    <style>
+      body {
+        margin: 0;
+        background: #111;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        font-family: monospace;
+        color: #aaa;
+      }
+      #c64-screen {
+        image-rendering: pixelated;
+        border: 4px solid #333;
+        display: block;
+      }
+      #status {
+        margin-top: 10px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c64-screen" width="384" height="272"></canvas>
+    <div id="status">Loading WASM...</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
