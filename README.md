@@ -16,7 +16,8 @@ Build a clean, testable C64 emulator for the web, with a focus on:
 - node based headless rendering
 - framework agnostic integration
 
-- ## Install and run
+## Install and run
+- Prerequisites: Node.js 18+ and npm (see https://nodejs.org/)
 
 Install dependencies:
 
@@ -58,3 +59,14 @@ Run tests in watch mode:
 npm run test:watch
 ```
 
+## Work in Progress:
+- Proof of Concept Implementation:
+- [x] WASM module loading and initialization
+- [x] Emulator control and state management
+- [x] Canvas-based rendering
+- [ ] Node-based headless rendering
+- [ ] Framework agnostic integration (e.g., React, Vue, Angular)
+- Additional features:
+- [ ] Audio output
+- [ ] Input handling (keyboard, gamepad, touch)
+- [ ] Loading and running C64 Files (e.g., .d64, .prg)
