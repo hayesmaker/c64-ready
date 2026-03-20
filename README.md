@@ -45,7 +45,10 @@ This project uses Vitest with a jsdom environment (Jest-like API, faster integra
 
 - `src/emulator/c64-wasm.ts`
 - `src/emulator/c64-emulator.ts`
+- `src/emulator/input.ts`
 - `src/player/canvas-renderer.ts`
+- `src/player/c64-player.ts`
+- `src/player/ui-controller.ts`
 
 Run tests:
 
@@ -59,14 +62,32 @@ Run tests in watch mode:
 npm run test:watch
 ```
 
+## Deployment
+
+The project deploys to GitHub Pages automatically via GitHub Actions.
+
+On every push to `master`:
+1. Tests run (`npm test`)
+2. If tests pass, a production build is created (`npm run build`)
+3. The `dist/` output is deployed to GitHub Pages
+
+### Setup (one-time)
+
+1. Go to your repo on GitHub → **Settings → Pages**
+2. Under **Source**, select **GitHub Actions**
+
+### Live URL
+
+https://hayesmaker.github.io/c64-ready/
+
 ## Work in Progress:
 - Proof of Concept Implementation:
 - [x] WASM module loading and initialization
 - [x] Emulator control and state management
 - [x] Canvas-based rendering
 - [ ] Node-based headless rendering
-- [ ] Framework agnostic integration (e.g., React, Vue, Angular)
+- [x] Framework agnostic integration (e.g., Vanilla HTML+JS, React, Vue, Angular etc)
 - Additional features:
 - [ ] Audio output
-- [ ] Input handling (keyboard, gamepad, touch)
-- [ ] Loading and running C64 Files (e.g., .d64, .prg)
+- [x] Input handling (keyboard, gamepad, touch)
+- [x] Loading and running C64 Files (e.g., .d64, .prg)

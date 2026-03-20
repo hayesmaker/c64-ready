@@ -1,18 +1,36 @@
 import { C64Emulator } from './emulator/c64-emulator';
+import { C64Player } from './player/c64-player';
 import CanvasRenderer from './player/canvas-renderer';
+import InputHandler from './player/input-handler';
+import UIController from './player/ui-controller';
 
 const status = document.getElementById('status')!;
 const canvasRenderer = new CanvasRenderer('c64-screen');
+const base = import.meta.env.BASE_URL;
 
-C64Emulator.load().then(emulator => {
-  canvasRenderer.attachTo(emulator, 10);
-  emulator.start();
+new UIController().init();
 
+(async () => {
+  try {
+    canvasRenderer.setProgress(10, 'INITIALISING WASM...');
+    const emulator = await C64Emulator.load(`${base}c64.wasm`);
 
-  status.textContent = `✓ C64 ready — RAM[0x0000] = 0x${emulator.ramRead(0x0000).toString(16).padStart(2, '0')}`;
-  status.style.color = '#4f4';
-}).catch(err => {
-  console.error(err);
-  status.textContent = `Error: ${err}`;
-  status.style.color = '#f44';
-});
+    new InputHandler(emulator).attach();
+    canvasRenderer.attachTo(emulator);
+
+    const player = new C64Player(emulator);
+    await player.loadGame(
+      `${base}games/cartridges/legend-of-wilf.crt`,
+      'crt',
+      (pct, label) => canvasRenderer.setProgress(pct, label),
+    );
+
+    emulator.start();
+    canvasRenderer.hideLoader();
+  } catch (err) {
+    console.error(err);
+    canvasRenderer.setError('ERROR');
+    status.textContent = `Error: ${err}`;
+    status.style.color = '#f44';
+  }
+})();

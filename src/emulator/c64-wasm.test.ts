@@ -39,24 +39,24 @@ describe('C64WASM', () => {
   });
 
   it('allocates and writes bytes to heap', () => {
+    const mem = new WebAssembly.Memory({ initial: 1 });
     const wasm = new C64WASM();
+
+    // Expose the private wasmMemory so updateHeapViews works
+    (wasm as any).wasmMemory = mem;
+
     wasm.exports = {
       malloc: vi.fn(() => 4),
       free: vi.fn(),
     } as any;
 
-    const heapU8 = new Uint8Array(32);
-    wasm.heap = {
-      heapU8,
-      heapF32: new Float32Array(heapU8.buffer),
-      heapU32: new Uint32Array(heapU8.buffer),
-    };
+    wasm.updateHeapViews();
 
     const data = new Uint8Array([10, 20, 30]);
     const ptr = wasm.allocAndWrite(data);
 
     expect(ptr).toBe(4);
-    expect(Array.from(heapU8.slice(4, 7))).toEqual([10, 20, 30]);
+    expect(Array.from(wasm.heap!.heapU8.slice(4, 7))).toEqual([10, 20, 30]);
   });
 
   it('load fetches binary and delegates to instantiate', async () => {

@@ -141,7 +141,7 @@ export class C64Emulator {
     if (event.type === 'key' && event.key !== undefined) {
       x.keyboard_keyPressed(Number(event.key));
     } else if (event.type === 'joystick') {
-      const port = event.joystickPort ?? 1;
+      const port = (event.joystickPort ?? 1) - 1;  // callers use 1/2, WASM uses 0/1
       const dirMap: Record<string, number> = { up: 1, down: 2, left: 4, right: 8 };
       if (event.direction) x.c64_joystick_push(port, dirMap[event.direction] ?? 0);
       if (event.fire1)     x.c64_joystick_push(port, 16);
@@ -151,8 +151,10 @@ export class C64Emulator {
   keyDown(keyCode: number): void  { this.wasm.exports?.keyboard_keyPressed(keyCode); }
   keyUp(keyCode: number): void    { this.wasm.exports?.keyboard_keyReleased(keyCode); }
 
-  joystickPush(port: number, dir: number): void    { this.wasm.exports?.c64_joystick_push(port, dir); }
-  joystickRelease(port: number, dir: number): void { this.wasm.exports?.c64_joystick_release(port, dir); }
+  /** @param port 1-based joystick port (1 or 2) */
+  joystickPush(port: number, dir: number): void    { this.wasm.exports?.c64_joystick_push(port - 1, dir); }
+  /** @param port 1-based joystick port (1 or 2) */
+  joystickRelease(port: number, dir: number): void { this.wasm.exports?.c64_joystick_release(port - 1, dir); }
   mousePosition(x: number, y: number): void        { this.wasm.exports?.c64_mouse_position(x, y); }
 
   // ---------------------------------------------------------------------------

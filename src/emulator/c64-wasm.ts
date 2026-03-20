@@ -45,8 +45,13 @@ export class C64WASM {
     return instance;
   }
 
+  // Emscripten layout constants (must match the compiled binary)
+  private static readonly DYNAMICTOP_PTR = 5583504;
+  private static readonly DYNAMIC_BASE   = 10826544;
+  private static readonly INITIAL_PAGES  = 256;   // 16 MB
+
   async instantiate(wasmBinary: ArrayBuffer, extraEnv?: Record<string, any>): Promise<void> {
-    const mem = new WebAssembly.Memory({ initial: 256, maximum: 512 });
+    const mem = new WebAssembly.Memory({ initial: C64WASM.INITIAL_PAGES });
     this.wasmMemory = mem;
 
     const importObject = {
@@ -58,6 +63,10 @@ export class C64WASM {
       const result = await WebAssembly.instantiate(wasmBinary, importObject);
       this.exports = result.instance.exports as unknown as WASMExports;
       this.updateHeapViews();
+
+      // Initialise the sbrk heap pointer so malloc knows where free memory starts
+      new DataView(mem.buffer).setUint32(C64WASM.DYNAMICTOP_PTR, C64WASM.DYNAMIC_BASE, true);
+
       this.exports.__wasm_call_ctors();
     } catch (err) {
       throw new Error(`WASM instantiation failed: ${err}`);
@@ -72,6 +81,8 @@ export class C64WASM {
   allocAndWrite(data: Uint8Array): number {
     if (!this.exports || !this.heap) throw new Error('WASM not ready');
     const ptr = this.exports.malloc(data.length);
+    // malloc may have grown memory, so refresh views before writing
+    this.updateHeapViews();
     this.heap.heapU8.set(data, ptr);
     return ptr;
   }
@@ -99,17 +110,31 @@ export class C64WASM {
     return {
       memory: mem,
 
+      emscripten_get_sbrk_ptr: (): number => C64WASM.DYNAMICTOP_PTR,
+
       emscripten_resize_heap: (requestedSize: number): number => {
-        const currentPages = mem.buffer.byteLength / 65536;
-        const neededPages = Math.ceil(requestedSize / 65536);
-        const delta = neededPages - currentPages;
-        try {
-          mem.grow(delta > 0 ? delta : 1);
-          this.updateHeapViews();
-          return 1;
-        } catch {
-          return 0;
+        const PAGE_MULTIPLE = 65536;
+        const maxHeapSize = 2147483648 - PAGE_MULTIPLE;
+        if (requestedSize > maxHeapSize) return 0;
+
+        const oldSize = mem.buffer.byteLength;
+        const minHeapSize = 16777216;
+        for (let cutDown = 1; cutDown <= 4; cutDown *= 2) {
+          let overGrown = oldSize * (1 + 0.2 / cutDown);
+          overGrown = Math.min(overGrown, requestedSize + 100663296);
+          const newSize = Math.min(
+            maxHeapSize,
+            Math.ceil(Math.max(minHeapSize, requestedSize, overGrown) / PAGE_MULTIPLE) * PAGE_MULTIPLE,
+          );
+          try {
+            mem.grow((newSize - mem.buffer.byteLength + 65535) >>> 16);
+            this.updateHeapViews();
+            return 1;
+          } catch {
+            // retry with less aggressive growth
+          }
         }
+        return 0;
       },
 
       emscripten_memcpy_big: (dest: number, src: number, num: number): number => {
