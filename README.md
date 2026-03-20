@@ -1,5 +1,11 @@
 # c64-ready
 
+![C64 Ready Prompt](./public/c64-ready/c64-ready.gif)
+
+`c64-ready` is a TypeScript/Vite frontend prototype...
+
+# c64-ready
+
 `c64-ready` is a TypeScript/Vite frontend prototype for running and rendering a Commodore 64 emulator in the browser.
 
 It is based on `c64.js (from lvllvl.com by James)` from the original project source: https://github.com/jaammees/lvllvl

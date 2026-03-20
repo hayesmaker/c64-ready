@@ -20,7 +20,7 @@ describe('C64WASM', () => {
         },
       },
       module: {} as WebAssembly.Module,
-    } as WebAssembly.WebAssemblyInstantiatedSource);
+    } as any);
 
     const wasm = new C64WASM();
     await wasm.instantiate(new ArrayBuffer(8));

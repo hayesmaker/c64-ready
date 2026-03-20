@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>C64 GIF Generator</title>
+    <!-- Main library is fine from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+</head>
+<body style="background: #333; color: white; font-family: sans-serif; text-align: center; padding: 50px;">
+<h1>C64 Hero Generator</h1>
+<p>Generating... the download will trigger automatically.</p>
+
+<script>
+  async function startGeneration() {
+    // 1. Fetch the worker code and turn it into a Local Blob URL to bypass CORS
+    const response = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+    const workerCode = await response.text();
+    const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(workerBlob);
+
+    const width = 800;
+    const height = 300;
+
+    // Use willReadFrequently to squash that warning
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const gif = new GIF({
+      workers: 2,
+      quality: 1,
+      workerScript: workerUrl // Use our local Blob URL!
+    });
+
+    const drawFrame = (cursorOn) => {
+      ctx.fillStyle = '#a5a5ff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = '#4242e7';
+      ctx.fillRect(40, 40, width - 80, height - 80);
+      ctx.fillStyle = '#a5a5ff';
+      ctx.font = 'bold 44px monospace';
+      ctx.textBaseline = 'top';
+      ctx.fillText('READY.', 80, 80);
+      if (cursorOn) {
+        ctx.fillRect(80, 135, 30, 30);
+      }
+    };
+
+    // Frame 1: ON
+    drawFrame(true);
+    gif.addFrame(canvas, {copy: true, delay: 500});
+
+    // Frame 2: OFF
+    ctx.clearRect(0, 0, width, height);
+    drawFrame(false);
+    gif.addFrame(canvas, {copy: true, delay: 500});
+
+    gif.on('finished', function(blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'c64-ready.gif';
+      link.click();
+      console.log("READY.");
+      // Clean up our blob URL
+      URL.revokeObjectURL(workerUrl);
+    });
+
+    gif.render();
+  }
+
+  startGeneration().catch(err => console.error("Disk Error:", err));
+</script>
+</body>
+</html>

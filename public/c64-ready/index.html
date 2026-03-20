@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="">
+<head>
+  <style>
+    @font-face {
+      /* You can link to a C64 TrueType font here for 100% authenticity */
+      font-family: 'C64Petscii';
+      src: local('Courier New'); /* Fallback */
+    }
+
+    body {
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    /* The C64 Screen Container */
+    .c64-screen {
+      background-color: #4242e7; /* Authentic C64 Blue */
+      color: #a5a5ff;            /* Authentic C64 Light Blue */
+      padding: 40px;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      font-size: 48px;
+      letter-spacing: 2px;
+      border: 60px solid #a5a5ff; /* The "Border" color */
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      text-transform: uppercase;
+    }
+
+    .cursor {
+      display: inline-block;
+      width: 32px;
+      height: 32px;
+      background-color: #a5a5ff;
+      margin-left: 2px;
+      vertical-align: middle;
+      animation: blink 1s step-start infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+  </style>
+  <title>READY</title>
+</head>
+<body>
+
+<div class="c64-screen">
+  READY.<br>
+  <div class="cursor"></div>
+</div>
+
+</body>
+</html>

@@ -40,12 +40,11 @@ describe('CanvasRenderer', () => {
     const putImageData = vi.fn();
     vi.spyOn(canvas, 'getContext').mockReturnValue({ putImageData } as unknown as CanvasRenderingContext2D);
 
-    let rafCallback: FrameRequestCallback | null = null;
-    let rafId = 0;
-    vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
-      rafCallback = cb;
-      rafId += 1;
-      return rafId;
+    const raf = { callback: null as ((time: number) => void) | null, id: 0 };
+    vi.stubGlobal('requestAnimationFrame', vi.fn((cb: (time: number) => void) => {
+      raf.callback = cb;
+      raf.id += 1;
+      return raf.id;
     }));
     const cancelSpy = vi.fn();
     vi.stubGlobal('cancelAnimationFrame', cancelSpy);
@@ -56,7 +55,7 @@ describe('CanvasRenderer', () => {
     renderer.attachTo(emulator, 10);
     expect(typeof emulator.onFrame).toBe('function');
 
-    rafCallback?.(0);
+    raf.callback?.(0);
     expect(emulator.tick).toHaveBeenCalledWith(10);
 
     emulator.onFrame({
