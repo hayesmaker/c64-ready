@@ -1,8 +1,4 @@
-# c64-ready
-
 ![C64 Ready Prompt](./public/c64-ready/c64-ready.gif)
-
-`c64-ready` is a TypeScript/Vite frontend prototype...
 
 # c64-ready
 
@@ -12,7 +8,7 @@ It is based on `c64.js (from lvllvl.com by James)` from the original project sou
 
 ## Goal
 
-Build a clean, testable browser-facing architecture around the C64 WASM runtime, with clear module boundaries for:
+Build a clean, testable C64 emulator for the web, with a focus on:
 
 - low-level WASM access,
 - emulator control/state,
