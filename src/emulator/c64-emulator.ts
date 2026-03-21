@@ -13,8 +13,9 @@
 
 import { C64WASM } from './c64-wasm';
 import type { C64Config, FrameBuffer, AudioBuffer, GameLoadOptions, InputEvent } from '../types';
+import type { JoystickPort, JoystickInput } from './constants';
 
-const FRAME_WIDTH  = 384;
+const FRAME_WIDTH = 384;
 const FRAME_HEIGHT = 272;
 const DEFAULT_SAMPLE_RATE = 44100;
 
@@ -53,7 +54,7 @@ export class C64Emulator {
    */
   static async load(
     wasmUrl: string = '/src/emulator/c64.wasm',
-    config: Partial<C64Config> = {}
+    config: Partial<C64Config> = {},
   ): Promise<C64Emulator> {
     const wasm = await C64WASM.load(wasmUrl);
     const emulator = new C64Emulator(wasm, config);
@@ -72,10 +73,18 @@ export class C64Emulator {
     x.c64_init();
   }
 
-  start(): void  { this.running = true; }
-  pause(): void  { this.running = false; }
-  isRunning(): boolean { return this.running; }
-  getFrameCount(): number { return this.frameCount; }
+  start(): void {
+    this.running = true;
+  }
+  pause(): void {
+    this.running = false;
+  }
+  isRunning(): boolean {
+    return this.running;
+  }
+  getFrameCount(): number {
+    return this.frameCount;
+  }
 
   reset(): void {
     this.wasm.exports?.c64_reset();
@@ -103,7 +112,12 @@ export class C64Emulator {
       const ptr = x.sid_getAudioBuffer();
       const len = x.sid_dumpBuffer();
       const samples = this.wasm.heap!.heapF32.subarray(ptr >> 2, (ptr >> 2) + len);
-      this.onAudio({ sampleRate: this.config.sampleRate, channels: this.config.audioChannels, samples, timestamp: this.frameCount });
+      this.onAudio({
+        sampleRate: this.config.sampleRate,
+        channels: this.config.audioChannels,
+        samples,
+        timestamp: this.frameCount,
+      });
     }
   }
 
@@ -118,17 +132,27 @@ export class C64Emulator {
     const ptr = this.wasm.allocAndWrite(options.data);
     try {
       switch (options.type) {
-        case 'prg':      x.c64_loadPRG(ptr, options.data.length); break;
-        case 'd64':      x.c64_insertDisk(ptr, options.data.length); break;
-        case 'crt':      x.c64_loadCartridge(ptr, options.data.length); break;
-        case 'snapshot': x.c64_loadSnapshot(ptr, options.data.length); break;
+        case 'prg':
+          x.c64_loadPRG(ptr, options.data.length);
+          break;
+        case 'd64':
+          x.c64_insertDisk(ptr, options.data.length);
+          break;
+        case 'crt':
+          x.c64_loadCartridge(ptr, options.data.length);
+          break;
+        case 'snapshot':
+          x.c64_loadSnapshot(ptr, options.data.length);
+          break;
       }
     } finally {
       this.wasm.free(ptr);
     }
   }
 
-  removeCartridge(): void { this.wasm.exports?.c64_removeCartridge(); }
+  removeCartridge(): void {
+    this.wasm.exports?.c64_removeCartridge();
+  }
 
   // ---------------------------------------------------------------------------
   // Input
@@ -139,43 +163,97 @@ export class C64Emulator {
     if (!x) return;
 
     if (event.type === 'key' && event.key !== undefined) {
+      ``;
       x.keyboard_keyPressed(Number(event.key));
     } else if (event.type === 'joystick') {
-      const port = (event.joystickPort ?? 1) - 1;  // callers use 1/2, WASM uses 0/1
+      const port = (event.joystickPort ?? 1) - 1; // callers use 1/2, WASM uses 0/1
       const dirMap: Record<string, number> = { up: 1, down: 2, left: 4, right: 8 };
       if (event.direction) x.c64_joystick_push(port, dirMap[event.direction] ?? 0);
-      if (event.fire1)     x.c64_joystick_push(port, 16);
+      if (event.fire1) x.c64_joystick_push(port, 16);
     }
   }
 
-  keyDown(keyCode: number): void  { this.wasm.exports?.keyboard_keyPressed(keyCode); }
-  keyUp(keyCode: number): void    { this.wasm.exports?.keyboard_keyReleased(keyCode); }
+  keyDown(keyCode: number): void {
+    this.wasm.exports?.keyboard_keyPressed(keyCode);
+  }
+  keyUp(keyCode: number): void {
+    this.wasm.exports?.keyboard_keyReleased(keyCode);
+  }
 
-  /** @param port 1-based joystick port (1 or 2) */
-  joystickPush(port: number, dir: number): void    { this.wasm.exports?.c64_joystick_push(port - 1, dir); }
-  /** @param port 1-based joystick port (1 or 2) */
-  joystickRelease(port: number, dir: number): void { this.wasm.exports?.c64_joystick_release(port - 1, dir); }
-  mousePosition(x: number, y: number): void        { this.wasm.exports?.c64_mouse_position(x, y); }
+  /**
+   * Push (press) a joystick direction or fire button.
+   *
+   * @param port - 1-based joystick port: `1` = port 1, `2` = port 2
+   * @param dir  - Bitmask value for the direction or fire button:
+   *   - `0x01` — Up    (`JOYSTICK_DIRECTION.UP`)
+   *   - `0x02` — Down  (`JOYSTICK_DIRECTION.DOWN`)
+   *   - `0x04` — Left  (`JOYSTICK_DIRECTION.LEFT`)
+   *   - `0x08` — Right (`JOYSTICK_DIRECTION.RIGHT`)
+   *   - `0x10` — Fire  (`JOYSTICK_FIRE_1`)
+   *
+   * @example
+   * emulator.joystickPush(2, JOYSTICK_DIRECTION.UP);    // port 2 up
+   * emulator.joystickPush(2, JOYSTICK_FIRE_1);           // port 2 fire
+   */
+  joystickPush(port: JoystickPort, dir: JoystickInput): void {
+    this.wasm.exports?.c64_joystick_push(port - 1, dir);
+  }
+
+  /**
+   * Release a joystick direction or fire button.
+   *
+   * @param port - 1-based joystick port: `1` = port 1, `2` = port 2
+   * @param dir  - Bitmask value to release (same values as {@link joystickPush})
+   *
+   * @example
+   * emulator.joystickRelease(2, JOYSTICK_DIRECTION.UP);  // release port 2 up
+   */
+  joystickRelease(port: JoystickPort, dir: JoystickInput): void {
+    this.wasm.exports?.c64_joystick_release(port - 1, dir);
+  }
+  mousePosition(x: number, y: number): void {
+    this.wasm.exports?.c64_mouse_position(x, y);
+  }
 
   // ---------------------------------------------------------------------------
   // Memory access
   // ---------------------------------------------------------------------------
 
-  ramRead(addr: number): number  { return this.wasm.exports?.c64_ramRead(addr) ?? 0; }
-  ramWrite(addr: number, v: number): void { this.wasm.exports?.c64_ramWrite(addr, v); }
-  cpuRead(addr: number): number  { return this.wasm.exports?.c64_cpuRead(addr) ?? 0; }
-  cpuWrite(addr: number, v: number): void { this.wasm.exports?.c64_cpuWrite(addr, v); }
+  ramRead(addr: number): number {
+    return this.wasm.exports?.c64_ramRead(addr) ?? 0;
+  }
+  ramWrite(addr: number, v: number): void {
+    this.wasm.exports?.c64_ramWrite(addr, v);
+  }
+  cpuRead(addr: number): number {
+    return this.wasm.exports?.c64_cpuRead(addr) ?? 0;
+  }
+  cpuWrite(addr: number, v: number): void {
+    this.wasm.exports?.c64_cpuWrite(addr, v);
+  }
 
   // ---------------------------------------------------------------------------
   // CPU state
   // ---------------------------------------------------------------------------
 
-  getPC(): number  { return this.wasm.exports?.c64_getPC() ?? 0; }
-  getRegA(): number { return this.wasm.exports?.c64_getRegA() ?? 0; }
-  getRegX(): number { return this.wasm.exports?.c64_getRegX() ?? 0; }
-  getRegY(): number { return this.wasm.exports?.c64_getRegY() ?? 0; }
-  getSP(): number  { return this.wasm.exports?.c64_getSP() ?? 0; }
-  getCycleCount(): number { return this.wasm.exports?.c64_getCycleCount() ?? 0; }
+  getPC(): number {
+    return this.wasm.exports?.c64_getPC() ?? 0;
+  }
+  getRegA(): number {
+    return this.wasm.exports?.c64_getRegA() ?? 0;
+  }
+  getRegX(): number {
+    return this.wasm.exports?.c64_getRegX() ?? 0;
+  }
+  getRegY(): number {
+    return this.wasm.exports?.c64_getRegY() ?? 0;
+  }
+  getSP(): number {
+    return this.wasm.exports?.c64_getSP() ?? 0;
+  }
+  getCycleCount(): number {
+    return this.wasm.exports?.c64_getCycleCount() ?? 0;
+  }
 
   // ---------------------------------------------------------------------------
   // Video
@@ -207,18 +285,32 @@ export class C64Emulator {
   // Debugger
   // ---------------------------------------------------------------------------
 
-  debuggerPause(): void   { this.wasm.exports?.debugger_pause(); }
-  debuggerPlay(): void    { this.wasm.exports?.debugger_play(); }
-  debuggerStep(): void    { this.wasm.exports?.debugger_step(); }
-  debuggerIsRunning(): boolean { return (this.wasm.exports?.debugger_isRunning() ?? 0) !== 0; }
-  setDebugSpeed(speed: number): void { this.wasm.exports?.debugger_set_speed(speed); }
+  debuggerPause(): void {
+    this.wasm.exports?.debugger_pause();
+  }
+  debuggerPlay(): void {
+    this.wasm.exports?.debugger_play();
+  }
+  debuggerStep(): void {
+    this.wasm.exports?.debugger_step();
+  }
+  debuggerIsRunning(): boolean {
+    return (this.wasm.exports?.debugger_isRunning() ?? 0) !== 0;
+  }
+  setDebugSpeed(speed: number): void {
+    this.wasm.exports?.debugger_set_speed(speed);
+  }
 
   // ---------------------------------------------------------------------------
   // Audio / SID
   // ---------------------------------------------------------------------------
 
-  setSampleRate(rate: number): void  { this.wasm.exports?.sid_setSampleRate(rate); }
-  setSIDModel(model: number): void   { this.wasm.exports?.sid_setModel(model); }
+  setSampleRate(rate: number): void {
+    this.wasm.exports?.sid_setSampleRate(rate);
+  }
+  setSIDModel(model: number): void {
+    this.wasm.exports?.sid_setModel(model);
+  }
   setVoiceEnabled(voice: number, enabled: boolean): void {
     this.wasm.exports?.sid_setVoiceEnabled(enabled ? voice : 0);
   }
@@ -227,6 +319,10 @@ export class C64Emulator {
   // Drive
   // ---------------------------------------------------------------------------
 
-  setDriveEnabled(enabled: boolean): void { this.wasm.exports?.c64_setDriveEnabled(enabled ? 1 : 0); }
-  getDriveEnabled(): boolean { return (this.wasm.exports?.c64_getDriveEnabled() ?? 0) !== 0; }
+  setDriveEnabled(enabled: boolean): void {
+    this.wasm.exports?.c64_setDriveEnabled(enabled ? 1 : 0);
+  }
+  getDriveEnabled(): boolean {
+    return (this.wasm.exports?.c64_getDriveEnabled() ?? 0) !== 0;
+  }
 }

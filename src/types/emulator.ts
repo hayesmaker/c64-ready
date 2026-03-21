@@ -84,14 +84,22 @@ export interface WASMExports {
   c64_getCycleCount(): number;
 
   // CPU flags
-  c64_getFlagN(): number; c64_setFlagN(v: number): void;
-  c64_getFlagC(): number; c64_setFlagC(v: number): void;
-  c64_getFlagD(): number; c64_setFlagD(v: number): void;
-  c64_getFlagZ(): number; c64_setFlagZ(v: number): void;
-  c64_getFlagV(): number; c64_setFlagV(v: number): void;
-  c64_getFlagI(): number; c64_setFlagI(v: number): void;
-  c64_getFlagU(): number; c64_setFlagU(v: number): void;
-  c64_getFlagB(): number; c64_setFlagB(v: number): void;
+  c64_getFlagN(): number;
+  c64_setFlagN(v: number): void;
+  c64_getFlagC(): number;
+  c64_setFlagC(v: number): void;
+  c64_getFlagD(): number;
+  c64_setFlagD(v: number): void;
+  c64_getFlagZ(): number;
+  c64_setFlagZ(v: number): void;
+  c64_getFlagV(): number;
+  c64_setFlagV(v: number): void;
+  c64_getFlagI(): number;
+  c64_setFlagI(v: number): void;
+  c64_getFlagU(): number;
+  c64_setFlagU(v: number): void;
+  c64_getFlagB(): number;
+  c64_setFlagB(v: number): void;
 
   // VIC
   c64_vicRead(addr: number): number;
@@ -114,10 +122,14 @@ export interface WASMExports {
   c1541_getRegY(): number;
   c1541_getRegA(): number;
   c1541_getSP(): number;
-  c1541_getFlagN(): number; c1541_getFlagC(): number;
-  c1541_getFlagD(): number; c1541_getFlagZ(): number;
-  c1541_getFlagV(): number; c1541_getFlagI(): number;
-  c1541_getFlagU(): number; c1541_getFlagB(): number;
+  c1541_getFlagN(): number;
+  c1541_getFlagC(): number;
+  c1541_getFlagD(): number;
+  c1541_getFlagZ(): number;
+  c1541_getFlagV(): number;
+  c1541_getFlagI(): number;
+  c1541_getFlagU(): number;
+  c1541_getFlagB(): number;
   c1541_getPosition(): number;
 
   // Debugger

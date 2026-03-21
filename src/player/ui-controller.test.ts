@@ -5,7 +5,7 @@ describe('UIController', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
-    document.querySelectorAll('style[data-c64-help]').forEach(el => el.remove());
+    document.querySelectorAll('style[data-c64-help]').forEach((el) => el.remove());
   });
 
   it('creates a help button and hidden overlay on init', () => {
@@ -62,7 +62,7 @@ describe('UIController', () => {
     const items = document.querySelectorAll('.c64-help-controls li');
     expect(items.length).toBe(5);
 
-    const keys = Array.from(document.querySelectorAll('.c64-help-key')).map(el => el.textContent);
+    const keys = Array.from(document.querySelectorAll('.c64-help-key')).map((el) => el.textContent);
     expect(keys).toEqual(['↑', '↓', '←', '→', 'Left Ctrl']);
   });
 
@@ -85,4 +85,3 @@ describe('UIController', () => {
     expect(styles.length).toBe(1);
   });
 });
-

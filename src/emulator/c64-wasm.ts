@@ -47,10 +47,10 @@ export class C64WASM {
 
   // Emscripten layout constants (must match the compiled binary)
   private static readonly DYNAMICTOP_PTR = 5583504;
-  private static readonly DYNAMIC_BASE   = 10826544;
-  private static readonly INITIAL_PAGES  = 256;   // 16 MB
+  private static readonly DYNAMIC_BASE = 10826544;
+  private static readonly INITIAL_PAGES = 256; // 16 MB
 
-  async instantiate(wasmBinary: ArrayBuffer, extraEnv?: Record<string, any>): Promise<void> {
+  async instantiate(wasmBinary: ArrayBuffer, extraEnv?: Record<string, unknown>): Promise<void> {
     const mem = new WebAssembly.Memory({ initial: C64WASM.INITIAL_PAGES });
     this.wasmMemory = mem;
 
@@ -69,7 +69,7 @@ export class C64WASM {
 
       this.exports.__wasm_call_ctors();
     } catch (err) {
-      throw new Error(`WASM instantiation failed: ${err}`);
+      throw new Error(`WASM instantiation failed: ${err}`, { cause: err });
     }
   }
 
@@ -124,7 +124,8 @@ export class C64WASM {
           overGrown = Math.min(overGrown, requestedSize + 100663296);
           const newSize = Math.min(
             maxHeapSize,
-            Math.ceil(Math.max(minHeapSize, requestedSize, overGrown) / PAGE_MULTIPLE) * PAGE_MULTIPLE,
+            Math.ceil(Math.max(minHeapSize, requestedSize, overGrown) / PAGE_MULTIPLE) *
+              PAGE_MULTIPLE,
           );
           try {
             mem.grow((newSize - mem.buffer.byteLength + 65535) >>> 16);

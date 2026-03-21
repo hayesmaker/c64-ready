@@ -105,7 +105,9 @@ describe('C64Emulator', () => {
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const emulator = await C64Emulator.load();
 
-    expect(() => emulator.loadGame({ type: 'prg', data: new Uint8Array([1, 2]) })).toThrow('bad prg');
+    expect(() => emulator.loadGame({ type: 'prg', data: new Uint8Array([1, 2]) })).toThrow(
+      'bad prg',
+    );
     expect((wasm as any).free).toHaveBeenCalledWith(16);
   });
 
@@ -121,4 +123,3 @@ describe('C64Emulator', () => {
     expect(frame.data.length).toBe(FRAME_BYTES);
   });
 });
-

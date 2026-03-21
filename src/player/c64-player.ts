@@ -1,13 +1,41 @@
-import type { C64Emulator } from '../emulator/c64-emulator';
+import { C64Emulator } from '../emulator/c64-emulator';
 import type { GameLoadOptions } from '../types';
+import type CanvasRenderer from './canvas-renderer';
+import InputHandler from './input-handler';
 
 export type ProgressCallback = (percent: number, label: string) => void;
 
-export class C64Player {
-  private readonly emulator: C64Emulator;
+export interface C64PlayerOptions {
+  wasmUrl: string;
+  gameUrl: string;
+  gameType?: GameLoadOptions['type'];
+  renderer: CanvasRenderer;
+  onProgress?: ProgressCallback;
+}
 
-  constructor(emulator: C64Emulator) {
-    this.emulator = emulator;
+export class C64Player {
+  private emulator: C64Emulator | null = null;
+  private inputHandler: InputHandler | null = null;
+  private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
+    C64PlayerOptions;
+
+  constructor(options: C64PlayerOptions) {
+    this.options = { gameType: 'crt', ...options };
+  }
+
+  async start(): Promise<void> {
+    const { wasmUrl, gameUrl, gameType, renderer, onProgress } = this.options;
+
+    onProgress?.(10, 'INITIALISING WASM...');
+    this.emulator = await C64Emulator.load(wasmUrl);
+
+    this.inputHandler = new InputHandler(this.emulator);
+    this.inputHandler.attach();
+    renderer.attachTo(this.emulator);
+
+    await this.loadGame(gameUrl, gameType, onProgress);
+
+    this.emulator.start();
   }
 
   async loadGame(
@@ -15,7 +43,9 @@ export class C64Player {
     type: GameLoadOptions['type'] = 'crt',
     onProgress?: ProgressCallback,
   ): Promise<void> {
-    onProgress?.(0, 'LOADING GAME...');
+    if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
+
+    onProgress?.(20, 'LOADING GAME...');
 
     const response = await fetch(url);
     if (!response.ok) {
@@ -30,12 +60,11 @@ export class C64Player {
       const chunks: Uint8Array[] = [];
       let loaded = 0;
 
-      // After (clear)
       let result = await reader.read();
       while (!result.done) {
         chunks.push(result.value);
         loaded += result.value.byteLength;
-        const pct = Math.round((loaded / contentLength) * 90);
+        const pct = 20 + Math.round((loaded / contentLength) * 65);
         onProgress?.(pct, `LOADING GAME... ${Math.round((loaded / contentLength) * 100)}%`);
         result = await reader.read();
       }
@@ -50,9 +79,8 @@ export class C64Player {
       data = new Uint8Array(await response.arrayBuffer());
     }
 
-    onProgress?.(95, 'INSERTING CARTRIDGE...');
+    onProgress?.(90, 'INSERTING CARTRIDGE...');
     this.emulator.loadGame({ type, data });
     onProgress?.(100, 'READY!');
   }
 }
-

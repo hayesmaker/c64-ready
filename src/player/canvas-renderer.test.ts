@@ -5,7 +5,7 @@ describe('CanvasRenderer', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
-    document.querySelectorAll('style[data-c64-loader]').forEach(el => el.remove());
+    document.querySelectorAll('style[data-c64-loader]').forEach((el) => el.remove());
   });
 
   it('throws when canvas is missing', () => {
@@ -18,7 +18,9 @@ describe('CanvasRenderer', () => {
     document.body.appendChild(canvas);
 
     const putImageData = vi.fn();
-    vi.spyOn(canvas, 'getContext').mockReturnValue({ putImageData } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      putImageData,
+    } as unknown as CanvasRenderingContext2D);
 
     const renderer = new CanvasRenderer('c64-screen');
     renderer.render({
@@ -39,14 +41,19 @@ describe('CanvasRenderer', () => {
     document.body.appendChild(canvas);
 
     const putImageData = vi.fn();
-    vi.spyOn(canvas, 'getContext').mockReturnValue({ putImageData } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      putImageData,
+    } as unknown as CanvasRenderingContext2D);
 
     const raf = { callback: null as ((time: number) => void) | null, id: 0 };
-    vi.stubGlobal('requestAnimationFrame', vi.fn((cb: (time: number) => void) => {
-      raf.callback = cb;
-      raf.id += 1;
-      return raf.id;
-    }));
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((cb: (time: number) => void) => {
+        raf.callback = cb;
+        raf.id += 1;
+        return raf.id;
+      }),
+    );
     const cancelSpy = vi.fn();
     vi.stubGlobal('cancelAnimationFrame', cancelSpy);
 
@@ -89,7 +96,9 @@ describe('CanvasRenderer', () => {
     document.body.appendChild(canvas);
 
     const putImageData = vi.fn();
-    vi.spyOn(canvas, 'getContext').mockReturnValue({ putImageData } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      putImageData,
+    } as unknown as CanvasRenderingContext2D);
     return new CanvasRenderer('c64-screen');
   }
 
@@ -165,4 +174,3 @@ describe('CanvasRenderer', () => {
     expect(loaderStyles.length).toBe(1);
   });
 });
-

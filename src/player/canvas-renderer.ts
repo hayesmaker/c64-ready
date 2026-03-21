@@ -1,5 +1,5 @@
-import type {FrameBuffer} from '../types';
-import type {C64Emulator} from '../emulator/c64-emulator';
+import type { FrameBuffer } from '../types';
+import type { C64Emulator } from '../emulator/c64-emulator';
 
 const LOADER_CSS = `
   .c64-loader {
@@ -54,9 +54,8 @@ export default class CanvasRenderer {
   private loaderFill: HTMLElement | null = null;
 
   constructor(canvasOrId: string | HTMLCanvasElement) {
-    const canvas = typeof canvasOrId === 'string'
-      ? document.getElementById(canvasOrId)
-      : canvasOrId;
+    const canvas =
+      typeof canvasOrId === 'string' ? document.getElementById(canvasOrId) : canvasOrId;
 
     if (!(canvas instanceof HTMLCanvasElement)) {
       throw new Error(`Canvas not found: ${String(canvasOrId)}`);
@@ -146,7 +145,7 @@ export default class CanvasRenderer {
   }
 
   attachTo(emulator: C64Emulator): void {
-    emulator.onFrame = frame => {
+    emulator.onFrame = (frame) => {
       this.render(frame);
     };
 
@@ -167,4 +166,3 @@ export default class CanvasRenderer {
     this.animationFrameId = requestAnimationFrame(runFrame);
   }
 }
-

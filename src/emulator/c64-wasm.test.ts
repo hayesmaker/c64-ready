@@ -78,7 +78,8 @@ describe('C64WASM', () => {
   it('load throws when fetch is not ok', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
 
-    await expect(C64WASM.load('/missing.wasm')).rejects.toThrow('Failed to fetch /missing.wasm: 404');
+    await expect(C64WASM.load('/missing.wasm')).rejects.toThrow(
+      'Failed to fetch /missing.wasm: 404',
+    );
   });
 });
-

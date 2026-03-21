@@ -151,10 +151,9 @@ export default class UIController {
       if (e.target === overlay) this.close();
     });
 
-    const controlItems = CONTROLS
-      .map(([action, key]) =>
-        `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`)
-      .join('');
+    const controlItems = CONTROLS.map(
+      ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
+    ).join('');
 
     overlay.innerHTML = `
       <div class="c64-help-dialog">
@@ -167,8 +166,7 @@ export default class UIController {
       </div>
     `;
 
-    overlay.querySelector('.c64-help-close')!
-      .addEventListener('click', () => this.close());
+    overlay.querySelector('.c64-help-close')!.addEventListener('click', () => this.close());
 
     document.body.appendChild(overlay);
     this.overlay = overlay;
@@ -182,4 +180,3 @@ export default class UIController {
     this.overlay?.classList.remove('visible');
   }
 }
-
