@@ -30,13 +30,14 @@ export class C64Player {
       const chunks: Uint8Array[] = [];
       let loaded = 0;
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        loaded += value.byteLength;
+      // After (clear)
+      let result = await reader.read();
+      while (!result.done) {
+        chunks.push(result.value);
+        loaded += result.value.byteLength;
         const pct = Math.round((loaded / contentLength) * 90);
         onProgress?.(pct, `LOADING GAME... ${Math.round((loaded / contentLength) * 100)}%`);
+        result = await reader.read();
       }
 
       data = new Uint8Array(loaded);

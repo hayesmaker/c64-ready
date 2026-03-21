@@ -34,3 +34,24 @@ new UIController().init();
     status.style.color = '#f44';
   }
 })();
+
+const updateFavicon = () => {
+  const isDimmed = document.hidden;
+  const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+  // Use Vite's built-in BASE_URL if available, otherwise fallback to root
+  const base = import.meta.env.BASE_URL || '/';
+  // Ensure we don't end up with double slashes //
+  const fileName = isDimmed ? '/led-off.svg' : 'led-on.svg';
+  const fullPath = `${base}${fileName}`.replace(/\/+/g, '/');
+  if (link) {
+    link.href = fullPath;
+  }
+};
+
+// Initialize and add listeners
+document.addEventListener('visibilitychange', updateFavicon);
+// Also handle focus/blur for extra responsiveness
+window.addEventListener('focus', updateFavicon);
+window.addEventListener('blur', updateFavicon);
+
+updateFavicon(); // Set initial state

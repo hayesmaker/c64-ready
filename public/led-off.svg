@@ -1,0 +1,20 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="well-dim" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#302E28"/>
+            <stop offset="100%" stop-color="#403E38"/>
+        </linearGradient>
+    </defs>
+
+    <!-- C64 Case Surface -->
+    <rect width="32" height="32" rx="4" fill="#8E8A7E"/>
+
+    <!-- The circular "well" -->
+    <circle cx="16" cy="16" r="10" fill="url(#well-dim)"/>
+
+    <!-- The LED "off" (Dark Blood Red / Maroon) -->
+    <circle cx="16" cy="16" r="7" fill="#440000"/>
+
+    <!-- Very faint highlight to show it's still a physical object -->
+    <circle cx="14" cy="14" r="2" fill="white" fill-opacity="0.1"/>
+</svg>
