@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- chore: update changelog (auto) [skip ci] (6c44232)
 - chore: fix wiki (a6b1c9d)
 - chore: link to overview from home wiki (bd91242)
 - chore: attempt to fix wiki publish (30de988)
