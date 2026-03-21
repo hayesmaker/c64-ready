@@ -1,0 +1,42 @@
+name: Publish PROJECT_OVERVIEW to Wiki
+
+on:
+  push:
+    branches: [ master ]
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  publish-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Clone wiki (authenticated)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git wiki
+
+      - name: Copy overview
+        run: |
+          mkdir -p wiki
+          cp PROJECT_OVERVIEW.md wiki/Project_Overview.md
+
+      - name: Commit and push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd wiki
+          git add Project_Overview.md || true
+          git commit -m "Update Project Overview (auto)" || echo "no changes"
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:main
+
