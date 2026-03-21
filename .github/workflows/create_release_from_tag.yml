@@ -1,0 +1,50 @@
+name: Create Release from Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Read changelog excerpt
+        id: changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            # extract the section for this tag
+            TAG=${GITHUB_REF#refs/tags/}
+            sed -n "/^## ${TAG}/,/^## /p" CHANGELOG.md | sed '$d' > /tmp/release_notes.md || true
+            echo "notes<<EOF" >> $GITHUB_OUTPUT
+            cat /tmp/release_notes.md || true
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "notes=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release draft via API
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="${{ steps.changelog.outputs.notes }}"
+          title="$TAG"
+          api_url="https://api.github.com/repos/$REPO/releases"
+          echo "Creating release draft for $TAG"
+          payload=$(jq -n --arg tag "$TAG" --arg name "$TAG" --arg body "$notes" '{ tag_name: $tag, name: $name, body: $body, draft: true, prerelease: false }')
+          curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -d "$payload" "$api_url" | jq -r '.html_url'
