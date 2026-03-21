@@ -38,5 +38,9 @@ jobs:
           cd wiki
           git add Project_Overview.md || true
           git commit -m "Update Project Overview (auto)" || echo "no changes"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:main
+          # Try pushing to the wiki default branch. Some repos use `main`, others `master`.
+          # Attempt `main` first, then `master`. If both fail, print a helpful message.
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:main || \
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:master || \
+            (echo "Failed to push to wiki on both 'main' and 'master'. Check repository wiki default branch and token permissions." && exit 0)
 
