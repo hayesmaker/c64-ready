@@ -278,14 +278,24 @@ export default class UIController {
   private async loadAndShowChangelog(container: HTMLElement) {
     container.classList.add('visible');
     try {
-      // Attempt to import the raw CHANGELOG.md (Vite raw import)
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       const md = await import('../../CHANGELOG.md?raw');
-      const text = md.default ?? md;
-      // dynamic import of marked and DOMPurify
+      const raw: string = md.default ?? md;
+
+      // Filter: keep headers, blank lines, and only feat:/fix: bullet lines
+      const filtered = raw
+        .split('\n')
+        .filter((line) => {
+          const trimmed = line.trim();
+          // Keep headings, blank lines, and non-list-item lines (e.g. intro text)
+          if (!trimmed.startsWith('- ')) return true;
+          // Keep only feat: and fix: entries
+          return /^- (feat|fix)[:(]/.test(trimmed);
+        })
+        .join('\n');
+
       const [{ marked }, DOMPurify] = await Promise.all([import('marked'), import('dompurify')]);
-      const html = DOMPurify.default.sanitize(marked.parse(text));
+      const html = DOMPurify.default.sanitize(marked.parse(filtered));
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = html;
     } catch (e) {
