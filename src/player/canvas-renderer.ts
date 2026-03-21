@@ -119,6 +119,17 @@ export default class CanvasRenderer {
     this.loaderLabel!.textContent = message;
   }
 
+  showLoader(): void {
+    this.ensureLoader();
+    if (!this.loaderEl) return;
+    // Ensure it's visible (remove hidden class) and reset styles
+    this.loaderEl.classList.remove('hidden');
+    if (this.loaderFill) {
+      this.loaderFill.style.width = '0';
+      this.loaderFill.style.background = '';
+    }
+  }
+
   hideLoader(delayMs: number = 600): void {
     if (!this.loaderEl) return;
     const el = this.loaderEl;

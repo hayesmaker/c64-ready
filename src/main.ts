@@ -8,6 +8,7 @@ const base = import.meta.env.BASE_URL;
 
 new UIController().init();
 
+// Create player and keep in outer scope so UI can trigger file loads
 const player = new C64Player({
   wasmUrl: `${base}c64.wasm`,
   gameUrl: `${base}games/cartridges/legend-of-wilf.crt`,
@@ -41,3 +42,21 @@ document.addEventListener('visibilitychange', updateFavicon);
 window.addEventListener('focus', updateFavicon);
 window.addEventListener('blur', updateFavicon);
 updateFavicon();
+
+// Listen for files selected via the UI and load into the emulator
+window.addEventListener('c64-load-file', async (e: Event) => {
+  const detail = (e as CustomEvent).detail;
+  const file: File | undefined = detail?.file;
+  if (!file) return;
+  try {
+    renderer.showLoader?.();
+    await player.loadFile(file);
+    renderer.hideLoader?.();
+  } catch (err) {
+    console.error(err);
+    renderer.setError?.('LOAD ERROR');
+    status.textContent = `Load error: ${err}`;
+    status.style.color = '#f44';
+  }
+});
+

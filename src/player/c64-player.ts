@@ -83,4 +83,21 @@ export class C64Player {
     this.emulator.loadGame({ type, data });
     onProgress?.(100, 'READY!');
   }
+
+  // Load a game from a File/Blob provided by the user (drag & drop / file input)
+  async loadFile(file: File, type: GameLoadOptions['type'] = 'crt'): Promise<void> {
+    if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
+    const onProgress = this.options.onProgress;
+    try {
+      onProgress?.(20, `READING FILE ${file.name}...`);
+      const ab = await file.arrayBuffer();
+      const data = new Uint8Array(ab);
+      onProgress?.(90, 'INSERTING CARTRIDGE...');
+      this.emulator.loadGame({ type, data });
+      onProgress?.(100, 'READY!');
+    } catch (err) {
+      onProgress?.(0, 'FAILED');
+      throw err;
+    }
+  }
 }
