@@ -19,6 +19,9 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/"
   },
+  "bin": {
+    "c64-headless": "bin/headless.mjs"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/dompurify": "^3.0.5",
