@@ -15,6 +15,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js (use Node 24)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Confirm Node version
+        run: |
+          echo "PATH=$PATH"
+          echo "which node: $(which node || true)"
+          node -v || true
+          npm -v || true
+
       - name: Configure Git
         run: |
           git config --global user.name "github-actions[bot]"
@@ -52,7 +64,31 @@ jobs:
       - name: Copy overview
         run: |
           mkdir -p wiki
-          cp PROJECT_OVERVIEW.md wiki/Project_Overview.md
+          cp PROJECT_OVERVIEW.md wiki/"Project Overview.md"
+          # Ensure the wiki Home page contains a visible link to Project_Overview.
+          HOME=wiki/Home.md
+          if [ -f "$HOME" ]; then
+            # If Home.md already references the overview in any reasonable form, do nothing.
+            if grep -qiE 'Project[_ ]Overview|Project Overview|Project_Overview' "$HOME"; then
+              echo "Home.md already references Project Overview"
+            else
+              echo "" >> "$HOME"
+              echo "## Project Overview" >> "$HOME"
+              echo "" >> "$HOME"
+              echo "See the [Project Overview](Project%20Overview) page for the full project summary." >> "$HOME"
+              echo "" >> "$HOME"
+              echo "(You can also use the wiki-style link: [[Project Overview]])" >> "$HOME"
+              echo "Appended link to Home.md"
+            fi
+          else
+            echo "# Home" > "$HOME"
+            echo "" >> "$HOME"
+            echo "Welcome to the project wiki." >> "$HOME"
+            echo "" >> "$HOME"
+            echo "- [Project Overview](Project%20Overview)" >> "$HOME"
+            echo "" >> "$HOME"
+            echo "Created Home.md with link to Project Overview"
+          fi
 
       - name: Commit and push
         env:
@@ -60,7 +96,7 @@ jobs:
         run: |
           set -x
           cd wiki
-          git add Project_Overview.md || true
+          git add "Project Overview.md" || true
           git commit -m "Update Project Overview (auto)" || echo "no changes"
           echo "--- after commit: status ---"
           git status --porcelain || true
@@ -80,12 +116,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Checking wiki repo for Project_Overview.md"
-          resp=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}.wiki/contents/Project_Overview.md) || true
+          resp=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}.wiki/contents/Project%20Overview.md) || true
           # If jq is available, use it to extract the base64 content, decode and print a head; otherwise print raw JSON.
           if command -v jq >/dev/null 2>&1; then
             content=$(echo "$resp" | jq -r '.content // empty') || true
             if [ -n "$content" ]; then
-              echo "FOUND file: Project_Overview.md"
+              echo "FOUND file: Project Overview.md"
               echo "sha: $(echo "$resp" | jq -r '.sha // empty')"
               echo "---- decoded head ----"
               echo "$content" | base64 --decode | sed -n '1,120p' || true
