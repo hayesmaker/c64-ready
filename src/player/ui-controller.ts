@@ -122,6 +122,103 @@ const HELP_CSS = `
   }
 `;
 
+const AUDIO_CSS = `
+  .c64-unmute-btn {
+    position: fixed;
+    top: 12px;
+    left: 56px;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    border: 2px solid #555;
+    background: #222;
+    color: #f44;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1010;
+    transition: border-color 0.2s, color 0.2s, opacity 0.3s;
+    animation: c64-unmute-pulse 2s ease-in-out infinite;
+  }
+  .c64-unmute-btn:hover {
+    border-color: #7b71d5;
+    color: #fff;
+  }
+  .c64-unmute-btn.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+  @keyframes c64-unmute-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  .c64-audio-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #2a2a3e;
+  }
+  .c64-audio-section label {
+    font-size: 13px;
+    color: #aaa;
+  }
+  .c64-audio-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .c64-mute-btn {
+    background: #222;
+    border: 1px solid #444;
+    color: #ddd;
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .c64-mute-btn:hover { border-color: #7b71d5; }
+  .c64-mute-btn.muted { color: #f44; }
+  .c64-volume-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    background: #2a2a3e;
+    border-radius: 3px;
+    outline: none;
+  }
+  .c64-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #7b71d5;
+    cursor: pointer;
+  }
+  .c64-volume-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #7b71d5;
+    cursor: pointer;
+    border: none;
+  }
+  .c64-volume-label {
+    font-size: 12px;
+    color: #888;
+    min-width: 32px;
+    text-align: right;
+  }
+`;
+
 const UI_CSS = `
   .c64-hamburger {
     position: fixed;
@@ -191,24 +288,29 @@ const CONTROLS = [
   ['Fire', 'Left Ctrl'],
 ];
 
+import type { C64Player } from './c64-player';
+
 export default class UIController {
   private overlay: HTMLElement | null = null;
   private menuOverlay: HTMLElement | null = null;
   private fileInput: HTMLInputElement | null = null;
+  private player: C64Player | null = null;
 
-  init(): void {
+  init(player?: C64Player): void {
+    this.player = player ?? null;
     this.injectCSS();
     this.createButton();
     this.createDialog();
     this.createHamburger();
     this.createMenu();
+    this.createUnmuteButton();
   }
 
   private injectCSS(): void {
     if (document.querySelector('style[data-c64-help]')) return;
     const style = document.createElement('style');
     style.setAttribute('data-c64-help', '');
-    style.textContent = HELP_CSS + '\n' + UI_CSS;
+    style.textContent = HELP_CSS + '\n' + AUDIO_CSS + '\n' + UI_CSS;
     document.head.appendChild(style);
   }
 
@@ -241,7 +343,8 @@ export default class UIController {
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
         <div class="c64-version">${
-          'v' + (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
+          'v' +
+          (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
           (import.meta.env.VITE_GIT_HASH ? ` (build: ${import.meta.env.VITE_GIT_HASH})` : '')
         }</div>
       </div>
@@ -262,7 +365,9 @@ export default class UIController {
         <div id="c64-changelog-content">Loading...</div>
       </div>
     `;
-    changelogOverlay.querySelector('.c64-help-close')!.addEventListener('click', () => changelogOverlay.classList.remove('visible'));
+    changelogOverlay
+      .querySelector('.c64-help-close')!
+      .addEventListener('click', () => changelogOverlay.classList.remove('visible'));
     document.body.appendChild(changelogOverlay);
     // Wire the changelog link
     const changelogLink = overlay.querySelector('#c64-view-changelog') as HTMLAnchorElement | null;
@@ -278,7 +383,6 @@ export default class UIController {
   private async loadAndShowChangelog(container: HTMLElement) {
     container.classList.add('visible');
     try {
-      // @ts-ignore
       const md = await import('../../CHANGELOG.md?raw');
       const raw: string = md.default ?? md;
 
@@ -298,7 +402,7 @@ export default class UIController {
       const html = DOMPurify.default.sanitize(marked.parse(filtered));
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = html;
-    } catch (e) {
+    } catch {
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = '<p>No changelog found.</p>';
     }
@@ -316,7 +420,9 @@ export default class UIController {
   private createMenu(): void {
     const overlay = document.createElement('div');
     overlay.className = 'c64-menu-overlay';
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) this.closeMenu(); });
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) this.closeMenu();
+    });
 
     const panel = document.createElement('div');
     panel.className = 'c64-menu-panel';
@@ -365,16 +471,24 @@ export default class UIController {
       window.dispatchEvent(ev);
     };
 
-    dragarea.addEventListener('dragover', (e) => { e.preventDefault(); dragarea.classList.add('dragover'); });
-    dragarea.addEventListener('dragleave', () => { dragarea.classList.remove('dragover'); });
+    dragarea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dragarea.classList.add('dragover');
+    });
+    dragarea.addEventListener('dragleave', () => {
+      dragarea.classList.remove('dragover');
+    });
     dragarea.addEventListener('drop', (e) => {
-      e.preventDefault(); dragarea.classList.remove('dragover');
-      const f = e.dataTransfer?.files?.[0]; if (f) handleFile(f);
+      e.preventDefault();
+      dragarea.classList.remove('dragover');
+      const f = e.dataTransfer?.files?.[0];
+      if (f) handleFile(f);
     });
 
     browse.addEventListener('click', () => this.fileInput?.click());
     this.fileInput.addEventListener('change', () => {
-      const f = this.fileInput?.files?.[0]; if (f) handleFile(f);
+      const f = this.fileInput?.files?.[0];
+      if (f) handleFile(f);
     });
 
     panel.querySelector('#c64-load-btn')!.addEventListener('click', () => {
@@ -383,10 +497,106 @@ export default class UIController {
       if (f) handleFile(f);
       else this.fileInput?.click();
     });
+
+    // ── Audio section ─────────────────────────────────────────────────────
+    this.createAudioSection(panel.querySelector('.c64-menu-body')!);
   }
 
-  private toggleMenu(): void { this.menuOverlay?.classList.toggle('visible'); }
-  private closeMenu(): void { this.menuOverlay?.classList.remove('visible'); }
+  /** Floating unmute button — shown when autoplay is blocked by the browser */
+  private createUnmuteButton(): void {
+    const btn = document.createElement('button');
+    btn.className = 'c64-unmute-btn hidden';
+    btn.innerHTML = '&#128263;'; // 🔇 muted icon — audio is OFF when this button shows
+    btn.title = 'Click to enable audio';
+    btn.addEventListener('click', async () => {
+      if (this.player) {
+        await this.player.audio.resume();
+        if (!this.player.audio.suspended) {
+          btn.classList.add('hidden');
+        }
+      }
+    });
+    document.body.appendChild(btn);
+
+    // Show the button when audio is suspended (autoplay blocked)
+    window.addEventListener('c64-audio-suspended', () => {
+      btn.classList.remove('hidden');
+    });
+
+    // Listen for audio state changes dispatched by C64Player
+    window.addEventListener('c64-audio-state', ((e: CustomEvent) => {
+      const state = e.detail as { muted: boolean; volume: number; suspended: boolean };
+      if (!state.suspended) {
+        btn.classList.add('hidden');
+      }
+      // Sync the menu controls
+      this.syncAudioControls(state);
+    }) as EventListener);
+  }
+
+  /** Audio controls inside the settings menu (mute toggle + volume slider) */
+  private createAudioSection(container: HTMLElement): void {
+    const section = document.createElement('div');
+    section.className = 'c64-audio-section';
+    section.innerHTML = `
+      <label>Audio</label>
+      <div class="c64-audio-row">
+        <button class="c64-mute-btn" id="c64-mute-btn" title="Toggle mute">&#128264;</button>
+        <input type="range" class="c64-volume-slider" id="c64-volume-slider" min="0" max="100" value="75" />
+        <span class="c64-volume-label" id="c64-volume-label">75%</span>
+      </div>
+    `;
+    container.appendChild(section);
+
+    const muteBtn = section.querySelector('#c64-mute-btn') as HTMLButtonElement;
+    const slider = section.querySelector('#c64-volume-slider') as HTMLInputElement;
+    const label = section.querySelector('#c64-volume-label') as HTMLElement;
+
+    muteBtn.addEventListener('click', () => {
+      if (!this.player) return;
+      this.player.audio.toggleMute();
+      // If audio was suspended, also resume on this gesture
+      if (this.player.audio.suspended) {
+        this.player.audio.resume();
+      }
+    });
+
+    slider.addEventListener('input', () => {
+      if (!this.player) return;
+      const v = Number(slider.value) / 100;
+      this.player.audio.setVolume(v);
+      label.textContent = `${slider.value}%`;
+      // If audio was suspended, also resume on this gesture
+      if (this.player.audio.suspended) {
+        this.player.audio.resume();
+      }
+    });
+  }
+
+  /** Sync menu audio controls with current audio state */
+  private syncAudioControls(state: { muted: boolean; volume: number; suspended: boolean }): void {
+    const muteBtn = document.getElementById('c64-mute-btn');
+    const slider = document.getElementById('c64-volume-slider') as HTMLInputElement | null;
+    const label = document.getElementById('c64-volume-label');
+
+    if (muteBtn) {
+      muteBtn.innerHTML = state.muted ? '&#128263;' : '&#128264;'; // 🔇 vs 🔈
+      muteBtn.classList.toggle('muted', state.muted);
+    }
+    if (slider) {
+      slider.value = String(Math.round(state.volume * 100));
+    }
+    if (label) {
+      label.textContent = `${Math.round(state.volume * 100)}%`;
+    }
+  }
+
+  private toggleMenu(): void {
+    this.menuOverlay?.classList.toggle('visible');
+  }
+  private closeMenu(): void {
+    this.menuOverlay?.classList.remove('visible');
+  }
 
   open(): void {
     this.overlay?.classList.add('visible');

@@ -6,8 +6,6 @@ const status = document.getElementById('status')!;
 const renderer = new CanvasRenderer('c64-screen');
 const base = import.meta.env.BASE_URL;
 
-new UIController().init();
-
 // Create player and keep in outer scope so UI can trigger file loads
 const player = new C64Player({
   wasmUrl: `${base}c64.wasm`,
@@ -15,6 +13,9 @@ const player = new C64Player({
   renderer,
   onProgress: (pct, label) => renderer.setProgress(pct, label),
 });
+
+// Initialise UI with reference to the player (for audio controls)
+new UIController().init(player);
 
 player
   .start()
@@ -59,4 +60,3 @@ window.addEventListener('c64-load-file', async (e: Event) => {
     status.style.color = '#f44';
   }
 });
-

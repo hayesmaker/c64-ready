@@ -1,6 +1,7 @@
 import { C64Emulator } from '../emulator/c64-emulator';
 import type { GameLoadOptions } from '../types';
 import type CanvasRenderer from './canvas-renderer';
+import { AudioEngine } from './audio-engine';
 import InputHandler from './input-handler';
 
 export type ProgressCallback = (percent: number, label: string) => void;
@@ -16,6 +17,7 @@ export interface C64PlayerOptions {
 export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
+  readonly audio = new AudioEngine();
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
 
@@ -36,6 +38,40 @@ export class C64Player {
     await this.loadGame(gameUrl, gameType, onProgress);
 
     this.emulator.start();
+
+    // Initialise audio in the background — never blocks game startup
+    this.initAudio();
+  }
+
+  /**
+   * Set up the AudioEngine and wire it to the emulator.
+   *
+   * The SID fills its audio buffer continuously as CPU cycles run.
+   * The AudioEngine pulls a snapshot of that buffer on its own timer
+   * (matching the rate of the original ScriptProcessorNode), keeping
+   * audio and emulation timing independent.
+   */
+  private initAudio(): void {
+    if (!this.emulator) return;
+    const emulator = this.emulator;
+
+    // Notify the UI whenever audio state changes
+    this.audio.onStateChange = (state) => {
+      window.dispatchEvent(new CustomEvent('c64-audio-state', { detail: state }));
+    };
+
+    // Fire-and-forget init
+    this.audio.init().then((autoplayOk) => {
+      // Tell the SID what sample rate we're using (matches AudioContext)
+      emulator.setSampleRate(this.audio.sampleRate);
+
+      // Give the engine a reader that snapshots the SID circular buffer
+      this.audio.setSidBufferReader(() => emulator.getSidBuffer());
+
+      if (!autoplayOk) {
+        window.dispatchEvent(new CustomEvent('c64-audio-suspended'));
+      }
+    });
   }
 
   async loadGame(

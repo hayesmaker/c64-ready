@@ -21,6 +21,7 @@ const DEFAULT_SAMPLE_RATE = 44100;
 
 export class C64Emulator {
   private wasm: C64WASM;
+  // @ts-expect-error Config is assigned in constructor for future use
   private config: C64Config;
   private running: boolean = false;
   private frameCount: number = 0;
@@ -59,7 +60,6 @@ export class C64Emulator {
     const wasm = await C64WASM.load(wasmUrl);
     const emulator = new C64Emulator(wasm, config);
     emulator.init();
-    console.log('C64 Emulator ready. RAM[0x0000] =', emulator.ramRead(0x0000));
     return emulator;
   }
 
@@ -95,29 +95,31 @@ export class C64Emulator {
   // Frame loop — call once per animation frame (requestAnimationFrame)
   // ---------------------------------------------------------------------------
 
+  /**
+   * The SID continuously fills a circular audio buffer as CPU cycles execute.
+   * Must match the ScriptProcessorNode buffer length used by the original
+   * c64.js runtime (4096 samples).
+   */
+  private static readonly AUDIO_BUFFER_SIZE = 4096;
+
   tick(dTime: number = 0): void {
     if (!this.running) return;
     const x = this.wasm.exports!;
 
-    x.debugger_update(dTime);
+    // Clamp dTime exactly like the original c64.js render loop:
+    // if dTime is 0 or > 100 ms, lock to ~60 fps to prevent runaway cycles.
+    if (!dTime || dTime > 100) {
+      dTime = 1000 / 60;
+    }
+
+    const updated = x.debugger_update(dTime);
     this.frameCount++;
 
-    if (this.onFrame) {
+    // Only push a video frame when the emulator actually advanced
+    if (updated && this.onFrame) {
       const ptr = x.c64_getPixelBuffer();
       const data = this.wasm.heap!.heapU8.subarray(ptr, ptr + FRAME_WIDTH * FRAME_HEIGHT * 4);
       this.onFrame({ width: FRAME_WIDTH, height: FRAME_HEIGHT, data, timestamp: this.frameCount });
-    }
-
-    if (this.onAudio) {
-      const ptr = x.sid_getAudioBuffer();
-      const len = x.sid_dumpBuffer();
-      const samples = this.wasm.heap!.heapF32.subarray(ptr >> 2, (ptr >> 2) + len);
-      this.onAudio({
-        sampleRate: this.config.sampleRate,
-        channels: this.config.audioChannels,
-        samples,
-        timestamp: this.frameCount,
-      });
     }
   }
 
@@ -308,6 +310,23 @@ export class C64Emulator {
   setSampleRate(rate: number): void {
     this.wasm.exports?.sid_setSampleRate(rate);
   }
+
+  /**
+   * Return a snapshot of the SID's circular audio buffer (4096 Float32 samples).
+   * This mirrors the original c64.js `audioProcess` which reads
+   * `sid_getAudioBuffer()` with a fixed `audioBufferLength` — never calling
+   * `sid_dumpBuffer()`.
+   */
+  getSidBuffer(): Float32Array | null {
+    const x = this.wasm.exports;
+    if (!x || !this.wasm.heap) return null;
+    const ptr = x.sid_getAudioBuffer();
+    // Return a copy so the caller owns the data (the SID overwrites this buffer)
+    return new Float32Array(
+      this.wasm.heap.heapF32.subarray(ptr >> 2, (ptr >> 2) + C64Emulator.AUDIO_BUFFER_SIZE),
+    );
+  }
+
   setSIDModel(model: number): void {
     this.wasm.exports?.sid_setModel(model);
   }

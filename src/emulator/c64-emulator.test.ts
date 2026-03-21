@@ -15,14 +15,14 @@ describe('C64Emulator', () => {
       heapU8[i] = i + 1;
     }
 
-    const heapF32 = new Float32Array(32);
+    const heapF32 = new Float32Array(4096 + 32);
     heapF32[0] = 0.25;
     heapF32[1] = -0.5;
 
     const exports = {
       c64_init: vi.fn(),
       c64_reset: vi.fn(),
-      debugger_update: vi.fn(),
+      debugger_update: vi.fn(() => 1),
       c64_getPixelBuffer: vi.fn(() => 0),
       sid_getAudioBuffer: vi.fn(() => 0),
       sid_dumpBuffer: vi.fn(() => 2),
@@ -75,15 +75,13 @@ describe('C64Emulator', () => {
     expect(emulator.getFrameCount()).toBe(0);
   });
 
-  it('emits frame and audio callbacks while running', async () => {
+  it('emits frame callback while running', async () => {
     const { wasm, exports } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const emulator = await C64Emulator.load();
 
     const onFrame = vi.fn();
-    const onAudio = vi.fn();
     emulator.onFrame = onFrame;
-    emulator.onAudio = onAudio;
 
     emulator.start();
     emulator.tick(10);
@@ -92,8 +90,16 @@ describe('C64Emulator', () => {
     expect(emulator.getFrameCount()).toBe(1);
     expect(onFrame).toHaveBeenCalledOnce();
     expect(onFrame.mock.calls[0][0].width).toBe(384);
-    expect(onAudio).toHaveBeenCalledOnce();
-    expect(onAudio.mock.calls[0][0].samples.length).toBe(2);
+  });
+
+  it('provides SID audio buffer via getSidBuffer', async () => {
+    const { wasm } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    const buf = emulator.getSidBuffer();
+    expect(buf).toBeInstanceOf(Float32Array);
+    expect(buf!.length).toBe(4096);
   });
 
   it('always frees allocated memory after loadGame', async () => {

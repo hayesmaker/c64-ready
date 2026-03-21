@@ -164,9 +164,11 @@ export class C64WASM {
         for (let i = 0; i < iovs_len; i++) {
           const ptr = view.getUint32(iovs + i * 8, true);
           const len = view.getUint32(iovs + i * 8 + 4, true);
-          if (fd === 1 || fd === 2) {
+          // Only forward stderr (fd 2) to the console — stdout (fd 1) is
+          // extremely noisy (SID dumps buffer length every frame).
+          if (fd === 2) {
             const text = new TextDecoder().decode(u8.subarray(ptr, ptr + len));
-            fd === 1 ? console.log(text) : console.error(text);
+            console.error(text);
           }
           written += len;
         }

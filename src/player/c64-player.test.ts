@@ -11,6 +11,7 @@ describe('C64Player', () => {
     return {
       loadGame: vi.fn(),
       start: vi.fn(),
+      setSampleRate: vi.fn(),
     } as any;
   }
 
