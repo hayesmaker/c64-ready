@@ -65,30 +65,19 @@ jobs:
         run: |
           mkdir -p wiki
           cp PROJECT_OVERVIEW.md wiki/"Project Overview.md"
-          # Ensure the wiki Home page contains a visible link to Project_Overview.
+          # Overwrite the wiki Home page with a curated landing page that links to Project Overview.
           HOME=wiki/Home.md
-          if [ -f "$HOME" ]; then
-            # If Home.md already references the overview in any reasonable form, do nothing.
-            if grep -qiE 'Project[_ ]Overview|Project Overview|Project_Overview' "$HOME"; then
-              echo "Home.md already references Project Overview"
-            else
-              echo "" >> "$HOME"
-              echo "## Project Overview" >> "$HOME"
-              echo "" >> "$HOME"
-              echo "See the [Project Overview](Project%20Overview) page for the full project summary." >> "$HOME"
-              echo "" >> "$HOME"
-              echo "(You can also use the wiki-style link: [[Project Overview]])" >> "$HOME"
-              echo "Appended link to Home.md"
-            fi
-          else
-            echo "# Home" > "$HOME"
-            echo "" >> "$HOME"
-            echo "Welcome to the project wiki." >> "$HOME"
-            echo "" >> "$HOME"
-            echo "- [Project Overview](Project%20Overview)" >> "$HOME"
-            echo "" >> "$HOME"
-            echo "Created Home.md with link to Project Overview"
-          fi
+          echo "# Home" > "$HOME"
+          echo "" >> "$HOME"
+          echo "Welcome to the project wiki." >> "$HOME"
+          echo "" >> "$HOME"
+          echo "## Quick links" >> "$HOME"
+          echo "" >> "$HOME"
+          echo "- [Project Overview](Project%20Overview)" >> "$HOME"
+          echo "" >> "$HOME"
+          echo "---" >> "$HOME"
+          echo "This Home page was generated automatically by the repository workflow. Edit the wiki on GitHub if you want to customize the landing page." >> "$HOME"
+          echo "Wrote Home.md (overwritten) and Project Overview.md"
 
       - name: Commit and push
         env:
@@ -96,17 +85,16 @@ jobs:
         run: |
           set -x
           cd wiki
-          git add "Project Overview.md" || true
-          git commit -m "Update Project Overview (auto)" || echo "no changes"
+          # Add both the Project Overview page and Home page (if present) so both are committed.
+          git add "Project Overview.md" "Home.md" || true
+          git commit -m "Update Project Overview and Home (auto)" || echo "no changes"
           echo "--- after commit: status ---"
           git status --porcelain || true
           echo "--- after commit: recent commits ---"
           git log -5 --oneline || true
-          # Try pushing to the wiki default branch. Some repos use `main`, others `master`.
-          # Attempt `main` first, then `master`. If both fail, print a helpful message.
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:main || \
-            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:master || \
-            (echo "Failed to push to wiki on both 'main' and 'master'. Check repository wiki default branch and token permissions." && exit 1)
+          # Push to the wiki branch 'master' (this repository uses 'master' as the trunk).
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:master || \
+            (echo "Failed to push to wiki on branch 'master'. Check repository wiki branch and token permissions." && exit 1)
           echo "--- push complete ---"
           git branch -a || true
           git show --name-only --pretty="format:Commit: %h %s" HEAD || true
@@ -132,5 +120,19 @@ jobs:
             fi
           else
             echo "$resp"
+          fi
+          echo "\nChecking wiki repo for Home.md"
+          resp2=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}.wiki/contents/Home.md) || true
+          if command -v jq >/dev/null 2>&1; then
+            head=$(echo "$resp2" | jq -r '.content // empty' | base64 --decode 2>/dev/null | sed -n '1,60p' || true)
+            if [ -n "$head" ]; then
+              echo "FOUND Home.md (decoded head):"
+              echo "$head"
+            else
+              echo "Home.md API response:"
+              echo "$resp2"
+            fi
+          else
+            echo "$resp2"
           fi
 
