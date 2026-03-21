@@ -1,4 +1,4 @@
-![C64 Ready Prompt](./public/c64-ready/c64-ready.gif)
+[![C64 Ready Prompt](./public/c64-ready/c64-ready.gif)](https://hayesmaker.github.io/c64-ready/)
 
 # c64-ready
 
