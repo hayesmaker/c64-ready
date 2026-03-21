@@ -20,11 +20,34 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Check repository metadata (debug)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Inspecting repository via API: ${{ github.repository }}"
+          # Query repository metadata and print key fields (no secrets will be printed)
+          resp=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" https://api.github.com/repos/${{ github.repository }}) || true
+          # Use jq to print a few key fields. If jq is missing, fall back to raw output.
+          if command -v jq >/dev/null 2>&1; then
+            echo "$resp" | jq -r '"full_name: \(.full_name)", "private: \(.private)", "has_wiki: \(.has_wiki)", ("permissions: " + (.permissions|tojson))'
+          else
+            echo "$resp"
+          fi
+
       - name: Clone wiki (authenticated)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git wiki
+          set -x
+          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git wiki || true
+          echo "--- wiki dir listing ---"
+          ls -la wiki || true
+          echo "--- wiki remotes ---"
+          git -C wiki remote -v || true
+          echo "--- wiki branches ---"
+          git -C wiki branch -a || true
+          echo "--- wiki last commit ---"
+          git -C wiki log -1 --pretty=oneline || true
 
       - name: Copy overview
         run: |
@@ -35,12 +58,43 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -x
           cd wiki
           git add Project_Overview.md || true
           git commit -m "Update Project Overview (auto)" || echo "no changes"
+          echo "--- after commit: status ---"
+          git status --porcelain || true
+          echo "--- after commit: recent commits ---"
+          git log -5 --oneline || true
           # Try pushing to the wiki default branch. Some repos use `main`, others `master`.
           # Attempt `main` first, then `master`. If both fail, print a helpful message.
           git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:main || \
             git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git HEAD:master || \
-            (echo "Failed to push to wiki on both 'main' and 'master'. Check repository wiki default branch and token permissions." && exit 0)
+            (echo "Failed to push to wiki on both 'main' and 'master'. Check repository wiki default branch and token permissions." && exit 1)
+          echo "--- push complete ---"
+          git branch -a || true
+          git show --name-only --pretty="format:Commit: %h %s" HEAD || true
+
+      - name: Verify wiki contents via API (debug)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking wiki repo for Project_Overview.md"
+          resp=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}.wiki/contents/Project_Overview.md) || true
+          # If jq is available, use it to extract the base64 content, decode and print a head; otherwise print raw JSON.
+          if command -v jq >/dev/null 2>&1; then
+            content=$(echo "$resp" | jq -r '.content // empty') || true
+            if [ -n "$content" ]; then
+              echo "FOUND file: Project_Overview.md"
+              echo "sha: $(echo "$resp" | jq -r '.sha // empty')"
+              echo "---- decoded head ----"
+              echo "$content" | base64 --decode | sed -n '1,120p' || true
+              echo "---- end decoded head ----"
+            else
+              echo "API response:"
+              echo "$resp"
+            fi
+          else
+            echo "$resp"
+          fi
 
