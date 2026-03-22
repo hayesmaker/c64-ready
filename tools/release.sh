@@ -141,13 +141,39 @@ NODE
   echo "Predicted new version: ${PREDICTED_VERSION} (would create tag v${PREDICTED_VERSION})"
 else
   "${NPM_CMD[@]}"
+
+  # After npm version created the release commit+tag, generate the changelog locally
+  # and include it in the release commit (so no separate changelog PR is created).
+  echo "Generating changelog and amending release commit..."
+  # Determine the new version and tag now that npm version ran
+  NEW_VERSION=$(node -p "require('./package.json').version")
+  TAG="v${NEW_VERSION}"
+
+  if command -v node >/dev/null 2>&1 && [[ -f tools/generate_changelog.js ]]; then
+    # Run the changelog generator in local/write-only mode so it doesn't attempt to push or create a PR
+    node tools/generate_changelog.js --local || true
+
+    # If the generator produced changes to CHANGELOG.md (staged or unstaged), amend the release commit to include them
+    if git diff --name-only -- CHANGELOG.md | grep -q . || git diff --name-only --cached -- CHANGELOG.md | grep -q .; then
+      # stage CHANGELOG.md (in case generator wrote it but didn't stage)
+      git add CHANGELOG.md || true
+      # Amend the last commit (the release commit created by npm version)
+      git commit --amend --no-edit || true
+      # Move the tag to point to the amended commit
+      git tag -f "${TAG}"
+      echo "Amended release commit to include CHANGELOG.md and moved tag ${TAG} to amended commit."
+    else
+      echo "No changelog changes detected; leaving release commit as-is."
+    fi
+  else
+    echo "Changelog generator not available; skipping local changelog generation."
+  fi
 fi
 
-# Determine the new version and tag
-NEW_VERSION=$(node -p "require('./package.json').version")
-TAG="v${NEW_VERSION}"
 # If dry-run, show the predicted version instead of the unchanged package.json version
 if [[ "$DRY_RUN" -eq 1 ]]; then
+  # NEW_VERSION may not be set in dry-run; fall back to package.json
+  NEW_VERSION=${NEW_VERSION:-$(node -p "require('./package.json').version")}
   echo "(Note: package.json unchanged in dry-run) Current package.json version: ${NEW_VERSION}"
   echo "Predicted version when not in dry-run: ${PREDICTED_VERSION} (tag: v${PREDICTED_VERSION})"
 else
@@ -161,7 +187,10 @@ fi
 
 # Push commit and tags
 PUSH_CMD_1=(git push origin master)
-PUSH_CMD_2=(git push --tags)
+# Ensure TAG is set (may be undefined in dry-run)
+TAG=${TAG:-v${PREDICTED_VERSION:-$(node -p "require('./package.json').version")}}
+# After amending tag we must force-push the tag to update remote
+PUSH_CMD_2=(git push --force origin "${TAG}")
 
 echo "Pushing to origin master and tags..."
 if [[ "$DRY_RUN" -eq 1 ]]; then
