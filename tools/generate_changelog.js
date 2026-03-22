@@ -78,7 +78,7 @@ async function buildChangelog() {
 
 async function main() {
   const changelog = await buildChangelog();
-  const outPath = path.resolve(process.cwd(), 'docs/CHANGELOG.md');
+  const outPath = path.resolve(process.cwd(), 'CHANGELOG.md');
   const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : '';
   if (existing.trim() === changelog.trim()) {
     console.log('No changelog changes detected.');
@@ -86,11 +86,11 @@ async function main() {
   }
 
   fs.writeFileSync(outPath, changelog, 'utf8');
-  console.log('Wrote docs/CHANGELOG.md');
+  console.log('Wrote CHANGELOG.md');
 
   // Commit & push using GITHUB_TOKEN
   try {
-    run('git add docs/CHANGELOG.md');
+    run('git add CHANGELOG.md');
     run('git config user.name "github-actions[bot]"');
     run('git config user.email "41898282+github-actions[bot]@users.noreply.github.com"');
     run('git commit -m "chore: update changelog (auto) [skip ci]"');
