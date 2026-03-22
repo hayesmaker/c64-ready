@@ -21,7 +21,6 @@ const DEFAULT_SAMPLE_RATE = 44100;
 
 export class C64Emulator {
   private wasm: C64WASM;
-  // @ts-expect-error Config is assigned in constructor for future use
   private config: C64Config;
   private running: boolean = false;
   private frameCount: number = 0;
@@ -71,6 +70,9 @@ export class C64Emulator {
     const x = this.wasm.exports;
     if (!x) throw new Error('WASM exports not available');
     x.c64_init();
+    // Reference config to avoid unused-private-field warnings in TS and
+    // ensure sample rate is applied on init.
+    if (this.config.sampleRate) this.wasm.exports?.sid_setSampleRate(this.config.sampleRate);
   }
 
   start(): void {
@@ -108,9 +110,9 @@ export class C64Emulator {
 
     // Clamp dTime exactly like the original c64.js render loop:
     // if dTime is 0 or > 100 ms, lock to ~60 fps to prevent runaway cycles.
-    if (!dTime || dTime > 100) {
-      dTime = 1000 / 60;
-    }
+    // if (!dTime || dTime > 100) {
+    //   dTime = 1000 / 60;
+    // }
 
     const updated = x.debugger_update(dTime);
     this.frameCount++;
@@ -165,7 +167,6 @@ export class C64Emulator {
     if (!x) return;
 
     if (event.type === 'key' && event.key !== undefined) {
-      ``;
       x.keyboard_keyPressed(Number(event.key));
     } else if (event.type === 'joystick') {
       const port = (event.joystickPort ?? 1) - 1; // callers use 1/2, WASM uses 0/1
