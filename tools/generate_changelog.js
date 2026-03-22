@@ -95,6 +95,16 @@ async function main() {
     return 0;
   }
 
+  // Detect if HEAD is a release commit or already tagged. If so, do not create an
+  // automated changelog PR because the release commit should already include the
+  // changelog. Allow an explicit override via CREATE_CHANGELOG_PR=true.
+  const lastCommitMsg = safeRun('git log -1 --pretty=%B');
+  const tagsAtHead = safeRun('git tag --points-at HEAD');
+  if ((tagsAtHead || /chore\(release\):/.test(lastCommitMsg)) && process.env.CREATE_CHANGELOG_PR !== 'true') {
+    console.log('Detected release commit or tag at HEAD; skipping automatic changelog PR creation.');
+    return 0;
+  }
+
   // Commit & push using GITHUB_TOKEN
   try {
     run('git add CHANGELOG.md');
@@ -102,8 +112,26 @@ async function main() {
     run('git config user.email "41898282+github-actions[bot]@users.noreply.github.com"');
     run('git commit -m "chore: update changelog (auto) [skip ci]"');
 
+    // By default we do NOT create a changelog PR. This avoids an automated loop where
+    // a changelog PR itself appears in subsequent changelogs. To enable PR creation
+    // set the environment variable CREATE_CHANGELOG_PR=true in the workflow that
+    // intentionally wants this behavior.
     if (!token || !repo) {
       console.log('No GITHUB_TOKEN or GITHUB_REPOSITORY provided; skipping push/PR creation.');
+      return 0;
+    }
+
+    // Require explicit opt-in to create a PR: an env var, a CLI flag, and the
+    // GitHub Action event must be a release/manual trigger. This prevents
+    // accidental PR creation from ordinary push events.
+    const cliArgs = process.argv.slice(2);
+    const cliCreatePr = cliArgs.includes('--create-pr');
+    const ghEvent = process.env.GITHUB_EVENT_NAME || '';
+    const allowedEvents = ['release', 'workflow_dispatch', 'repository_dispatch'];
+    const eventAllowed = allowedEvents.includes(ghEvent);
+
+    if (!(process.env.CREATE_CHANGELOG_PR === 'true' && cliCreatePr && eventAllowed)) {
+      console.log('Automatic changelog PR creation disabled. To enable, set CREATE_CHANGELOG_PR=true, pass --create-pr to the script, and trigger from a release or manual workflow.');
       return 0;
     }
 
