@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- chore: update changelog (auto) [skip ci] (75373a5)
 - chore: update changelog (auto) [skip ci] (a87a12a)
 - chore(release): generate changelog inside release commit; add --local to generator (d5687a3)
 - chore: release script enhancements (920a654)
