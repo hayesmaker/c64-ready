@@ -3,6 +3,6 @@
   "compilerOptions": {
     "types": ["vite/client", "vitest/globals"]
   },
-  "include": ["src/**/*.test.ts", "vitest.setup.ts"]
+  "include": ["test/**/*.test.ts", "vitest.setup.ts"]
 }
 

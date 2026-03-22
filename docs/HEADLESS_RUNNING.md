@@ -23,7 +23,9 @@ This is the ordering and essential operations the headless CLI performs when ins
 
 2. Create a WebAssembly.Memory instance sized to the expected initial pages:
 ```js
-const mem = new WebAssembly.Memory({ initial: <INITIAL_PAGES> });
+// Use a numeric placeholder (e.g. 256). Avoid angle-bracket tokens in docs
+// which can be mis-parsed by some tooling: replace INITIAL_PAGES as needed.
+const mem = new WebAssembly.Memory({ initial: 256 });
 ```
 (We use 256 pages by default in the TS wrapper — that matches the compiled binary assumptions.)
 

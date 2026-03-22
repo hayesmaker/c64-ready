@@ -383,7 +383,7 @@ export default class UIController {
   private async loadAndShowChangelog(container: HTMLElement) {
     container.classList.add('visible');
     try {
-      const md = await import('../../CHANGELOG.md?raw');
+      const md = await import('../../docs/CHANGELOG.md?raw');
       const raw: string = md.default ?? md;
 
       // Filter: keep headers, blank lines, and only feat:/fix: bullet lines

@@ -35,11 +35,14 @@ fi
 
 echo "Updating Home.md with links to docs pages"
 
-# Add links for each docs file (except PROJECT_OVERVIEW.md which may already exist)
-for f in ../docs/*.md; do
+# Add links for each markdown file copied into the wiki repo (skip Home.md)
+for f in ./*.md; do
   name=$(basename "$f")
-  title=$(sed -n '1p' "$f" | sed 's/^#\s*//')
-  # Skip files without a title
+  if [ "$name" = "Home.md" ]; then
+    continue
+  fi
+  # Read first non-empty header line as the title, fallback to filename
+  title=$(sed -n '1,5p' "$f" | sed -n '/^#/{s/^#\s*//;p;q}')
   if [ -z "$title" ]; then
     title="$name"
   fi
