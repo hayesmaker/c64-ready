@@ -31,4 +31,8 @@ export default tseslint.config(
   {
     ignores: ['dist/', 'temp/'],
   },
+  {
+    // Ignore runtime .mjs shims used by the headless CLI (not part of TS project)
+    ignores: ['src/headless/*.mjs', 'src/headless/*.mjs.d.ts'],
+  },
 );

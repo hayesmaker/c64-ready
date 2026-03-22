@@ -4,11 +4,15 @@
 declare module './headless-cli.mjs' {
   export interface RunHeadlessOptions {
     argv?: string[];
-    instantiateFn?: (wasmBinary: ArrayBuffer | Uint8Array, importObject: any) => Promise<{ instance: { exports: any } }>;
+    instantiateFn?: (
+      wasmBinary: ArrayBuffer | Uint8Array,
+      importObject: unknown,
+    ) => Promise<{ instance: { exports: unknown } }>;
     repoRoot?: string;
   }
-  export function runHeadless(options?: RunHeadlessOptions): Promise<{ ok: boolean; output: any[] | string }>;
+  export function runHeadless(
+    options?: RunHeadlessOptions,
+  ): Promise<{ ok: boolean; output: unknown[] | string }>;
 }
 
 export {};
-

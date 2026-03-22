@@ -71,8 +71,14 @@ export class C64Emulator {
     if (!x) throw new Error('WASM exports not available');
     x.c64_init();
     // Reference config to avoid unused-private-field warnings in TS and
-    // ensure sample rate is applied on init.
-    if (this.config.sampleRate) this.wasm.exports?.sid_setSampleRate(this.config.sampleRate);
+    // ensure sample rate is applied on init. Guard calls in case the
+    // underlying WASM exports don't provide the SID helper (tests/fake
+    // instantiations may omit it).
+    if (this.config.sampleRate) {
+      const fn = (this.wasm.exports as unknown as { sid_setSampleRate?: (rate: number) => unknown })
+        .sid_setSampleRate;
+      if (typeof fn === 'function') fn(this.config.sampleRate);
+    }
   }
 
   start(): void {

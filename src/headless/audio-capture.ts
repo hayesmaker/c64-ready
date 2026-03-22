@@ -9,24 +9,22 @@ export class AudioCapture {
   private audioQueue: Float32Array[] = [];
 
   capture(audio: AudioBuffer): void {
-	// Copy samples so the caller owns them
-	this.latestAudio = audio.samples.slice();
-	this.audioQueue.push(this.latestAudio);
+    // Copy samples so the caller owns them
+    this.latestAudio = audio.samples.slice();
+    this.audioQueue.push(this.latestAudio);
   }
 
   getLatest(): Float32Array | null {
-	return this.latestAudio;
+    return this.latestAudio;
   }
 
   getQueued(): Float32Array[] {
-	const q = this.audioQueue;
-	this.audioQueue = [];
-	return q;
+    const q = this.audioQueue;
+    this.audioQueue = [];
+    return q;
   }
 
   clearQueue(): void {
-	this.audioQueue = [];
+    this.audioQueue = [];
   }
 }
-
-

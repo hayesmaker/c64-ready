@@ -91,6 +91,37 @@ export async function runHeadless(options = {}) {
   let heap = null;
   let wrapperUsed = false;
 
+  // If a test injected a fake instantiate function, prefer that path so
+  // tests can run without the compiled wrapper. Provide a minimal import
+  // object (memory) that the fake instantiate can use.
+  const instantiateFn = options.instantiateFn;
+  const wasmAb = wasmBinary.buffer.slice(
+    wasmBinary.byteOffset,
+    wasmBinary.byteOffset + wasmBinary.byteLength,
+  );
+  if (typeof instantiateFn === 'function') {
+    try {
+      const mem = new WebAssembly.Memory({ initial: 256 });
+      const importObject = { env: { memory: mem }, wasi_snapshot_preview1: {} };
+      const res = await instantiateFn(wasmAb, importObject);
+      const inst = res && (res.instance ?? res);
+      exports = inst.exports ?? inst;
+      // ensure exports.memory exists so later code can read/write
+      if (exports && !exports.memory) exports.memory = mem;
+      if (exports && exports.memory) {
+        const buf = exports.memory.buffer;
+        heap = { heapU8: new Uint8Array(buf), heapF32: new Float32Array(buf), heapU32: new Uint32Array(buf) };
+      }
+      if (exports && typeof exports.c64_init === 'function') exports.c64_init();
+      if (exports && typeof exports.sid_setSampleRate === 'function') exports.sid_setSampleRate(44100);
+      if (exports && typeof exports.debugger_set_speed === 'function') exports.debugger_set_speed(100);
+      if (exports && typeof exports.debugger_play === 'function') exports.debugger_play();
+      wrapperUsed = true;
+    } catch (e) {
+      console.error('[headless] instantiateFn failed:', e && e.message ? e.message : e);
+    }
+  }
+
   // Prefer the minimal local wrapper shipped under src/headless so the
   // CLI can run without a compiled dist-ts. This keeps the runtime files
   // in the source tree (src/headless) and avoids postinstall scripts.
