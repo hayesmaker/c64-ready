@@ -79,6 +79,8 @@ async function buildChangelog() {
 async function main() {
   const changelog = await buildChangelog();
   const outPath = path.resolve(process.cwd(), 'CHANGELOG.md');
+  const args = process.argv.slice(2);
+  const localOnly = args.includes('--local') || args.includes('--write-only');
   const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : '';
   if (existing.trim() === changelog.trim()) {
     console.log('No changelog changes detected.');
@@ -87,6 +89,11 @@ async function main() {
 
   fs.writeFileSync(outPath, changelog, 'utf8');
   console.log('Wrote CHANGELOG.md');
+
+  if (localOnly) {
+    console.log('Local mode: not creating PR or pushing changes.');
+    return 0;
+  }
 
   // Commit & push using GITHUB_TOKEN
   try {
