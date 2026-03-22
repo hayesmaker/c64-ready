@@ -4,7 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+- Merge pull request #6 from hayesmaker/chore/update-changelog-2026-03-21T15-22-06-743Z-5ae1fea (f887858)
+- chore: update changelog (auto) [skip ci] (5ae1fea)
 
 ## v0.3.0 - 2026-03-21T15:16:11Z
 
