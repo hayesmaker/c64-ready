@@ -140,3 +140,73 @@ npm run build
 
 - Open the built site (or run the dev server) and check the Help dialog — the version (and short git hash when available) appears at the bottom.
 
+## Docs & Wiki publishing
+
+This repository now keeps human-facing documentation in a `docs/` folder at the repository root (except for `AGENTS.md` and `README.md`, which remain in root).
+
+- `docs/` contains user and developer docs that should be published to the repository wiki.
+- The helper script `scripts/publish_wiki.sh` will prepare a wiki clone, copy `docs/*.md` plus the canonical `CHANGELOG.md` (from the repo root) into the wiki clone, update `Home.md` with links, and commit the changes so you can review before pushing.
+
+To prepare a wiki update locally (no push):
+```bash
+# clone the wiki and stage the docs in the wiki clone (script prints the clone path)
+./scripts/publish_wiki.sh git@github.com:YOUR_USER/c64-ready.wiki.git
+
+# Inspect the prepared wiki clone (the script prints where it wrote files)
+cd /tmp/<the-script-printed-path>/wiki
+git status
+git show --name-only
+```
+
+To publish the changes to the GitHub wiki (requires push access):
+```bash
+cd /tmp/<the-script-printed-path>/wiki
+git push origin HEAD
+```
+
+Note: the script does not push to the wiki remote automatically to avoid accidental publishing. It also appends links to `Home.md` only if they are not already present.
+
+## Release helper (`tools/release.sh`)
+
+This project includes a small release helper script `./tools/release.sh` that wraps `npm version` and git push steps. The script now supports a safe `--dry-run` mode that reports the version that WOULD be created without modifying files, and a `--preid` option for prereleases.
+
+Examples
+
+- Dry-run a minor bump (no changes made):
+```bash
+./tools/release.sh minor --dry-run
+# -> prints predicted new version (e.g. 0.4.0) and does not edit package.json
+```
+
+- Create the version commit and tag locally but do not push:
+```bash
+./tools/release.sh minor --no-push
+# creates the commit and tag (npm version) locally so you can inspect before pushing
+```
+
+- Full release (commit, tag, and push to origin/master):
+```bash
+# Run this on master with a clean working tree
+./tools/release.sh minor
+```
+
+- Create a prerelease (example with `beta` identifier) — dry-run:
+```bash
+./tools/release.sh preminor --preid beta --dry-run
+# -> e.g. predicts 0.4.0-beta.0 without changing files
+```
+
+- Create a prerelease (create locally, no push):
+```bash
+./tools/release.sh prerelease --preid beta --no-push
+# creates tag like v0.3.1-beta.0 locally
+```
+
+Notes and safety
+
+- `--dry-run` will never edit `package.json` or create git commits/tags — it only prints the predicted version and the commands the script would run.
+- Use `--no-push` to create the commit and tag locally for inspection, then push manually when you're ready.
+- The script expects a clean working tree and will prompt if you are not on `master` (unless you use `--dry-run` which skips branch checks).
+
+If you want, I can add examples to the CI workflow to automatically create releases on merges to `master` using this helper.
+
