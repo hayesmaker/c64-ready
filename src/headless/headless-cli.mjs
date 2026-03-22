@@ -52,7 +52,6 @@ export async function runHeadless(options = {}) {
   ];
   const defaultGamePaths = [
     path.join(repoRoot, 'public', 'games', 'cartridges', 'legend-of-wilf.crt'),
-    path.join(repoRoot, 'games', 'cartridges', 'legend-of-wilf.crt'),
   ];
 
   async function findFirstExisting(paths) {
