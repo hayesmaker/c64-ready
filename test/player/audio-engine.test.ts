@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AudioEngine } from './audio-engine';
+import { AudioEngine } from '../../src/player/audio-engine';
 
 // ---------------------------------------------------------------------------
 // Mock Web Audio API — jsdom doesn't provide AudioContext / AudioWorkletNode
@@ -66,10 +66,6 @@ function installMocks(mocks: ReturnType<typeof makeMockAudioContext>) {
   );
   vi.stubGlobal('AudioWorkletNode', mocks.MockAudioWorkletNode);
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('AudioEngine', () => {
   beforeEach(() => {
@@ -189,8 +185,6 @@ describe('AudioEngine', () => {
     expect(engine.suspended).toBe(false);
   });
 
-  // ── onStateChange callback ────────────────────────────────────────────
-
   it('fires onStateChange when init completes', async () => {
     const mocks = makeMockAudioContext('running');
     installMocks(mocks);
@@ -224,8 +218,6 @@ describe('AudioEngine', () => {
     expect(cb).toHaveBeenCalledWith(expect.objectContaining({ volume: 0.5 }));
   });
 
-  // ── volume ────────────────────────────────────────────────────────────
-
   it('setVolume clamps to [0, 1]', async () => {
     const mocks = makeMockAudioContext('running');
     installMocks(mocks);
@@ -257,8 +249,6 @@ describe('AudioEngine', () => {
     expect(engine.volume).toBeCloseTo(0.3);
   });
 
-  // ── mute ──────────────────────────────────────────────────────────────
-
   it('setMuted(true) sets gain to 0, setMuted(false) restores volume', async () => {
     const mocks = makeMockAudioContext('running');
     installMocks(mocks);
@@ -289,8 +279,6 @@ describe('AudioEngine', () => {
     engine.toggleMute();
     expect(engine.muted).toBe(false);
   });
-
-  // ── SID buffer reader & worklet pull ──────────────────────────────────
 
   it('setSidBufferReader registers a reader', async () => {
     const mocks = makeMockAudioContext('running');
@@ -356,8 +344,6 @@ describe('AudioEngine', () => {
     expect(mocks.mockPort.postMessage).not.toHaveBeenCalled();
   });
 
-  // ── destroy ───────────────────────────────────────────────────────────
-
   it('destroy disconnects nodes and closes context', async () => {
     const mocks = makeMockAudioContext('running');
     installMocks(mocks);
@@ -374,3 +360,4 @@ describe('AudioEngine', () => {
     expect(engine.suspended).toBe(true);
   });
 });
+

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { C64WASM } from './c64-wasm';
+import { C64WASM } from '../../src/emulator/c64-wasm';
 
 describe('C64WASM', () => {
   beforeEach(() => {
@@ -83,3 +83,4 @@ describe('C64WASM', () => {
     );
   });
 });
+

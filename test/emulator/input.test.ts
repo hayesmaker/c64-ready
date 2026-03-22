@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EmulatorInput } from './input';
-import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from './constants';
+import { EmulatorInput } from '../../src/emulator/input';
+import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from '../../src/emulator/constants';
 
 describe('EmulatorInput', () => {
   beforeEach(() => {
@@ -68,3 +68,4 @@ describe('EmulatorInput', () => {
     expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
   });
 });
+

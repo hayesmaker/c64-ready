@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { C64Emulator } from './c64-emulator';
-import { C64WASM } from './c64-wasm';
+import { C64Emulator } from '../../src/emulator/c64-emulator';
+import { C64WASM } from '../../src/emulator/c64-wasm';
 
 const FRAME_BYTES = 384 * 272 * 4;
 
@@ -129,3 +129,4 @@ describe('C64Emulator', () => {
     expect(frame.data.length).toBe(FRAME_BYTES);
   });
 });
+

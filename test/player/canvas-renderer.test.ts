@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import CanvasRenderer from './canvas-renderer';
+import CanvasRenderer from '../../src/player/canvas-renderer';
 
 describe('CanvasRenderer', () => {
   beforeEach(() => {
@@ -75,12 +75,7 @@ describe('CanvasRenderer', () => {
     raf.callback?.(1024);
     expect(emulator.tick).toHaveBeenCalledWith(8);
 
-    emulator.onFrame({
-      width: 2,
-      height: 2,
-      data: new Uint8Array(16),
-      timestamp: 1,
-    });
+    emulator.onFrame({ width: 2, height: 2, data: new Uint8Array(16), timestamp: 1 });
     expect(putImageData).toHaveBeenCalledOnce();
 
     // Re-attaching cancels the previous rAF
@@ -174,3 +169,4 @@ describe('CanvasRenderer', () => {
     expect(loaderStyles.length).toBe(1);
   });
 });
+

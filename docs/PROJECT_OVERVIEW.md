@@ -1,3 +1,4 @@
+// Copied from repository root PROJECT_OVERVIEW.md
 # Project Overview — C64 Ready
 
 This document is the canonical project overview and plan for the "C64 Ready" TypeScript rewrite of the original c64.js emulator glue.

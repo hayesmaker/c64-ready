@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import UIController from './ui-controller';
+import UIController from '../../src/player/ui-controller';
 
 describe('UIController', () => {
   beforeEach(() => {
@@ -85,3 +85,4 @@ describe('UIController', () => {
     expect(styles.length).toBe(1);
   });
 });
+

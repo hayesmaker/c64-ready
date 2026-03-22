@@ -1,6 +1,5 @@
 {
   "name": "c64-ready",
-  "private": true,
   "license": "MIT",
   "version": "0.3.0",
   "type": "module",
@@ -11,6 +10,8 @@
     "start": "npm run dev",
     "dev": "vite",
     "build": "tsc && vite build",
+    "headless:build": "npx tsc -p tsconfig.build.json",
+    "headless:start": "node bin/headless.mjs",
     "release": "./tools/release.sh",
     "preview": "vite preview",
     "test": "vitest run",
@@ -19,7 +20,18 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/"
   },
+  "bin": {
+    "c64-headless": "bin/headless.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/headless/",
+    "dist-ts/emulator/",
+    "public/c64.wasm",
+    "tsconfig.build2.json"
+  ],
   "devDependencies": {
+    "ts-node": "^10.9.1",
     "@eslint/js": "^10.0.1",
     "@types/dompurify": "^3.0.5",
     "@types/gif.js": "^0.2.5",

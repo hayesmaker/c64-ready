@@ -1,3 +1,4 @@
+// Copied from repository root AUDIO_ENGINE.md
 # Audio Engine
 
 Technical documentation for the C64-Ready audio subsystem — how the WASM SID
@@ -102,7 +103,7 @@ The original runtime used the (now deprecated) `ScriptProcessorNode`:
 
 ```js
 this.audioBufferLength = 4096;
-this.audioCtx = new AudioContext();
+this.audioCtx = this.audioCtx || new AudioContext();
 this.sampleRate = this.audioCtx.sampleRate;
 sid_setSampleRate(this.sampleRate);
 
@@ -272,4 +273,6 @@ passes `this.ctx.sampleRate` (typically 44 100 or 48 000) to
 | `src/player/ui-controller.ts` | Unmute button, mute toggle, volume slider in settings menu |
 | `src/types/emulator.ts` | TypeScript types for WASM SID exports |
 | `temp/c64.js` | Original runtime (reference — contains legacy `ScriptProcessorNode` impl) |
+
+
 
