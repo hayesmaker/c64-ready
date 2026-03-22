@@ -15,8 +15,11 @@ TMPDIR=$(mktemp -d)
 echo "Cloning wiki into $TMPDIR"
 git clone "$WIKI_URL" "$TMPDIR/wiki"
 
-echo "Copying docs/*.md into wiki repo"
+echo "Copying docs/*.md and root CHANGELOG.md into wiki repo"
 cp docs/*.md "$TMPDIR/wiki/" || true
+if [ -f CHANGELOG.md ]; then
+  cp CHANGELOG.md "$TMPDIR/wiki/"
+fi
 
 cd "$TMPDIR/wiki"
 
