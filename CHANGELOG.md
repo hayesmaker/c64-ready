@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- chore(release): generate changelog inside release commit; add --local to generator (d5687a3)
+- chore: release script enhancements (920a654)
+- chore: docs re-org (2efa3c0)
+- chore(docs): keep CHANGELOG.md at repo root and update publish script (a2e1292)
+- chore(docs): remove docs/CHANGELOG.md (keep root CHANGELOG.md) (726a914)
+- chore(docs): move CHANGELOG.md back to repo root and restore generator output (27710f0)
+- chore(docs): move repo root markdown into docs/ and update imports/generator (a713e07)
+- chore(docs): add docs/ copies of repo root markdown and wiki publish helper (4089d45)
+- chore(tests): remove tests from src; canonical tests now under test/ (5aef5d6)
+- chore: remove duplicate cartridge in games/; use public/games as canonical asset (87bd78d)
+- chore(headless): prefer public/games for default cartridge; remove repo-level fallback (10b5c8f)
+- chore: fix lints (7242ab0)
+- feat(headless): adds a headless c64 emulation mode (715f943)
+- feat(headless): headless runner first commit (acb9e7f)
+
+## v0.3.0 - 2026-03-21T15:16:11+00:00
+
+- chore(release): 0.3.0 (40d518c)
+- feat: audio support (ee0f378)
+- chore: filter changelogs from frontend (3192369)
+- fix: changelog requests (8be31d6)
+- chore: update changelog (auto) [skip ci] (ac19ea9)
 - ci: trigger changelog workflow (node24) (0853680)
 - ci: use Node 24 in changelog workflow (02065db)
 - chore: fix changelog action (5675eda)
