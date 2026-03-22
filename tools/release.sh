@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: release.sh [patch|minor|major|<version>] [--no-push] [--dry-run]
+Usage: release.sh [patch|minor|major|<version>] [--no-push] [--dry-run] [--preid <id>]
 
 Examples:
   ./tools/release.sh patch        # bump patch, commit, tag, push
@@ -26,25 +26,25 @@ fi
 TYPE=""
 NO_PUSH=0
 DRY_RUN=0
+PREID=""
 POSITIONAL=()
-for arg in "$@"; do
-  case "$arg" in
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --no-push)
-      NO_PUSH=1
-      ;;
+      NO_PUSH=1; shift ;;
     --dry-run)
-      DRY_RUN=1
-      ;;
+      DRY_RUN=1; shift ;;
+    --preid)
+      PREID="$2"; shift 2 ;;
+    --preid=*)
+      PREID="${1#--preid=}"; shift ;;
     -h|--help)
-      usage
-      exit 0
-      ;;
+      usage; exit 0 ;;
     --*)
-      echo "Unknown option: $arg"; usage; exit 1
-      ;;
+      echo "Unknown option: $1"; usage; exit 1 ;;
     *)
-      POSITIONAL+=("$arg")
-      ;;
+      POSITIONAL+=("$1"); shift ;;
   esac
 done
 
@@ -79,11 +79,66 @@ else
 fi
 
 # Build the npm version command
-NPM_CMD=(npm version "$TYPE" -m "chore(release): %s")
+# Build npm version command; include --preid when provided (used for prerelease)
+NPM_CMD=(npm version)
+if [[ -n "$PREID" ]]; then
+  NPM_CMD+=(--preid="$PREID")
+fi
+NPM_CMD+=("$TYPE" -m "chore(release): %s")
 
 echo "Running: ${NPM_CMD[*]}"
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Dry run: not executing npm version.";
+  # Compute the version that WOULD be created by `npm version` for common bump types
+  # Use node to safely parse package.json and compute an incremented semver
+  PREDICTED_VERSION=$(node - "$TYPE" "$PREID" <<'NODE'
+const args = process.argv.slice(2);
+const type = args[0] || "";
+const preid = args[1] || "";
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('./package.json','utf8'));
+const semver = (pkg.version||'0.0.0');
+const m = semver.match(/^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-.]+))?$/);
+if(!m){ console.log(pkg.version||'0.0.0'); process.exit(0) }
+let major = parseInt(m[1],10), minor = parseInt(m[2],10), patch = parseInt(m[3],10);
+const pre = m[4] || null;
+function bumpBasic(t){
+  if(t==='patch'){ patch += 1; return `${major}.${minor}.${patch}` }
+  if(t==='minor'){ minor += 1; patch = 0; return `${major}.${minor}.${patch}` }
+  if(t==='major'){ major += 1; minor = 0; patch = 0; return `${major}.${minor}.${patch}` }
+  return null
+}
+if(/^pre(?:patch|minor|major|release)?$/.test(type)){
+  if(type === 'prerelease'){
+    if(pre){
+      const parts = pre.split('.')
+      const id = parts[0]
+      const num = parseInt(parts[1]||'0',10)
+      if(preid && id === preid){ console.log(`${major}.${minor}.${patch}-${id}.${num+1}`); process.exit(0) }
+      else if(preid){ console.log(`${major}.${minor}.${patch}-${preid}.0`); process.exit(0) }
+      else if(/^[0-9]+$/.test(id)){ console.log(`${major}.${minor}.${patch}-${num+1}`); process.exit(0) }
+      else { console.log(`${major}.${minor}.${patch}-${id}.${num+1}`); process.exit(0) }
+    } else {
+      patch += 1
+      if(preid) console.log(`${major}.${minor}.${patch}-${preid}.0`)
+      else console.log(`${major}.${minor}.${patch}-0`)
+      process.exit(0)
+    }
+  } else {
+    const t = type.replace(/^pre/,'')
+    const basev = bumpBasic(t)
+    if(preid) console.log(`${basev}-${preid}.0`)
+    else console.log(`${basev}-0`)
+    process.exit(0)
+  }
+}
+const basic = bumpBasic(type)
+if(basic){ console.log(basic); process.exit(0) }
+if(/^[0-9]+\.[0-9]+\.[0-9]+$/.test(type)){ console.log(type); process.exit(0) }
+console.log(pkg.version||'0.0.0')
+NODE
+  ) || PREDICTED_VERSION="$(node -p "require('./package.json').version")"
+  echo "Predicted new version: ${PREDICTED_VERSION} (would create tag v${PREDICTED_VERSION})"
 else
   "${NPM_CMD[@]}"
 fi
@@ -91,7 +146,13 @@ fi
 # Determine the new version and tag
 NEW_VERSION=$(node -p "require('./package.json').version")
 TAG="v${NEW_VERSION}"
-echo "New version: ${NEW_VERSION} (tag: ${TAG})"
+# If dry-run, show the predicted version instead of the unchanged package.json version
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "(Note: package.json unchanged in dry-run) Current package.json version: ${NEW_VERSION}"
+  echo "Predicted version when not in dry-run: ${PREDICTED_VERSION} (tag: v${PREDICTED_VERSION})"
+else
+  echo "New version: ${NEW_VERSION} (tag: ${TAG})"
+fi
 
 if [[ "$NO_PUSH" -eq 1 ]]; then
   echo "--no-push specified; skipping git push. Done.";
@@ -112,5 +173,10 @@ else
   echo "Push complete."
 fi
 
-echo "Release ${TAG} complete. Create a GitHub Release from the tag via the web UI when ready."
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "Dry run complete. Predicted release: v${PREDICTED_VERSION}. (package.json unchanged)"
+  echo "When running without --dry-run the script will create tag v${PREDICTED_VERSION} and push it to origin/master."
+else
+  echo "Release ${TAG} complete. Create a GitHub Release from the tag via the web UI when ready."
+fi
 
