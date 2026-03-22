@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+No unreleased changes.
+
+## v0.4.0 - 2026-03-22T23:27:35+00:00
+
+- chore(release): 0.4.0 (b48608e)
+- Merge pull request #17 from hayesmaker/feature/headless-cli-runner (7bcd326)
+- Merge branch 'master' into feature/headless-cli-runner (561a02b)
+- chore: stop auto generated changelogs prs (a9822ca)
+- chore: update changelog (auto) [skip ci] (0fefa3d)
+- chore: update changelog (auto) [skip ci] (8a8668f)
+- chore: update changelog (auto) [skip ci] (75373a5)
+- chore: update changelog (auto) [skip ci] (a87a12a)
+- Merge pull request #15 from hayesmaker/feature/headless-cli-runner (1b0b510)
+- chore(release): generate changelog inside release commit; add --local to generator (d5687a3)
+- Merge pull request #13 from hayesmaker/chore/update-changelog-2026-03-22T23-05-37-281Z-a1ccae7 (8f20c94)
+- chore: update changelog (auto) [skip ci] (a1ccae7)
 - Merge pull request #10 from hayesmaker/chore/update-changelog-2026-03-22T23-04-34-067Z-ae4bc22 (7365710)
 - Merge pull request #11 from hayesmaker/feature/headless-cli-runner (78df809)
 - chore: update changelog (auto) [skip ci] (ae4bc22)
@@ -26,21 +42,43 @@ All notable changes to this project will be documented in this file.
 - feat(headless): headless runner first commit (acb9e7f)
 - chore: update changelog (auto) [skip ci] (5ae1fea)
 
-## v0.3.0 - 2026-03-21T15:16:11Z
+## v0.3.0 - 2026-03-21T15:16:11+00:00
 
-Added Audio support - Now load Robocop3.crt and enjoy!
+- chore(release): 0.3.0 (40d518c)
+- feat: audio support (ee0f378)
+- chore: filter changelogs from frontend (3192369)
+- fix: changelog requests (8be31d6)
+- chore: update changelog (auto) [skip ci] (ac19ea9)
+- ci: trigger changelog workflow (node24) (0853680)
+- ci: use Node 24 in changelog workflow (02065db)
+- chore: fix changelog action (5675eda)
 
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.2.0...v0.3.0
+## v0.2.0 - 2026-03-21T13:25:25+00:00
 
-## v0.2.0 - 2026-03-21T13:25:25Z
+- chore(release): 0.2.0 (991d9e7)
+- chore: prepare release 0.2.0 (b31be4b)
+- feat: adds cart loading support (559d866)
+- chore: update changelog (auto) [skip ci] (9b1c57e)
+- chore: update changelog (auto) [skip ci] (6c44232)
+- chore: fix wiki (a6b1c9d)
+- chore: link to overview from home wiki (bd91242)
+- chore: attempt to fix wiki publish (30de988)
+- chore: push plan to wiki (36e9639)
+- chore: added wiki project overview (865c003)
+- chore: added prettier linting and cleanup of source (c2e2199)
+- chore: page link in banner (6cad53a)
+- feat: power led favicon (b8b4825)
+- chore: regenerated lockfile (fa871eb)
 
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.1.0...v0.2.0
+## v0.1.0 - 2026-03-20T23:42:38+00:00
 
-## v0.1.0 - 2026-03-20T23:42:38Z
-
-First release of C64-ready. 
-
-Emulator working, and loading Legend of Wilf, with default keyboard controls.
-No Audio support.
-Github pages deployments.
+- build: bump version to 0.1.0 (ef6ee3f)
+- chore: ensure minimum node (2977a5e)
+- feat: added github pages deployment (c55c362)
+- chore: docs (2dff0bb)
+- c64 ready (8ff3291)
+- feat: c64-ready gif (eecdea5)
+- feat: render ticks and readme (696b107)
+- feat: larger canvas view (d1d8856)
+- feat: working proof of concept initial commit (89e9a6e)
 
