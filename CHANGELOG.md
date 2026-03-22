@@ -4,7 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #10 from hayesmaker/chore/update-changelog-2026-03-22T23-04-34-067Z-ae4bc22 (7365710)
+- Merge pull request #11 from hayesmaker/feature/headless-cli-runner (78df809)
+- chore: update changelog (auto) [skip ci] (ae4bc22)
 - Merge pull request #9 from hayesmaker/chore/update-changelog-2026-03-22T18-25-45-840Z-bdf7b14 (e6e66d4)
+- chore: release script enhancements (920a654)
 - chore: update changelog (auto) [skip ci] (bdf7b14)
 - Merge pull request #8 from hayesmaker/feature/headless-cli-runner (02ee198)
 - chore: docs re-org (2efa3c0)
