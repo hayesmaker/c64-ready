@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+No unreleased changes.
+
+## v0.5.1 - 2026-03-23T10:09:37+00:00
+
+- chore(release): 0.5.1 (74d8448)
+- chore: update CHANGELOG.md (auto) (c9c5955)
 - fix: detatch keyboard input when ui panels present (baa80a1)
 - chore: fix node24 in deploy workflow (a948be5)
 - chore: force node24 fix (25d1bc8)
