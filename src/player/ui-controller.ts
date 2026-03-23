@@ -9,7 +9,7 @@ const CONTROLS = [
   ['Fire', 'Left Ctrl'],
 ];
 
-import type {C64Player} from './c64-player';
+import type { C64Player } from './c64-player';
 
 export default class UIController {
   private helpOverlay: HTMLElement | null = null;
@@ -67,10 +67,10 @@ export default class UIController {
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
         <div class="c64-version">${
-      'v' +
-      (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
-      (import.meta.env.VITE_GIT_HASH ? ` (build: ${import.meta.env.VITE_GIT_HASH})` : '')
-    }</div>
+          'v' +
+          (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
+          (import.meta.env.VITE_GIT_HASH ? ` (build: ${import.meta.env.VITE_GIT_HASH})` : '')
+        }</div>
       </div>
     `;
 
@@ -122,7 +122,7 @@ export default class UIController {
         })
         .join('\n');
 
-      const [{marked}, DOMPurify] = await Promise.all([import('marked'), import('dompurify')]);
+      const [{ marked }, DOMPurify] = await Promise.all([import('marked'), import('dompurify')]);
       const html = DOMPurify.default.sanitize(marked.parse(filtered));
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = html;
@@ -212,7 +212,7 @@ export default class UIController {
       preview.style.display = 'flex';
       previewName.textContent = file.name;
       // dispatch event for main code to pick up
-      const ev = new CustomEvent('c64-load-file', {detail: {file}});
+      const ev = new CustomEvent('c64-load-file', { detail: { file } });
       window.dispatchEvent(ev);
     };
 
@@ -271,21 +271,22 @@ export default class UIController {
       });
     }
 
-
     // ── Audio section ─────────────────────────────────────────────────────
     this.createAudioSection(panel.querySelector('.c64-menu-body')!);
 
     // ── Input section wiring ───────────────────────────────────────────────
-    const joyRadios = panel.querySelectorAll('input[name="c64-joy-port"]') as NodeListOf<HTMLInputElement>;
+    const joyRadios = panel.querySelectorAll(
+      'input[name="c64-joy-port"]',
+    ) as NodeListOf<HTMLInputElement>;
     const setJoyPort = (port: number) => {
       // Dispatch a global event so main app or player can pick it up
       window.dispatchEvent(new CustomEvent('c64-set-keyboard-joy-port', { detail: { port } }));
-      // If a player instance exists, try to set the input handler directly
-      if (this.player && (this.player as any).inputHandler?.setKeyboardJoystickPort) {
+      // If a player instance exists, try to set the input handler directly via the public API
+      if (this.player && typeof this.player.setKeyboardJoystickPort === 'function') {
         try {
-          (this.player as any).inputHandler.setKeyboardJoystickPort(port);
-        } catch (e) {
-          // ignore
+          this.player.setKeyboardJoystickPort(port);
+        } catch {
+          // ignore errors from consumer implementations
         }
       }
     };
@@ -296,7 +297,9 @@ export default class UIController {
     });
 
     // ── Display section wiring ─────────────────────────────────────────────
-    const displayRadios = panel.querySelectorAll('input[name="c64-display-mode"]') as NodeListOf<HTMLInputElement>;
+    const displayRadios = panel.querySelectorAll(
+      'input[name="c64-display-mode"]',
+    ) as NodeListOf<HTMLInputElement>;
     const canvas = document.getElementById('c64-screen') as HTMLCanvasElement | null;
     const applyDisplayMode = (mode: string) => {
       if (!canvas) return;
@@ -333,7 +336,8 @@ export default class UIController {
         // Remove canvas border in full-screen-like modes
         canvas.style.border = 'none';
         // Hide page scrollbars (prevent overflow when canvas touches edges)
-        if (this.savedHtmlOverflow === null) this.savedHtmlOverflow = document.documentElement.style.overflow;
+        if (this.savedHtmlOverflow === null)
+          this.savedHtmlOverflow = document.documentElement.style.overflow;
         if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
         document.documentElement.style.overflow = 'hidden';
         document.body.style.overflow = 'hidden';
@@ -345,7 +349,8 @@ export default class UIController {
         // Remove canvas border in full-screen-like modes
         canvas.style.border = 'none';
         // Hide page scrollbars (prevent overflow when canvas touches edges)
-        if (this.savedHtmlOverflow === null) this.savedHtmlOverflow = document.documentElement.style.overflow;
+        if (this.savedHtmlOverflow === null)
+          this.savedHtmlOverflow = document.documentElement.style.overflow;
         if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
         document.documentElement.style.overflow = 'hidden';
         document.body.style.overflow = 'hidden';
@@ -362,7 +367,7 @@ export default class UIController {
 
     window.addEventListener('c64-close-dialog', () => {
       this.closeMenu();
-    })
+    });
     // Close settings when a load completes or errors so the user sees the result
     // window.addEventListener('c64-load-success', () => {
     //   this.settingsOverlay?.classList.remove('visible');
@@ -441,7 +446,6 @@ export default class UIController {
         this.player.audio.resume();
       }
     });
-
   }
 
   /** Sync menu audio controls with current audio state */

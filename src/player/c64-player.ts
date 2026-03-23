@@ -201,6 +201,14 @@ export class C64Player {
       console.error('Failed to perform hard reset:', e);
     }
   }
+
+  /**
+   * Change which joystick port keyboard events map to (1 or 2).
+   * Delegates to the InputHandler created during start().
+   */
+  setKeyboardJoystickPort(port: number): void {
+    this.inputHandler?.setKeyboardJoystickPort(port);
+  }
 }
 
 // Simple CRT format validator

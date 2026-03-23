@@ -25,7 +25,11 @@ export class EmulatorInput {
     this.handleKeyUp(event);
   };
 
-  constructor(emulator: C64Emulator, target: EventTarget = window, defaultPort: JoystickPort = JOYSTICK_PORT_2) {
+  constructor(
+    emulator: C64Emulator,
+    target: EventTarget = window,
+    defaultPort: JoystickPort = JOYSTICK_PORT_2,
+  ) {
     this.emulator = emulator;
     this.target = target;
     this.keyboardJoystickPort = defaultPort;
