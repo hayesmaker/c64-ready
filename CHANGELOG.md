@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v0.5.0 - 2026-03-23T08:56:08+00:00
+
+- chore(release): 0.5.0 (b94d914)
+- chore: update changelog (auto) [skip ci] (07c46ba)
+
 ## v0.4.0 - 2026-03-22T23:27:35+00:00
 
 - chore(release): 0.4.0 (ccff6b7)
