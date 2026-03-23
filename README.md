@@ -57,6 +57,61 @@ Run tests in watch mode:
 npm run test:watch
 ```
 
+## Headless streaming (Docker)
+
+The headless player can stream the C64 output over RTMP / HTTP-FLV using Docker Compose.
+Two containers are started:
+
+| Container | Role |
+|-----------|------|
+| `c64-nms` | [Node Media Server](https://github.com/illuspas/Node-Media-Server) — RTMP ingest on `:1935`, HTTP-FLV on `:8000` |
+| `c64-headless` | Headless C64 emulator — encodes frames with ffmpeg and pushes to NMS over RTMP |
+
+**Prerequisites:** Docker and Docker Compose v2.
+
+### Quick start
+
+```zsh
+# 1. Copy the env file (optional — defaults boot to BASIC, stream forever)
+cp docker/.env.example .env
+
+# 2. Build and start both services
+docker compose up --build
+
+# 3. Watch the stream
+ffplay rtmp://localhost:1935/live/c64
+# or open in VLC / OBS: http://localhost:8000/live/c64.flv
+```
+
+### Load a cartridge
+
+Games are bind-mounted from `public/games/` — no rebuild needed:
+
+```zsh
+GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
+```
+
+### Environment variables
+
+All options can be set in `.env` or passed inline. See `docker/.env.example` for the full list.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WASM_PATH` | `/app/public/c64.wasm` | Path to the WASM binary inside the container |
+| `GAME_PATH` | *(empty)* | Cartridge/disk to load — leave blank to boot to BASIC |
+| `RTMP_URL` | `rtmp://nms:1935/live/c64` | Stream destination (RTMP URL or file path) |
+| `FPS` | `50` | Target frame rate (50 = PAL, 60 = NTSC) |
+| `DURATION` | *(empty = forever)* | Stop after this many seconds — omit to stream indefinitely |
+| `VERBOSE` | *(empty)* | Set to any non-empty value for per-frame diagnostics |
+| `NMS_RTMP_HOST_PORT` | `1935` | Host port mapped to the NMS RTMP ingest |
+| `NMS_HTTP_HOST_PORT` | `8000` | Host port mapped to the NMS HTTP-FLV endpoint |
+
+### Stop
+
+```zsh
+docker compose down
+```
+
 ## Deployment
 
 The project deploys to GitHub Pages automatically via GitHub Actions.
@@ -78,9 +133,10 @@ On every push to `master`:
 - [x] Audio output
 - [x] Input handling (keyboard)
 - [x] Loading and running .crt cartridge roms
+- [x] Display settings
+- [x] Docker headless streaming (RTMP / HTTP-FLV via Node Media Server)
 - [ ] Gamepad support
 - [ ] Touch controls
-- [ ] Display settings
 
 ## Changelog & Releases
 
