@@ -162,6 +162,9 @@ export class C64Emulator {
 
   removeCartridge(): void {
     this.wasm.exports?.c64_removeCartridge();
+
+    this.wasm.exports?.c64_reset();
+    this.frameCount = 0;
   }
 
   // ---------------------------------------------------------------------------

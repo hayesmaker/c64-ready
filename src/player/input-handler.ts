@@ -15,4 +15,9 @@ export default class InputHandler {
   detach(): void {
     this.emulatorInput.detach();
   }
+
+  /** Change which joystick port keyboard input maps to (1 or 2) */
+  setKeyboardJoystickPort(port: number): void {
+    this.emulatorInput.setKeyboardPort(port);
+  }
 }
