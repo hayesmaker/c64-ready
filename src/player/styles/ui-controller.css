@@ -59,6 +59,7 @@
   color: #7b71d5;
   letter-spacing: 1px;
 }
+
 .c64-version {
   display: flex;
   justify-content: end;
@@ -275,6 +276,11 @@
 .c64-cart-icon { width:56px; height:40px; background:#222; border:1px solid #333; display:flex; align-items:center; justify-content:center; border-radius:4px; }
 .c64-cart-filename { font-size:13px; color:#ccc; word-break:break-all; }
 .c64-file-input { display:none; }
-.c64-menu-actions { margin-top:12px; display:flex; gap:8px; }
+.c64-menu-actions {
+  margin-top:12px;
+  display:flex;
+  flex-direction: column;
+  gap:8px;
+}
 .c64-btn { background:#222; border:1px solid #444; color:#ddd; padding:6px 10px; border-radius:4px; cursor:pointer; }
 

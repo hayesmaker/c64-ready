@@ -1,5 +1,6 @@
 import type { C64Emulator } from './c64-emulator';
 import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from './constants';
+import type { JoystickPort } from './constants';
 
 const KEY_TO_JOYSTICK = {
   ArrowUp: JOYSTICK_DIRECTION.UP,
@@ -14,6 +15,8 @@ type MappedControl = keyof typeof KEY_TO_JOYSTICK;
 export class EmulatorInput {
   private readonly emulator: C64Emulator;
   private readonly target: EventTarget;
+  // Which joystick port keyboard events map to (1 or 2). Default is port 2.
+  private keyboardJoystickPort: JoystickPort;
   private readonly pressedControls = new Set<MappedControl>();
   private readonly keyDownHandler = (event: KeyboardEvent): void => {
     this.handleKeyDown(event);
@@ -22,9 +25,10 @@ export class EmulatorInput {
     this.handleKeyUp(event);
   };
 
-  constructor(emulator: C64Emulator, target: EventTarget = window) {
+  constructor(emulator: C64Emulator, target: EventTarget = window, defaultPort: JoystickPort = JOYSTICK_PORT_2) {
     this.emulator = emulator;
     this.target = target;
+    this.keyboardJoystickPort = defaultPort;
   }
 
   attach(): void {
@@ -45,7 +49,7 @@ export class EmulatorInput {
     }
 
     this.pressedControls.add(control);
-    this.emulator.joystickPush(JOYSTICK_PORT_2, KEY_TO_JOYSTICK[control]);
+    this.emulator.joystickPush(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
     event.preventDefault();
   }
 
@@ -56,7 +60,7 @@ export class EmulatorInput {
     }
 
     this.pressedControls.delete(control);
-    this.emulator.joystickRelease(JOYSTICK_PORT_2, KEY_TO_JOYSTICK[control]);
+    this.emulator.joystickRelease(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
     event.preventDefault();
   }
 
@@ -70,8 +74,17 @@ export class EmulatorInput {
 
   private releaseAll(): void {
     for (const control of this.pressedControls) {
-      this.emulator.joystickRelease(JOYSTICK_PORT_2, KEY_TO_JOYSTICK[control]);
+      this.emulator.joystickRelease(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
     }
     this.pressedControls.clear();
+  }
+
+  /** Set which joystick port keyboard controls should target (1 or 2). */
+  setKeyboardPort(port: JoystickPort): void {
+    // If port is unchanged, do nothing.
+    if (this.keyboardJoystickPort === port) return;
+    // Release any pressed controls on the old port before switching.
+    this.releaseAll();
+    this.keyboardJoystickPort = port;
   }
 }

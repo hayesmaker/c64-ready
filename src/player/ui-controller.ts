@@ -9,13 +9,16 @@ const CONTROLS = [
   ['Fire', 'Left Ctrl'],
 ];
 
-import type { C64Player } from './c64-player';
+import type {C64Player} from './c64-player';
 
 export default class UIController {
-  private overlay: HTMLElement | null = null;
-  private menuOverlay: HTMLElement | null = null;
+  private helpOverlay: HTMLElement | null = null;
+  private settingsOverlay: HTMLElement | null = null;
   private fileInput: HTMLInputElement | null = null;
   private player: C64Player | null = null;
+  // Save previous overflow styles so we can restore them when exiting full/stretch
+  private savedHtmlOverflow: string | null = null;
+  private savedBodyOverflow: string | null = null;
 
   init(player?: C64Player): void {
     this.player = player ?? null;
@@ -64,17 +67,17 @@ export default class UIController {
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
         <div class="c64-version">${
-          'v' +
-          (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
-          (import.meta.env.VITE_GIT_HASH ? ` (build: ${import.meta.env.VITE_GIT_HASH})` : '')
-        }</div>
+      'v' +
+      (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
+      (import.meta.env.VITE_GIT_HASH ? ` (build: ${import.meta.env.VITE_GIT_HASH})` : '')
+    }</div>
       </div>
     `;
 
     overlay.querySelector('.c64-help-close')!.addEventListener('click', () => this.close());
 
     document.body.appendChild(overlay);
-    this.overlay = overlay;
+    this.helpOverlay = overlay;
     // Create changelog modal container (hidden by default)
     const changelogOverlay = document.createElement('div');
     changelogOverlay.className = 'c64-help-overlay';
@@ -119,7 +122,7 @@ export default class UIController {
         })
         .join('\n');
 
-      const [{ marked }, DOMPurify] = await Promise.all([import('marked'), import('dompurify')]);
+      const [{marked}, DOMPurify] = await Promise.all([import('marked'), import('dompurify')]);
       const html = DOMPurify.default.sanitize(marked.parse(filtered));
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = html;
@@ -149,10 +152,23 @@ export default class UIController {
     panel.className = 'c64-menu-panel';
     panel.innerHTML = `
       <div class="c64-menu-header">
-        <strong>Settings</strong>
+        <h2>Settings</h2>
         <button class="c64-menu-close">&times;</button>
       </div>
       <div class="c64-menu-body">
+        <label style="font-size:13px;color:#aaa">Input</label>
+        <div style="margin-top:8px; display:flex; gap:12px; align-items:center;">
+          <label><input type="radio" name="c64-joy-port" value="1" /> Port 1</label>
+          <label><input type="radio" name="c64-joy-port" value="2" checked /> Port 2</label>
+        </div>
+        <div style="height:8px"></div>
+        <label style="font-size:13px;color:#aaa">Display</label>
+        <div style="margin-top:8px; display:flex; gap:12px; align-items:center;">
+          <label><input type="radio" name="c64-display-mode" value="standard" checked /> Standard</label>
+          <label><input type="radio" name="c64-display-mode" value="full" /> Full</label>
+          <label><input type="radio" name="c64-display-mode" value="stretch" /> Stretch</label>
+        </div>
+        <div style="height:8px"></div>
         <label style="font-size:13px;color:#aaa">Load cartridge (.crt)</label>
         <div class="c64-dragarea" id="c64-dragarea">Drop a .crt file here or <button class="c64-btn" id="c64-browse">Browse</button></div>
         <input class="c64-file-input" id="c64-file-input" type="file" accept=".crt" />
@@ -164,9 +180,16 @@ export default class UIController {
           <div class="c64-cart-filename" id="c64-cart-filename"></div>
         </div>
         <div class="c64-menu-actions">
-          <button class="c64-btn" id="c64-load-btn">Load</button>
-          <button class="c64-btn" id="c64-close-menu">Close</button>
+          <div>
+           <button class="c64-btn" id="c64-load-btn">Load</button>
+            <button class="c64-btn" id="c64-close-menu">Close</button>
+          </div>
+          <div style="margin-top:12px; display:flex; gap:8px;">
+            <button class="c64-btn" id="c64-detach-btn">Detach Cartridge</button>
+            <button class="c64-btn" id="c64-reset-btn">Hard Reset</button>
+          </div>
         </div>
+
       </div>
     `;
 
@@ -175,7 +198,8 @@ export default class UIController {
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
-    this.menuOverlay = overlay;
+    // The settings overlay is the overlay we just created
+    this.settingsOverlay = overlay;
 
     // wire up file input and drag/drop
     this.fileInput = panel.querySelector('#c64-file-input') as HTMLInputElement;
@@ -188,7 +212,7 @@ export default class UIController {
       preview.style.display = 'flex';
       previewName.textContent = file.name;
       // dispatch event for main code to pick up
-      const ev = new CustomEvent('c64-load-file', { detail: { file } });
+      const ev = new CustomEvent('c64-load-file', {detail: {file}});
       window.dispatchEvent(ev);
     };
 
@@ -219,8 +243,133 @@ export default class UIController {
       else this.fileInput?.click();
     });
 
+    const section = document.querySelector('.c64-menu-actions');
+    // Detach cartridge / hard reset controls
+    const detachBtn = section?.querySelector('#c64-detach-btn') as HTMLButtonElement | null;
+    const resetBtn = section?.querySelector('#c64-reset-btn') as HTMLButtonElement | null;
+    if (detachBtn) {
+      detachBtn.addEventListener('click', () => {
+        if (!this.player) return;
+        if (!confirm('Detach cartridge?')) return;
+        this.player.detachCartridge();
+        // Provide immediate UI feedback
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+          statusEl.textContent = 'Cartridge detached';
+        }
+      });
+    }
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (!this.player) return;
+        if (!confirm('Perform hard reset? This will restart the emulator.')) return;
+        this.player.hardReset();
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+          statusEl.textContent = 'Hard reset performed';
+        }
+      });
+    }
+
+
     // ── Audio section ─────────────────────────────────────────────────────
     this.createAudioSection(panel.querySelector('.c64-menu-body')!);
+
+    // ── Input section wiring ───────────────────────────────────────────────
+    const joyRadios = panel.querySelectorAll('input[name="c64-joy-port"]') as NodeListOf<HTMLInputElement>;
+    const setJoyPort = (port: number) => {
+      // Dispatch a global event so main app or player can pick it up
+      window.dispatchEvent(new CustomEvent('c64-set-keyboard-joy-port', { detail: { port } }));
+      // If a player instance exists, try to set the input handler directly
+      if (this.player && (this.player as any).inputHandler?.setKeyboardJoystickPort) {
+        try {
+          (this.player as any).inputHandler.setKeyboardJoystickPort(port);
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+    joyRadios.forEach((r) => {
+      r.addEventListener('change', () => {
+        if (r.checked) setJoyPort(Number(r.value));
+      });
+    });
+
+    // ── Display section wiring ─────────────────────────────────────────────
+    const displayRadios = panel.querySelectorAll('input[name="c64-display-mode"]') as NodeListOf<HTMLInputElement>;
+    const canvas = document.getElementById('c64-screen') as HTMLCanvasElement | null;
+    const applyDisplayMode = (mode: string) => {
+      if (!canvas) return;
+      // Reset to defaults first
+      canvas.style.width = '';
+      canvas.style.height = '';
+      canvas.style.objectFit = '';
+      canvas.removeAttribute('data-display-mode');
+
+      if (mode === 'standard') {
+        // Use the default CSS size (no change)
+        canvas.style.width = '';
+        canvas.style.height = '';
+        // Restore the default border from CSS
+        canvas.style.border = '';
+        // Restore any previously-saved page overflow styles so scrollbars reappear
+        if (this.savedHtmlOverflow !== null) {
+          document.documentElement.style.overflow = this.savedHtmlOverflow;
+          this.savedHtmlOverflow = null;
+        } else {
+          document.documentElement.style.overflow = '';
+        }
+        if (this.savedBodyOverflow !== null) {
+          document.body.style.overflow = this.savedBodyOverflow;
+          this.savedBodyOverflow = null;
+        } else {
+          document.body.style.overflow = '';
+        }
+      } else if (mode === 'full') {
+        // Maintain aspect ratio, make canvas fill the full height of the browser
+        canvas.style.height = '100vh';
+        canvas.style.width = 'auto';
+        canvas.style.objectFit = 'contain';
+        // Remove canvas border in full-screen-like modes
+        canvas.style.border = 'none';
+        // Hide page scrollbars (prevent overflow when canvas touches edges)
+        if (this.savedHtmlOverflow === null) this.savedHtmlOverflow = document.documentElement.style.overflow;
+        if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+      } else if (mode === 'stretch') {
+        // Stretch to full width and height (may alter aspect ratio)
+        canvas.style.width = '100vw';
+        canvas.style.height = '100vh';
+        canvas.style.objectFit = 'fill';
+        // Remove canvas border in full-screen-like modes
+        canvas.style.border = 'none';
+        // Hide page scrollbars (prevent overflow when canvas touches edges)
+        if (this.savedHtmlOverflow === null) this.savedHtmlOverflow = document.documentElement.style.overflow;
+        if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+      }
+      canvas.setAttribute('data-display-mode', mode);
+      window.dispatchEvent(new CustomEvent('c64-display-mode-changed', { detail: { mode } }));
+    };
+
+    displayRadios.forEach((r) => {
+      r.addEventListener('change', () => {
+        if (r.checked) applyDisplayMode(r.value);
+      });
+    });
+
+    window.addEventListener('c64-close-dialog', () => {
+      this.closeMenu();
+    })
+    // Close settings when a load completes or errors so the user sees the result
+    // window.addEventListener('c64-load-success', () => {
+    //   this.settingsOverlay?.classList.remove('visible');
+    // });
+    window.addEventListener('c64-load-error', () => {
+      this.settingsOverlay?.classList.remove('visible');
+    });
   }
 
   /** Floating unmute button — shown when autoplay is blocked by the browser */
@@ -292,6 +441,7 @@ export default class UIController {
         this.player.audio.resume();
       }
     });
+
   }
 
   /** Sync menu audio controls with current audio state */
@@ -313,17 +463,18 @@ export default class UIController {
   }
 
   private toggleMenu(): void {
-    this.menuOverlay?.classList.toggle('visible');
+    this.settingsOverlay?.classList.toggle('visible');
   }
+
   private closeMenu(): void {
-    this.menuOverlay?.classList.remove('visible');
+    this.settingsOverlay?.classList.remove('visible');
   }
 
   open(): void {
-    this.overlay?.classList.add('visible');
+    this.helpOverlay?.classList.add('visible');
   }
 
   close(): void {
-    this.overlay?.classList.remove('visible');
+    this.helpOverlay?.classList.remove('visible');
   }
 }

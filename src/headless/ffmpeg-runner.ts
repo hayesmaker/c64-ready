@@ -30,7 +30,9 @@ export class FFmpegRunner {
       const outputIndex = finalArgs.findIndex((a) => a.startsWith('rtmp://'));
 
       if (outputIndex !== -1) {
-        const hasPreset = finalArgs.some((a) => a === '-preset' || a === '-tune' || a === '-g' || a === '-c:v');
+        const hasPreset = finalArgs.some(
+          (a) => a === '-preset' || a === '-tune' || a === '-g' || a === '-c:v',
+        );
         if (!hasPreset) {
           // Insert before the output position
           const streamOpts = [
@@ -45,7 +47,10 @@ export class FFmpegRunner {
             '-g',
             '50',
           ];
-          finalArgs = finalArgs.slice(0, outputIndex).concat(streamOpts).concat(finalArgs.slice(outputIndex));
+          finalArgs = finalArgs
+            .slice(0, outputIndex)
+            .concat(streamOpts)
+            .concat(finalArgs.slice(outputIndex));
         }
       }
 
