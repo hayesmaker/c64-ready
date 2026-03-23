@@ -4,11 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+- chore: dockerized headless c64 player (7bc7770)
+- chore: cleanup source files (27925b4)
 
 ## v0.5.1 - 2026-03-23T10:09:37+00:00
 
-- chore(release): 0.5.1 (74d8448)
+- chore(release): 0.5.1 (8f3dae2)
 - chore: update CHANGELOG.md (auto) (c9c5955)
 - fix: detatch keyboard input when ui panels present (baa80a1)
 - chore: fix node24 in deploy workflow (a948be5)

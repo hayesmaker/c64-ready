@@ -26,5 +26,5 @@ dist-*
 # Reference files
 temp/
 temp/*.mp4
-
+.env
 

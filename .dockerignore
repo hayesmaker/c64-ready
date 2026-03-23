@@ -1,0 +1,18 @@
+# ── Ignore everything that isn't needed inside the container ──────────────────
+node_modules
+dist
+dist-ts
+temp
+.git
+.idea
+.github
+test
+docs
+scripts
+tools
+*.md
+*.log
+.env
+.env.*
+!docker/.env.example
+

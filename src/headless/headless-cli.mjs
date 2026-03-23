@@ -193,7 +193,11 @@ export async function runHeadless(options = {}) {
   let frameCount = 0;
   const runStartTime = Date.now();
   const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
-  const endTime = record ? (runStartTime + ((durationSec || 60) * 1000)) : null;
+  // When recording without an explicit --duration, run forever (endTime = Infinity).
+  // A finite endTime is only used when the caller explicitly passed --duration.
+  const endTime = record
+    ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
+    : null;
   let lastTick = Date.now();
   // Diagnostics: observed FPS window
   let windowStart = Date.now();

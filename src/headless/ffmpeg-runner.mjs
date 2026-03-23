@@ -121,6 +121,10 @@ export class FFmpegRunner {
       try { this.stdin = null; } catch (e) {}
     });
 
+    // Raise the drain-listener limit on stdin — the write loop adds one per
+    // backpressure event and Node's default of 10 triggers a warning.
+    try { this.proc.stdin.setMaxListeners(100); } catch (e) {}
+
     return !!this.proc && !!this.proc.pid;
   }
 

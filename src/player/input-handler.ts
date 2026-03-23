@@ -50,7 +50,10 @@ export default class InputHandler {
             e.stopImmediatePropagation();
             return;
           }
-        } else if (typeof (document as Document).hasFocus === 'function' && !(document as Document).hasFocus()) {
+        } else if (
+          typeof (document as Document).hasFocus === 'function' &&
+          !(document as Document).hasFocus()
+        ) {
           e.stopImmediatePropagation();
           return;
         }
@@ -89,7 +92,10 @@ export default class InputHandler {
             e.stopImmediatePropagation();
             return;
           }
-        } else if (typeof (document as Document).hasFocus === 'function' && !(document as Document).hasFocus()) {
+        } else if (
+          typeof (document as Document).hasFocus === 'function' &&
+          !(document as Document).hasFocus()
+        ) {
           e.stopImmediatePropagation();
           return;
         }
