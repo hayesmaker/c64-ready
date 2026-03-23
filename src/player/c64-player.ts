@@ -116,8 +116,28 @@ export class C64Player {
     }
 
     onProgress?.(90, 'INSERTING CARTRIDGE...');
-    this.emulator.loadGame({ type, data });
-    onProgress?.(100, 'READY!');
+    // Basic validation for cartridge files — some malformed .crt files can
+    // silently fail inside the WASM loader; catch common format problems here
+    if (type === 'crt' && !isValidCRT(data)) {
+      onProgress?.(0, 'INVALID CRT');
+      const err = new Error('Invalid CRT file format');
+      console.error(err);
+      throw err;
+    }
+    try {
+      this.emulator.loadGame({ type, data });
+      onProgress?.(100, 'READY!');
+      // Notify UI that load succeeded
+      window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { url, type } }));
+    } catch (err) {
+      onProgress?.(0, 'FAILED');
+      console.error('Failed to insert cartridge or load game:', err);
+      // Surface a global event so UI can react if needed
+      window.dispatchEvent(
+        new CustomEvent('c64-load-error', { detail: { error: String(err), url, type } }),
+      );
+      throw err;
+    }
   }
 
   // Load a game from a File/Blob provided by the user (drag & drop / file input)
@@ -129,11 +149,73 @@ export class C64Player {
       const ab = await file.arrayBuffer();
       const data = new Uint8Array(ab);
       onProgress?.(90, 'INSERTING CARTRIDGE...');
-      this.emulator.loadGame({ type, data });
-      onProgress?.(100, 'READY!');
+      if (type === 'crt' && !isValidCRT(data)) {
+        onProgress?.(0, 'INVALID CRT');
+        const err = new Error('Invalid CRT file format');
+        console.error(err);
+        throw err;
+      }
+      try {
+        this.emulator.loadGame({ type, data });
+        onProgress?.(100, 'READY!');
+        window.dispatchEvent(
+          new CustomEvent('c64-close-dialog', { detail: { file: file.name, type } }),
+        );
+      } catch (err) {
+        onProgress?.(0, 'FAILED');
+        console.error('Failed to insert cartridge from file:', err);
+        window.dispatchEvent(
+          new CustomEvent('c64-load-error', {
+            detail: { error: String(err), file: file.name, type },
+          }),
+        );
+        throw err;
+      }
     } catch (err) {
       onProgress?.(0, 'FAILED');
       throw err;
     }
   }
+
+  // Expose cartridge / reset controls for UI
+  detachCartridge(): void {
+    if (!this.emulator) return;
+    try {
+      this.emulator.removeCartridge();
+      window.dispatchEvent(new CustomEvent('c64-detach', { detail: {} }));
+      window.dispatchEvent(new CustomEvent('c64-close-menu'));
+    } catch (e) {
+      console.error('Failed to detach cartridge:', e);
+    }
+  }
+
+  hardReset(): void {
+    if (!this.emulator) return;
+    try {
+      this.emulator.reset();
+      // Ensure emulator resumes after reset
+      this.emulator.start();
+      window.dispatchEvent(new CustomEvent('c64-hard-reset', { detail: {} }));
+      window.dispatchEvent(new CustomEvent('c64-close-menu'));
+    } catch (e) {
+      console.error('Failed to perform hard reset:', e);
+    }
+  }
+
+  /**
+   * Change which joystick port keyboard events map to (1 or 2).
+   * Delegates to the InputHandler created during start().
+   */
+  setKeyboardJoystickPort(port: number): void {
+    this.inputHandler?.setKeyboardJoystickPort(port);
+  }
+}
+
+// Simple CRT format validator
+function isValidCRT(data: Uint8Array): boolean {
+  // CRT files typically start with the ASCII header 'C64 CARTRIDGE' within the first 16 bytes
+  if (!data || data.length < 16) return false;
+  const header = String.fromCharCode(...Array.from(data.slice(0, 16)));
+  console.log('[c64-player]: header=', header);
+  return header.includes('C64 CARTRIDGE') || header.includes('C64 CARTRIDGE');
 }

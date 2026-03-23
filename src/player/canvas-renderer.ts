@@ -1,47 +1,7 @@
 import type { FrameBuffer } from '../types';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
-const LOADER_CSS = `
-  .c64-loader {
-    position: relative;
-    width: 768px;
-    margin-top: 12px;
-    transition: opacity 0.6s ease, transform 0.6s ease;
-  }
-  .c64-loader.hidden {
-    opacity: 0;
-    transform: translateY(-6px);
-    pointer-events: none;
-  }
-  .c64-loader-label {
-    font-family: monospace;
-    font-size: 12px;
-    color: #7b71d5;
-    margin-bottom: 4px;
-    letter-spacing: 1px;
-  }
-  .c64-loader-track {
-    width: 100%;
-    height: 10px;
-    background: #222;
-    border: 1px solid #444;
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .c64-loader-fill {
-    height: 100%;
-    width: 0;
-    background: linear-gradient(90deg, #6c6cff 0%, #a8a8ff 50%, #6c6cff 100%);
-    background-size: 200% 100%;
-    border-radius: 2px;
-    transition: width 0.5s cubic-bezier(.22,.61,.36,1);
-    animation: c64-shimmer 1.5s linear infinite;
-  }
-  @keyframes c64-shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
-`;
+import loaderCss from './styles/canvas-renderer.css?raw';
 
 export default class CanvasRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -78,7 +38,7 @@ export default class CanvasRenderer {
     if (!document.querySelector('style[data-c64-loader]')) {
       const style = document.createElement('style');
       style.setAttribute('data-c64-loader', '');
-      style.textContent = LOADER_CSS;
+      style.textContent = loaderCss;
       document.head.appendChild(style);
     }
 

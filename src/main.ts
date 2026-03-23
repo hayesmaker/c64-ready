@@ -29,6 +29,12 @@ player
     status.style.color = '#f44';
   });
 
+/**
+ * @method updateFavicon
+ *
+ * PowerLED blink on and off when browser focus is on/off.
+ * PRO
+ */
 const updateFavicon = () => {
   const isDimmed = document.hidden;
   const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -59,4 +65,16 @@ window.addEventListener('c64-load-file', async (e: Event) => {
     status.textContent = `Load error: ${err}`;
     status.style.color = '#f44';
   }
+});
+
+// Global listener for load errors dispatched by C64Player
+window.addEventListener('c64-load-error', (e: Event) => {
+  const detail = (e as CustomEvent).detail as
+    | { error?: string; url?: string; file?: string; type?: string }
+    | undefined;
+  const msg = detail?.error ?? 'Unknown load error';
+  console.error('C64 load error event:', detail);
+  renderer.setError?.('LOAD ERROR');
+  status.textContent = `Load error: ${msg}`;
+  status.style.color = '#f44';
 });

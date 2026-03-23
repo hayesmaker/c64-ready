@@ -21,7 +21,17 @@ describe('C64Player', () => {
     } as any;
   }
 
-  function stubFetchForGame(data: Uint8Array = new Uint8Array([1, 2, 3, 4])) {
+  function stubFetchForGame(data?: Uint8Array) {
+    // Provide a minimal, valid CRT-like header when no data is supplied so
+    // the player's CRT validation passes in tests.
+    if (!data) {
+      const header = 'C64 CARTRIDGE';
+      data = new Uint8Array(16);
+      for (let i = 0; i < header.length && i < 16; i++) {
+        data[i] = header.charCodeAt(i);
+      }
+    }
+
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
