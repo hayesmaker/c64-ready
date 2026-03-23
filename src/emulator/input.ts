@@ -2,13 +2,22 @@ import type { C64Emulator } from './c64-emulator';
 import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from './constants';
 import type { JoystickPort } from './constants';
 
-const KEY_TO_JOYSTICK = {
+export const KEY_TO_JOYSTICK = {
   ArrowUp: JOYSTICK_DIRECTION.UP,
   ArrowDown: JOYSTICK_DIRECTION.DOWN,
   ArrowLeft: JOYSTICK_DIRECTION.LEFT,
   ArrowRight: JOYSTICK_DIRECTION.RIGHT,
   ControlLeft: JOYSTICK_FIRE_1,
 } as const;
+
+/**
+ * Array of keyboard codes that map to joystick inputs. Exported so
+ * external UI/input handlers can derive their blocking behavior from
+ * the same canonical mapping used by the emulator.
+ */
+export const JOYSTICK_KEY_CODES: Array<keyof typeof KEY_TO_JOYSTICK> = Object.keys(
+  KEY_TO_JOYSTICK,
+) as Array<keyof typeof KEY_TO_JOYSTICK>;
 
 type MappedControl = keyof typeof KEY_TO_JOYSTICK;
 
@@ -47,6 +56,7 @@ export class EmulatorInput {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    // handle keydown
     const control = this.getMappedControl(event);
     if (!control || this.pressedControls.has(control)) {
       return;
@@ -58,6 +68,7 @@ export class EmulatorInput {
   }
 
   private handleKeyUp(event: KeyboardEvent): void {
+    // handle keyup
     const control = this.getMappedControl(event);
     if (!control) {
       return;
