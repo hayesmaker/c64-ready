@@ -8,7 +8,7 @@ No unreleased changes.
 
 ## v0.4.0 - 2026-03-22T23:27:35+00:00
 
-- chore(release): 0.4.0 (b48608e)
+- chore(release): 0.4.0 (ccff6b7)
 - Merge pull request #17 from hayesmaker/feature/headless-cli-runner (7bcd326)
 - Merge branch 'master' into feature/headless-cli-runner (561a02b)
 - chore: stop auto generated changelogs prs (a9822ca)
