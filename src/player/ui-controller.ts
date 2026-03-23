@@ -10,6 +10,7 @@ const CONTROLS = [
 ];
 
 import type { C64Player } from './c64-player';
+import type { JoystickPort } from '../emulator/constants';
 
 export default class UIController {
   private helpOverlay: HTMLElement | null = null;
@@ -278,7 +279,7 @@ export default class UIController {
     const joyRadios = panel.querySelectorAll(
       'input[name="c64-joy-port"]',
     ) as NodeListOf<HTMLInputElement>;
-    const setJoyPort = (port: number) => {
+    const setJoyPort = (port: JoystickPort) => {
       // Dispatch a global event so main app or player can pick it up
       window.dispatchEvent(new CustomEvent('c64-set-keyboard-joy-port', { detail: { port } }));
       // If a player instance exists, try to set the input handler directly via the public API
@@ -292,7 +293,7 @@ export default class UIController {
     };
     joyRadios.forEach((r) => {
       r.addEventListener('change', () => {
-        if (r.checked) setJoyPort(Number(r.value));
+        if (r.checked) setJoyPort(Number(r.value) as JoystickPort);
       });
     });
 

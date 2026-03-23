@@ -1,4 +1,5 @@
 import { EmulatorInput } from '../emulator/input';
+import type { JoystickPort } from '../emulator/constants';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
 export default class InputHandler {
@@ -17,7 +18,7 @@ export default class InputHandler {
   }
 
   /** Change which joystick port keyboard input maps to (1 or 2) */
-  setKeyboardJoystickPort(port: number): void {
+  setKeyboardJoystickPort(port: JoystickPort): void {
     this.emulatorInput.setKeyboardPort(port);
   }
 }

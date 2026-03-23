@@ -1,5 +1,6 @@
 import { C64Emulator } from '../emulator/c64-emulator';
 import type { GameLoadOptions } from '../types';
+import type { JoystickPort } from '../emulator/constants';
 import type CanvasRenderer from './canvas-renderer';
 import { AudioEngine } from './audio-engine';
 import InputHandler from './input-handler';
@@ -206,7 +207,7 @@ export class C64Player {
    * Change which joystick port keyboard events map to (1 or 2).
    * Delegates to the InputHandler created during start().
    */
-  setKeyboardJoystickPort(port: number): void {
+  setKeyboardJoystickPort(port: JoystickPort): void {
     this.inputHandler?.setKeyboardJoystickPort(port);
   }
 }
