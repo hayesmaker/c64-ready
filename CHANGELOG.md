@@ -6,10 +6,16 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
-## v0.5.0 - 2026-03-23T08:56:08+00:00
+## v0.5.0 - 2026-03-23T09:12:04+00:00
 
-- chore(release): 0.5.0 (b94d914)
+- chore: fix typings and UI controller behavior for joystick/display settings (e843785)
+- Merge remote-tracking branch 'origin/master' (2f5150f)
+- chore(release): 0.5.0 (1c67934)
 - chore: update changelog (auto) [skip ci] (07c46ba)
+- Merge pull request #18 from hayesmaker/feature/more-ui-controller-settings (7557af9)
+- chore: fix lints (45d0b3d)
+- feat: simple input and display settings (c5e60b1)
+- chore(styles): extract inline CSS to module styles/ and import as raw (74f1d41)
 
 ## v0.4.0 - 2026-03-22T23:27:35+00:00
 
