@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# c64-ready — Docker Compose
+#
+# Services:
+#   nms       — Node Media Server (RTMP ingest + HTTP-FLV / HLS playback)
+#   headless  — Headless C64 emulator (pushes RGBA frames → ffmpeg → RTMP)
+#
+# Quick start:
+#   cp docker/.env.example .env          # (optional) customise ports / game
+#   docker compose up --build
+#
+# Watch the stream:
+#   HTTP-FLV  → http://localhost:8000/live/c64.flv
+#   HLS       → http://localhost:8000/live/c64/index.m3u8
+#   RTMP      → rtmp://localhost:1935/live/c64  (VLC / OBS / ffplay)
+#
+# Load a cartridge instead of booting to BASIC:
+#   GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
+#
+# Stop everything:
+#   docker compose down
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Node Media Server ───────────────────────────────────────────────────────
+  nms:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nms
+    container_name: c64-nms
+    restart: unless-stopped
+    ports:
+      - "${NMS_RTMP_HOST_PORT:-1935}:1935"   # RTMP ingest
+      - "${NMS_HTTP_HOST_PORT:-8000}:8000"    # HTTP-FLV / HLS playback
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:8000', r => process.exit(r.statusCode < 500 ? 0 : 1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Headless C64 player ─────────────────────────────────────────────────────
+  headless:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.headless
+    container_name: c64-headless
+    restart: unless-stopped
+    depends_on:
+      nms:
+        condition: service_healthy
+    # Bind-mount the WASM binary and games folder from the host so you can
+    # swap cartridges without rebuilding the image.
+    volumes:
+      - ./public/c64.wasm:/app/public/c64.wasm:ro
+      - ./public/games:/app/public/games:ro
+    environment:
+      WASM_PATH:  ${WASM_PATH:-/app/public/c64.wasm}
+      GAME_PATH:  ${GAME_PATH:-}
+      RTMP_URL:   ${RTMP_URL:-rtmp://nms:1935/live/c64}
+      FPS:        ${FPS:-50}
+      DURATION:   ${DURATION:-}
+      VERBOSE:    ${VERBOSE:-}
+

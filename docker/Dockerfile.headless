@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+# ─────────────────────────────────────────────────────────────────────────────
+# Headless C64 Player
+#
+# Runs bin/headless.mjs inside the repo, streaming RGBA frames over RTMP via
+# ffmpeg.  The WASM binary and optional cartridge are bind-mounted in at
+# runtime (see docker-compose.yml).
+#
+# Build:
+#   docker compose build headless
+#
+# Run standalone (no compose):
+#   docker run --rm \
+#     -v $(pwd)/public:/app/public:ro \
+#     -v $(pwd)/public/games:/app/public/games:ro \
+#     -e RTMP_URL=rtmp://nms:1935/live/c64 \
+#     c64-ready-headless
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:24-slim AS base
+
+# ffmpeg is required by the headless CLI for encoding/streaming
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ── Install JS dependencies ───────────────────────────────────────────────────
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+# ── Copy source files needed by the headless runner ───────────────────────────
+COPY bin/           ./bin/
+COPY src/headless/  ./src/headless/
+COPY src/emulator/  ./src/emulator/
+COPY src/types/     ./src/types/
+# Public assets (wasm + games) are expected to be bind-mounted at runtime.
+# Copy them here as well so the image can run standalone without mounts.
+COPY public/        ./public/
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+COPY docker/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
+# ── Runtime config defaults ───────────────────────────────────────────────────
+# All values can be overridden via environment variables or docker-compose.yml.
+ENV WASM_PATH=/app/public/c64.wasm
+ENV GAME_PATH=""
+ENV RTMP_URL=rtmp://nms:1935/live/c64
+ENV FPS=50
+ENV DURATION=""
+ENV VERBOSE=""
+
+ENTRYPOINT ["./entrypoint.sh"]
+

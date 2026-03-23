@@ -1,0 +1,9 @@
+{
+  "name": "c64-nms",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "node-media-server": "^2.7.0"
+  }
+}
+

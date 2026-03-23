@@ -71,3 +71,30 @@ Run headless CLI with the source shim and small frames to reproduce logic quickl
 node bin/headless.mjs --wasm public/c64.wasm --no-game --frames 30 --verbose
 ```
 
+### Dockerised headless CLI (Linux/Mac, requires Docker):
+
+Two-container setup defined in `docker-compose.yml`:
+- **nms** — Node Media Server (`docker/Dockerfile.nms`, `docker/nms/server.mjs`): RTMP ingest on `:1935`, HTTP-FLV/HLS on `:8000`
+- **headless** — Headless C64 player (`docker/Dockerfile.headless`, entrypoint: `docker/entrypoint.sh`): streams via ffmpeg → RTMP → nms
+
+```zsh
+# First run — copy and optionally edit env vars
+cp docker/.env.example .env
+
+# Build and start both services
+docker compose up --build
+
+# Watch stream in VLC / ffplay
+ffplay rtmp://localhost:1935/live/c64
+# or open http://localhost:8000/live/c64/index.m3u8 in a player
+
+# Load a cartridge (no rebuild needed — games are bind-mounted)
+GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
+
+# Stop everything
+docker compose down
+```
+
+Key env vars (see `docker/.env.example`): `WASM_PATH`, `GAME_PATH`, `RTMP_URL`, `FPS`, `DURATION`, `VERBOSE`, `NMS_RTMP_HOST_PORT`, `NMS_HTTP_HOST_PORT`.
+The `headless` service waits for `nms` to pass its healthcheck before starting.
+
