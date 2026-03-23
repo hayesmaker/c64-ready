@@ -4,7 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+- fix: detatch keyboard input when ui panels present (baa80a1)
+- chore: fix node24 in deploy workflow (a948be5)
+- chore: force node24 fix (25d1bc8)
+- chore: update changelog (auto) [skip ci] (8e926b6)
 
 ## v0.5.0 - 2026-03-23T09:12:04+00:00
 
