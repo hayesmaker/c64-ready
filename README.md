@@ -73,7 +73,7 @@ Two containers are started:
 
 ```zsh
 # 1. Copy the env file (optional — defaults boot to BASIC, stream forever)
-cp docker/.env.example .env
+cp docker/.env.example docker/.env
 
 # 2. Build and start both services
 docker compose up --build
@@ -101,6 +101,7 @@ All options can be set in `.env` or passed inline. See `docker/.env.example` for
 | `GAME_PATH` | *(empty)* | Cartridge/disk to load — leave blank to boot to BASIC |
 | `RTMP_URL` | `rtmp://nms:1935/live/c64` | Stream destination (RTMP URL or file path) |
 | `FPS` | `50` | Target frame rate (50 = PAL, 60 = NTSC) |
+| `AUDIO` | *(empty)* | Set to `1` to mux SID audio (AAC) into the stream/recording |
 | `DURATION` | *(empty = forever)* | Stop after this many seconds — omit to stream indefinitely |
 | `VERBOSE` | *(empty)* | Set to any non-empty value for per-frame diagnostics |
 | `NMS_RTMP_HOST_PORT` | `1935` | Host port mapped to the NMS RTMP ingest |

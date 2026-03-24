@@ -22,6 +22,13 @@ if [ -n "${DURATION}" ]; then
   ARGS="$ARGS --duration $DURATION"
 fi
 
+# Enable SID audio muxing only when AUDIO is explicitly "1" or "true".
+# Intentionally NOT using [ -n "${AUDIO}" ] because AUDIO=0 is non-empty
+# and would incorrectly enable audio.
+if [ "${AUDIO}" = "1" ] || [ "${AUDIO}" = "true" ]; then
+  ARGS="$ARGS --audio"
+fi
+
 if [ -n "${VERBOSE}" ]; then
   ARGS="$ARGS --verbose"
 fi

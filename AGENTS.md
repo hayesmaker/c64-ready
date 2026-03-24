@@ -79,7 +79,7 @@ Two-container setup defined in `docker-compose.yml`:
 
 ```zsh
 # First run — copy and optionally edit env vars
-cp docker/.env.example .env
+cp docker/.env.example docker/.env
 
 # Build and start both services
 docker compose up --build
