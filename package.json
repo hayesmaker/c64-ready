@@ -28,6 +28,7 @@
     "src/headless/",
     "dist-ts/emulator/",
     "public/c64.wasm",
+    "public/games/cartridges/*",
     "tsconfig.build2.json"
   ],
   "devDependencies": {
