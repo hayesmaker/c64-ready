@@ -45,8 +45,9 @@ Options:
   --game <path>        Cartridge or disk image to load
   --no-game            Boot to BASIC prompt without loading a game
   --record             Encode frames with ffmpeg
+  --audio              Include SID audio in the recording / stream (requires --record)
   --output <path|url>  Output file path or rtmp:// stream URL
-  --duration <secs>    Recording duration in seconds  (default: 60)
+  --duration <secs>    Recording duration in seconds  (omit for endless streaming)
   --fps <n>            Target frame rate  (default: 50 for PAL)
   --verbose            Print per-frame diagnostics to stderr
   --help               Show this help
