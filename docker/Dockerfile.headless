@@ -49,6 +49,7 @@ ENV GAME_PATH=""
 ENV RTMP_URL=rtmp://nms:1935/live/c64
 ENV FPS=50
 ENV DURATION=""
+ENV AUDIO=""
 ENV VERBOSE=""
 
 ENTRYPOINT ["./entrypoint.sh"]

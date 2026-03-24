@@ -36,7 +36,10 @@ Critical, project-specific patterns & gotchas
 - Audio rules:
   - Read SID audio buffer via `sid_getAudioBuffer()` and the heap F32 view — buffer is 4096 Float32 samples.
   - NEVER call `sid_dumpBuffer()` in the normal playback frame loop (it resets SID internal counters and causes runaway speed).
-  - Use the worklet pull-model: worklet posts `'need-samples'`, main thread reads `sid_getAudioBuffer()` and posts Float32Array back (see `public/audio-worklet-processor.js` and `src/player/audio-engine.ts`).
+  - NEVER call `sid_getAudioBuffer()` per-frame in the headless loop — it has the SAME runaway-speed effect as `sid_dumpBuffer()`: it resets the SID's internal sample counter so the next `debugger_update` runs extra cycles to refill the buffer. It also takes ~5ms per call on top of that.
+  - Correct headless pattern: call `sid_getAudioBuffer()` **once** at init to cache the pointer, then read the buffer each frame via `heap.heapF32.subarray(cachedBase, cachedBase + samplesPerFrame)` (zero-copy). See `src/headless/headless-cli.mjs` (`sidAudioBase`).
+  - Use the worklet pull-model: worklet posts `'need-samples'`, main thread reads `sid_getAudioBuffer()` and posts Float32Array back (see `public/audio-worklet-processor.js` and `src/player/audio-engine.ts`). The worklet pull-model is fine because `sid_getAudioBuffer()` is called infrequently (pulled by the audio thread, not every video frame).
+  - The SID buffer is **4096 samples** filled by `debugger_update` across multiple calls. `sid_getAudioBuffer()` must be called once per full 4096-sample fill — NOT once per video frame. At 50fps (882 samples/frame) this is every ~4.65 frames. Track accumulated samples and call once per boundary crossing, sending the full 4096-sample buffer. See `sidSampleAccum` / `SID_BUFFER_SIZE` in `src/headless/headless-cli.mjs`.
 
 Headless / recording integration notes
 - `bin/headless.mjs` is the user-facing CLI wrapper; it imports `src/headless/headless-cli.mjs`.
@@ -79,7 +82,7 @@ Two-container setup defined in `docker-compose.yml`:
 
 ```zsh
 # First run — copy and optionally edit env vars
-cp docker/.env.example .env
+cp docker/.env.example docker/.env
 
 # Build and start both services
 docker compose up --build

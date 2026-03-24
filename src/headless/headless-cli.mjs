@@ -20,11 +20,12 @@ export async function runHeadless(options = {}) {
   let fps = 60;
   let verify = false;
   let record = false;
+  let audio = false;
   // Use fixed timestep by default to keep emulation timing stable.
   let useFixedDt = true;
   let raw = false;
   let output = null;
-  let durationSec = 60; // default record length
+  let durationSec = 0; // 0 means no --duration was passed → stream forever when recording
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -32,6 +33,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--frames' || a === '-n') frames = Number(argv[++i]);
     else if (a === '--verify') verify = true;
     else if (a === '--record') record = true;
+    else if (a === '--audio') audio = true;
     else if (a === '--raw') raw = true;
     else if (a === '--output' || a === '-o') output = argv[++i];
     else if (a === '--duration' || a === '-d') durationSec = Number(argv[++i]);
@@ -47,7 +49,6 @@ export async function runHeadless(options = {}) {
 
   const defaultWasmPaths = [
     path.join(repoRoot, 'public', 'c64.wasm'),
-    path.join(repoRoot, 'c64.wasm'),
     path.join(repoRoot, 'src', 'emulator', 'c64.wasm'),
   ];
   const defaultGamePaths = [
@@ -191,43 +192,53 @@ export async function runHeadless(options = {}) {
 
   // Run state and timing
   let frameCount = 0;
-  const runStartTime = Date.now();
+  let ffmpegDied = false; // set to true if ffmpeg exits unexpectedly and we give up
   const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
-  // When recording without an explicit --duration, run forever (endTime = Infinity).
-  // A finite endTime is only used when the caller explicitly passed --duration.
-  const endTime = record
-    ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
-    : null;
-  let lastTick = Date.now();
-  // Diagnostics: observed FPS window
-  let windowStart = Date.now();
-  let windowCount = 0;
+
+  // ── Audio timing ──────────────────────────────────────────────────────────
+  const audioSampleRate = 44100;
+  const samplesPerFrame = Math.floor(audioSampleRate / targetFps); // 882 @ 50fps
+  let audioInterval = null;
+
+  // SID audio buffer is 4096 Float32 samples. debugger_update accumulates
+  // samples into it across multiple calls. sid_getAudioBuffer() must be
+  // called once per full 4096-sample fill — NOT once per video frame —
+  // to read the complete buffer and reset it for the next fill cycle.
+  //
+  // At 50fps: 882 samples/frame × ~4.65 frames = 4096 samples per SID buffer.
+  // We track accumulated samples and call sid_getAudioBuffer() each time
+  // the total crosses a 4096-sample boundary, sending the full 4096-sample
+  // chunk to ffmpeg at that point.
+  const SID_BUFFER_SIZE = 4096;
+  let sidSampleAccum = 0; // samples accumulated since last sid_getAudioBuffer call
+
+  // Resolve output path once — URL stays verbatim, file paths resolve to repoRoot
+  const outPathResolved = output
+    ? (/^[a-zA-Z]+:\/\//.test(output) ? output : path.resolve(repoRoot, output))
+    : path.join(repoRoot, 'temp', `c64-record-${Date.now()}.mp4`);
+  const isRtmpOutput = /^[a-zA-Z]+:\/\//.test(outPathResolved);
 
   // Setup ffmpeg runner if recording requested
   let ffmpegRunner = null;
   let frameSize = 384 * 272 * 4;
+
+  // Helper: start (or restart) ffmpeg. Returns true on success.
+  async function startFfmpeg() {
+    ffmpegRunner = new FFmpegRunner();
+    const started = await ffmpegRunner.start({ output: outPathResolved, width: 384, height: 272, fps, duration: durationSec, raw, verbose, audio, sampleRate: audioSampleRate });
+    return started;
+  }
+
   if (record) {
     try {
-      ffmpegRunner = new FFmpegRunner();
-      // Resolve provided output relative to repoRoot so it's easy to find inside repo
-      // If the provided output looks like a URL (e.g. rtmp://...), don't
-      // resolve it to a filesystem path. Use it verbatim so ffmpeg treats it
-      // as a network output. Otherwise resolve relative to repoRoot so file
-      // outputs are easy to find.
-      const outPathResolved = output
-        ? (/^[a-zA-Z]+:\/\//.test(output) ? output : path.resolve(repoRoot, output))
-        : path.join(repoRoot, 'temp', `c64-record-${Date.now()}.mp4`);
-      const started = await ffmpegRunner.start({ output: outPathResolved, width: 384, height: 272, fps, duration: durationSec, raw, verbose });
+      const started = await startFfmpeg();
       if (!started) {
         const msg = 'ffmpeg-record-failed:start-failed';
         out.push(msg);
-        // Print immediately so interactive runs show the failure and we don't
-        // silently continue with a short default 300-frame run.
         console.error('[headless] ' + msg);
-        // Abort the run early since recording was requested but could not start.
         return { ok: false, output: out };
       } else {
-        const msg = `Recording to ${outPathResolved} (${durationSec}s @ ${fps}fps)`;
+        const msg = `Recording to ${outPathResolved} (${durationSec ? durationSec + 's' : 'endless'} @ ${fps}fps${audio ? ' +audio' : ''})`;
         out.push(msg);
         console.error('[headless] ' + msg);
       }
@@ -236,6 +247,17 @@ export async function runHeadless(options = {}) {
       record = false;
     }
   }
+
+  // runStartTime is set AFTER ffmpeg starts so --duration counts from when
+  // recording actually begins (after any RTMP probe/stabilisation delay).
+  const runStartTime = Date.now();
+  // When recording without an explicit --duration, run forever (endTime = Infinity).
+  const endTime = record
+    ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
+    : null;
+  let lastTick = Date.now();
+  let windowStart = Date.now();
+  let windowCount = 0;
 
   while (record ? Date.now() < endTime : frameCount < frames) {
     // iteration start timestamp (declare in outer scope so it's available
@@ -271,15 +293,77 @@ export async function runHeadless(options = {}) {
         if (verbose) console.error('[headless] debugger_update threw', e);
       }
 
-      // Always capture and push a frame after each update
+      // Capture video frame and audio chunk, then write both atomically.
+      // await writeFrame() provides genuine backpressure: the loop waits for
+      // ffmpeg to consume each frame before advancing, so it can never run
+      // faster than ffmpeg can encode — no burst/spin behaviour possible.
       if (record && ffmpegRunner) {
+        // Check if ffmpeg died before attempting to write
+        if (!ffmpegRunner.isAlive()) {
+          const code = ffmpegRunner._exitCode;
+          const errMsg = `ffmpeg process exited unexpectedly (code ${code}) after ${frameCount} frames`;
+          out.push(errMsg);
+          console.error(`[headless] ${errMsg}`);
+
+          // For URL/RTMP outputs, retry with backoff — transient connection failures are normal
+          if (isRtmpOutput) {
+            const retryDelaySec = 10;
+            console.error(`[headless] RTMP output — retrying ffmpeg in ${retryDelaySec}s...`);
+            await new Promise((r) => setTimeout(r, retryDelaySec * 1000));
+            try {
+              const restarted = await startFfmpeg();
+              if (restarted) {
+                console.error('[headless] ffmpeg restarted successfully');
+              } else {
+                console.error('[headless] ffmpeg restart failed — giving up');
+                ffmpegDied = true;
+                record = false;
+                break;
+              }
+            } catch (restartErr) {
+              console.error('[headless] ffmpeg restart threw:', restartErr && restartErr.message);
+              ffmpegDied = true;
+              record = false;
+              break;
+            }
+          } else {
+            ffmpegDied = true;
+            record = false;
+            break;
+          }
+        }
         try {
           const ptr = exports.c64_getPixelBuffer();
-          const u8 = heap.heapU8.subarray(ptr, ptr + frameSize);
-          const ok = ffmpegRunner.tryWrite(u8);
-          if (!ok && verbose) console.error('[headless] ffmpeg backpressure: dropped frame');
+          const videoFrame = heap.heapU8.subarray(ptr, ptr + frameSize);
+          let audioChunk = null;
+          if (audio && exports.sid_getAudioBuffer) {
+            // Accumulate samples. sid_getAudioBuffer() fills 4096 samples per
+            // cycle — call it exactly when the accumulator crosses that boundary,
+            // then send the full 4096-sample buffer. This matches the original
+            // ScriptProcessorNode pattern in c64.js (audioBufferLength = 4096).
+            sidSampleAccum += samplesPerFrame;
+            if (sidSampleAccum >= SID_BUFFER_SIZE) {
+              sidSampleAccum -= SID_BUFFER_SIZE;
+              try {
+                const sidPtr = exports.sid_getAudioBuffer();
+                const sidBase = sidPtr >> 2;
+                // Copy the full 4096-sample buffer so ffmpeg gets a consistent chunk
+                audioChunk = heap.heapF32.slice(sidBase, sidBase + SID_BUFFER_SIZE);
+              } catch (_) {}
+            }
+          }
+          await ffmpegRunner.writeFrame(videoFrame, audioChunk);
         } catch (e) {
-          if (verbose) console.error('[headless] frame capture/write error', e);
+          const errMsg = `ffmpeg write error after ${frameCount} frames: ${e && e.message ? e.message : String(e)}`;
+          out.push(errMsg);
+          console.error(`[headless] ${errMsg}`);
+          // For URL outputs, don't give up immediately — ffmpeg may have just died,
+          // the isAlive() check at the top of next iteration will handle the retry.
+          if (!isRtmpOutput) {
+            ffmpegDied = true;
+            record = false;
+            break;
+          }
         }
       }
     } catch (_) {}
@@ -315,6 +399,11 @@ export async function runHeadless(options = {}) {
   const elapsed = (Date.now() - runStartTime) / 1000;
   out.push(`Run complete. frames=${frameCount} elapsed=${elapsed.toFixed(2)}s`);
   if (record && ffmpegRunner) {
+    // Clear audio interval if it was used (currently null/no-op)
+    if (audioInterval) {
+      clearInterval(audioInterval);
+      audioInterval = null;
+    }
     try {
       const saved = await ffmpegRunner.stop();
       // Verify the file exists and is non-empty
@@ -336,7 +425,7 @@ export async function runHeadless(options = {}) {
       out.push(`ffmpeg-stop-failed: ${String(e)}`);
     }
   }
-  return { ok: true, output: out };
+  return { ok: !ffmpegDied, output: out };
 }
 
 export default runHeadless;

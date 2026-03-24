@@ -38,17 +38,23 @@ These are the relevant exported functions from the compiled C64 WASM binary
 ### `sid_getAudioBuffer(): number`
 
 Returns a **pointer** (byte offset) into WASM linear memory where the SID's
-circular audio buffer begins. The buffer contains `Float32` samples.
+audio buffer begins. The buffer contains `Float32` samples.
 
-- The pointer is stable for the lifetime of the WASM instance.
+- The pointer is **stable** for the lifetime of the WASM instance — cache it.
 - The buffer size is **4096 Float32 samples** (16 384 bytes).
-- The SID continuously overwrites this buffer as CPU cycles execute.
+- The buffer is **filled on demand** when this function is called — it does
+  not update passively as `debugger_update` runs. Each call synthesises audio
+  for the CPU cycles accumulated since the previous call and resets the
+  internal sample counter for the next fill cycle.
+- Call it at the **4096-sample rate** (~every 4.65 video frames at 50 fps).
+  Calling it too frequently resets the counter mid-fill, causing runaway
+  emulation speed and a constant-tone audio artefact.
 
 To read the samples from JavaScript:
 
 ```ts
 const ptr = exports.sid_getAudioBuffer();
-const samples = heapF32.subarray(ptr >> 2, (ptr >> 2) + 4096);
+const samples = heapF32.slice(ptr >> 2, (ptr >> 2) + 4096);
 ```
 
 ### `sid_setSampleRate(rate: number): number`
@@ -232,6 +238,50 @@ the SID's internal sample counter. When `debugger_update(dTime)` runs on the
 next tick, it sees an empty buffer and runs extra CPU cycles to fill it,
 causing a runaway speed increase.
 
+### Call `sid_getAudioBuffer()` at the right frequency in the headless loop
+
+`sid_getAudioBuffer()` triggers SID synthesis for a full 4096-sample buffer
+and takes ~5ms of WASM time per call. **The buffer does not update passively
+as `debugger_update` runs** — it only fills when `sid_getAudioBuffer()` is
+called. This means:
+
+- Calling it **too often** (every video frame): each call resets the SID's
+  internal sample counter; the next `debugger_update` runs extra cycles to
+  refill the empty buffer, causing runaway emulation speed. Reading only
+  882 samples each time also produces a **constant tone** because the same
+  partially-filled region is repeated.
+- Calling it **at the right rate** (once per full 4096-sample fill): emulation
+  runs at correct speed and you get 4096 samples of real audio per call.
+
+The 4096-sample buffer matches the original `ScriptProcessorNode` buffer size
+in `c64.js` (`audioBufferLength = 4096`). At 50 fps (882 samples/frame), one
+fill cycle spans ~4.65 video frames.
+
+**Correct headless pattern:** accumulate samples-per-frame, call
+`sid_getAudioBuffer()` once per full 4096-sample fill, and send the complete
+4096-sample buffer to ffmpeg:
+
+```js
+const SID_BUFFER_SIZE = 4096;
+const samplesPerFrame = Math.floor(44100 / fps); // e.g. 882 @ 50fps
+let sidSampleAccum = 0;
+
+// Per frame (loop):
+exports.debugger_update(stepMs);
+sidSampleAccum += samplesPerFrame;
+if (sidSampleAccum >= SID_BUFFER_SIZE) {
+  sidSampleAccum -= SID_BUFFER_SIZE;
+  const sidPtr = exports.sid_getAudioBuffer();       // call once per buffer fill
+  const sidBase = sidPtr >> 2;
+  const audioChunk = heap.heapF32.slice(sidBase, sidBase + SID_BUFFER_SIZE);
+  // send audioChunk to ffmpeg / audio sink
+}
+```
+
+The worklet pull-model (browser) is not affected because `sid_getAudioBuffer()`
+is called infrequently there — pulled by the audio thread at the audio buffer
+rate (~11.7 Hz at 48 kHz / 4096 samples), not every video frame.
+
 ### Always clamp `dTime` in `tick()`
 
 The original c64.js clamps the delta time passed to `debugger_update`:
@@ -245,13 +295,16 @@ if (!dTime || dTime > 100) {
 Without this, tab switches or the first frame after loading can pass huge
 `dTime` values, causing burst execution of millions of CPU cycles.
 
-### The SID buffer is circular and overwritten continuously
+### The SID buffer is static until `sid_getAudioBuffer()` is called
 
-`sid_getAudioBuffer()` always returns the same pointer. The SID writes into
-this 4096-sample region as cycles execute. Reading it gives you a **snapshot**
-of the current buffer state — it may contain samples from different points in
-time if the read happens mid-write. In practice this is not audible because
-the worklet reads at a rate that roughly matches the SID's write rate.
+`sid_getAudioBuffer()` always returns the same pointer (stable for the WASM
+instance lifetime). **The 4096-sample buffer does not update passively as
+`debugger_update` runs.** It only fills when `sid_getAudioBuffer()` is
+called — at that point the SID synthesises up to 4096 samples based on the
+CPU cycles accumulated since the last call.
+
+This means the pointer is safe to cache, but reading the buffer between
+`sid_getAudioBuffer()` calls will return stale data from the previous fill.
 
 ### `sid_setSampleRate()` must match `AudioContext.sampleRate`
 
