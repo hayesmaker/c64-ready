@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import {fileURLToPath} from 'url';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 
 /**
@@ -43,7 +43,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--use-fixed-dt') useFixedDt = true;
     else if (a === '--use-wall-clock') useFixedDt = false;
     else if (a === '--help' || a === '-h') {
-      return { ok: false, output: 'help' };
+      return {ok: false, output: 'help'};
     }
   }
 
@@ -60,7 +60,8 @@ export async function runHeadless(options = {}) {
       try {
         await fs.access(p);
         return p;
-      } catch (_) {}
+      } catch (_) {
+      }
     }
     return null;
   }
@@ -70,7 +71,7 @@ export async function runHeadless(options = {}) {
     const found = await findFirstExisting(defaultWasmPaths);
     if (found) wasmPath = found;
   }
-  if (!wasmPath) return { ok: false, err: 'no-wasm' };
+  if (!wasmPath) return {ok: false, err: 'no-wasm'};
 
   let gamePath = gameArg ?? null;
   // If the user requested no game, ensure we do not load any default cartridge
@@ -101,8 +102,8 @@ export async function runHeadless(options = {}) {
   );
   if (typeof instantiateFn === 'function') {
     try {
-      const mem = new WebAssembly.Memory({ initial: 256 });
-      const importObject = { env: { memory: mem }, wasi_snapshot_preview1: {} };
+      const mem = new WebAssembly.Memory({initial: 256});
+      const importObject = {env: {memory: mem}, wasi_snapshot_preview1: {}};
       const res = await instantiateFn(wasmAb, importObject);
       const inst = res && (res.instance ?? res);
       exports = inst.exports ?? inst;
@@ -110,7 +111,7 @@ export async function runHeadless(options = {}) {
       if (exports && !exports.memory) exports.memory = mem;
       if (exports && exports.memory) {
         const buf = exports.memory.buffer;
-        heap = { heapU8: new Uint8Array(buf), heapF32: new Float32Array(buf), heapU32: new Uint32Array(buf) };
+        heap = {heapU8: new Uint8Array(buf), heapF32: new Float32Array(buf), heapU32: new Uint32Array(buf)};
       }
       if (exports && typeof exports.c64_init === 'function') exports.c64_init();
       if (exports && typeof exports.sid_setSampleRate === 'function') exports.sid_setSampleRate(44100);
@@ -187,7 +188,7 @@ export async function runHeadless(options = {}) {
   if (!wrapperUsed) {
     out.push('ERROR: dist-ts wrapper failed to load — cannot run headless');
     console.error('[headless] FATAL: dist-ts wrapper unavailable. Run: npx tsc -p tsconfig.build2.json');
-    return { ok: false, output: out };
+    return {ok: false, output: out};
   }
 
   // Run state and timing
@@ -212,11 +213,14 @@ export async function runHeadless(options = {}) {
   const SID_BUFFER_SIZE = 4096;
   let sidSampleAccum = 0; // samples accumulated since last sid_getAudioBuffer call
 
-  // Resolve output path once — URL stays verbatim, file paths resolve to repoRoot
+  // Resolve output path once — treat remote URLs verbatim, local file paths
+  // should be resolved relative to the current working directory (process.cwd()).
+  // If no output provided, fall back to repoRoot/temp as before.
+  const isRemoteUrl = (s) => /^[a-zA-Z]+:\/\//.test(s);
   const outPathResolved = output
-    ? (/^[a-zA-Z]+:\/\//.test(output) ? output : path.resolve(repoRoot, output))
+    ? (isRemoteUrl(output) ? output : path.resolve(process.cwd(), output))
     : path.join(repoRoot, 'temp', `c64-record-${Date.now()}.mp4`);
-  const isRtmpOutput = /^[a-zA-Z]+:\/\//.test(outPathResolved);
+  const isRtmpOutput = isRemoteUrl(outPathResolved);
 
   // Setup ffmpeg runner if recording requested
   let ffmpegRunner = null;
@@ -225,7 +229,17 @@ export async function runHeadless(options = {}) {
   // Helper: start (or restart) ffmpeg. Returns true on success.
   async function startFfmpeg() {
     ffmpegRunner = new FFmpegRunner();
-    const started = await ffmpegRunner.start({ output: outPathResolved, width: 384, height: 272, fps, duration: durationSec, raw, verbose, audio, sampleRate: audioSampleRate });
+    const started = await ffmpegRunner.start({
+      output: outPathResolved,
+      width: 384,
+      height: 272,
+      fps,
+      duration: durationSec,
+      raw,
+      verbose,
+      audio,
+      sampleRate: audioSampleRate
+    });
     return started;
   }
 
@@ -236,7 +250,7 @@ export async function runHeadless(options = {}) {
         const msg = 'ffmpeg-record-failed:start-failed';
         out.push(msg);
         console.error('[headless] ' + msg);
-        return { ok: false, output: out };
+        return {ok: false, output: out};
       } else {
         const msg = `Recording to ${outPathResolved} (${durationSec ? durationSec + 's' : 'endless'} @ ${fps}fps${audio ? ' +audio' : ''})`;
         out.push(msg);
@@ -349,7 +363,8 @@ export async function runHeadless(options = {}) {
                 const sidBase = sidPtr >> 2;
                 // Copy the full 4096-sample buffer so ffmpeg gets a consistent chunk
                 audioChunk = heap.heapF32.slice(sidBase, sidBase + SID_BUFFER_SIZE);
-              } catch (_) {}
+              } catch (_) {
+              }
             }
           }
           await ffmpegRunner.writeFrame(videoFrame, audioChunk);
@@ -366,7 +381,8 @@ export async function runHeadless(options = {}) {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) {
+    }
     frameCount++;
     // diagnostics
     windowCount++;
@@ -380,12 +396,13 @@ export async function runHeadless(options = {}) {
     }
     if (verify && frameCount % 60 === 0) {
       const cycleCount = exports.c64_getCycleCount ? exports.c64_getCycleCount() : null;
-      out.push(JSON.stringify({ pid: process.pid, frame: frameCount, cycles: cycleCount }));
+      out.push(JSON.stringify({pid: process.pid, frame: frameCount, cycles: cycleCount}));
       // Also emit a stderr heartbeat so interactive runs show progress.
       try {
         const pc = exports.c64_getPC ? exports.c64_getPC() : null;
         console.error(`[headless] verify: frame=${frameCount} pc=${pc} cycles=${cycleCount}`);
-      } catch (_) {}
+      } catch (_) {
+      }
     } else if (frameCount % 120 === 0) {
       //out.push(`HEADLESS: frame=${frameCount}`);
     }
@@ -425,7 +442,7 @@ export async function runHeadless(options = {}) {
       out.push(`ffmpeg-stop-failed: ${String(e)}`);
     }
   }
-  return { ok: !ffmpegDied, output: out };
+  return {ok: !ffmpegDied, output: out};
 }
 
 export default runHeadless;
@@ -448,7 +465,10 @@ try {
         if (!res.ok) process.exit(1);
       }
       process.exit(0);
-    })().catch((e) => { console.error(e); process.exit(1); });
+    })().catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
   }
 } catch (e) {
   // ignore errors in CLI wrapper detection
