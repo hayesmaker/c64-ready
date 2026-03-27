@@ -8,7 +8,7 @@ No unreleased changes.
 
 ## v0.6.2 - 2026-03-27T20:43:20+00:00
 
-- chore(release): 0.6.2 (74438b1)
+- chore(release): 0.6.2 (d3cc8a0)
 - fix: serve correct mimetypes in serve mode (096516d)
 - chore: changelogs (auto) (68698eb)
 
