@@ -36,50 +36,33 @@ jobs:
           cp CHANGELOG.md wiki/
           cd wiki
 
-          # Build Home.md from scratch
+          # Build Home.md from scratch.
+          # Titles are read from the first # heading of each file — no hardcoded list needed.
+          # Order: PROJECT_OVERVIEW first, CHANGELOG last, everything else alphabetically between.
           printf '# c64-ready Wiki\n\nCommodore 64 emulator for the browser and Node.js.\n\n## Documentation\n\n' > Home.md
 
-          # Pages in display order with friendly titles
-          declare -A TITLES
-          TITLES["PROJECT_OVERVIEW.md"]="Project Overview"
-          TITLES["AUDIO_ENGINE.md"]="Audio Engine"
-          TITLES["HEADLESS_RUNNING.md"]="Headless Running"
-          TITLES["HEADLESS_INPUT.md"]="Headless Input API"
-          TITLES["CHANGELOG_RELEASES.md"]="Changelog & Releases"
-          TITLES["WIKI_PUBLISHING.md"]="Wiki Publishing"
-          TITLES["CHANGELOG.md"]="Changelog"
+          emit_link() {
+            local file="$1"
+            local title
+            title=$(grep -m1 '^# ' "$file" | sed 's/^# //')
+            [ -z "$title" ] && title="${file%.md}"
+            local page="${file%.md}"
+            echo "- [${title}](${page// /%20})" >> Home.md
+          }
 
-          ORDER=(
-            PROJECT_OVERVIEW.md
-            AUDIO_ENGINE.md
-            HEADLESS_RUNNING.md
-            HEADLESS_INPUT.md
-            CHANGELOG_RELEASES.md
-            WIKI_PUBLISHING.md
-            CHANGELOG.md
-          )
+          # Pin PROJECT_OVERVIEW first
+          [ -f PROJECT_OVERVIEW.md ] && emit_link PROJECT_OVERVIEW.md
 
-          for file in "${ORDER[@]}"; do
-            if [ -f "$file" ]; then
-              title="${TITLES[$file]}"
-              page="${file%.md}"
-              echo "- [${title}](${page// /%20})" >> Home.md
-            fi
+          # All other docs alphabetically, excluding pinned files
+          for f in $(ls *.md | sort); do
+            [ "$f" = "Home.md" ]          && continue
+            [ "$f" = "PROJECT_OVERVIEW.md" ] && continue
+            [ "$f" = "CHANGELOG.md" ]     && continue
+            emit_link "$f"
           done
 
-          # Append any docs not listed in ORDER (future-proofing)
-          for f in *.md; do
-            [ "$f" = "Home.md" ] && continue
-            base=$(basename "$f")
-            found=0
-            for o in "${ORDER[@]}"; do [ "$o" = "$base" ] && found=1 && break; done
-            if [ "$found" = "0" ]; then
-              title=$(sed -n '/^#/{s/^#\s*//;p;q}' "$f")
-              [ -z "$title" ] && title="${base%.md}"
-              page="${base%.md}"
-              echo "- [${title}](${page// /%20})" >> Home.md
-            fi
-          done
+          # Pin CHANGELOG last
+          [ -f CHANGELOG.md ] && emit_link CHANGELOG.md
 
       - name: Commit and push
         env:

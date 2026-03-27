@@ -1,4 +1,4 @@
-# Input Interface Plan — Remote Control for Headless C64 Emulator
+# Headless Input API
 
 ## Architecture Overview
 

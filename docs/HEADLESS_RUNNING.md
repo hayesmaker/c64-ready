@@ -1,6 +1,4 @@
-// Copied from repository root HEADLESS_RUNNING.md
-Headless runner — Initialization, troubleshooting, and release guidance
-=======================================================================
+# Headless Running
 
 This document explains how the headless runner initializes the C64 WebAssembly binary, common failure modes and fixes we've seen, how to build and use the compiled `dist-ts` wrapper for headless runs, and a plan for removing the need for a separate build step in the future.
 
