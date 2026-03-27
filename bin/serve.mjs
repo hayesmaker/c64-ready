@@ -62,15 +62,16 @@ const hostname = bindAll ? '0.0.0.0' : '127.0.0.1';
 // ---------------------------------------------------------------------------
 // Locate the built dist/ directory
 // ---------------------------------------------------------------------------
-// When installed as a package the layout is: <pkg>/dist/c64-ready/index.html
-// (Vite builds to dist/ with base '/c64-ready/'). When run from the repo
-// root the same path applies.
+// Vite builds to dist/ with base '/c64-ready/'.
+// The real app entry point is dist/index.html — assets are at dist/assets/*.
+// dist/c64-ready/ is just the public/c64-ready/ static folder copied verbatim;
+// it is NOT the built app.
 const DIST_DIR = join(PKG_ROOT, 'dist');
-const PLAYER_DIR = join(DIST_DIR, 'c64-ready');
+const APP_ENTRY = join(DIST_DIR, 'index.html');
 
-if (!existsSync(PLAYER_DIR)) {
+if (!existsSync(APP_ENTRY)) {
   console.error(
-    `Error: built player not found at ${PLAYER_DIR}\n` +
+    `Error: built player not found at ${APP_ENTRY}\n` +
     `Run \`npm run build\` inside the c64-ready package first, or install a published release.`,
   );
   process.exit(1);
@@ -104,15 +105,24 @@ const server = createServer((req, res) => {
   // Strip query string and decode URI
   let urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
 
-  // Map '/' → '/index.html'
-  if (urlPath === '/' || urlPath === '/c64-ready' || urlPath === '/c64-ready/') {
-    urlPath = '/c64-ready/index.html';
+  // Route the app root: /, /c64-ready, /c64-ready/ → dist/index.html
+  if (
+    urlPath === '/' ||
+    urlPath === '/c64-ready' ||
+    urlPath === '/c64-ready/'
+  ) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    createReadStream(APP_ENTRY).pipe(res);
+    return;
   }
 
-  // Resolve against dist root, prevent path traversal
+  // All other requests are resolved against dist/ directly.
+  // e.g. /c64-ready/assets/index-xxx.js → dist/c64-ready/assets/index-xxx.js
+  //      /c64.wasm                       → dist/c64.wasm
   const relative = urlPath.startsWith('/') ? urlPath.slice(1) : urlPath;
   const filePath = resolve(DIST_DIR, normalize(relative));
 
+  // Path traversal guard
   if (!filePath.startsWith(DIST_DIR)) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -120,22 +130,14 @@ const server = createServer((req, res) => {
   }
 
   if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-    // SPA fallback — serve the player index for any unknown path under /c64-ready/
-    const fallback = join(PLAYER_DIR, 'index.html');
-    if (existsSync(fallback)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      createReadStream(fallback).pipe(res);
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
-    }
+    // SPA fallback for any unmatched path
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    createReadStream(APP_ENTRY).pipe(res);
     return;
   }
 
   const ext = extname(filePath).toLowerCase();
   const mime = MIME[ext] ?? 'application/octet-stream';
-
-  // WASM requires correct MIME — browsers reject it otherwise
   res.writeHead(200, { 'Content-Type': mime });
   createReadStream(filePath).pipe(res);
 });
