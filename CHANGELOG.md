@@ -6,9 +6,13 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v0.6.0 - 2026-03-27T20:21:42+00:00
+
+- chore(release): 0.6.0 (c13ca08)
+
 ## v0.5.2 - 2026-03-27T20:21:24+00:00
 
-- chore(release): 0.5.2 (0cb70cd)
+- chore(release): 0.5.2 (cbf9175)
 - feat: added input handling api to the headless runner (73eebfb)
 - fix(headless): use correct output path relative to project (299607e)
 - chore: add cartridges to headless npm (f8d72c9)
