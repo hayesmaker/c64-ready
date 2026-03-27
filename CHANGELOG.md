@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v0.6.2 - 2026-03-27T20:43:20+00:00
+
+- chore(release): 0.6.2 (74438b1)
+- fix: serve correct mimetypes in serve mode (096516d)
+- chore: changelogs (auto) (68698eb)
+
 ## v0.6.1 - 2026-03-27T20:36:27+00:00
 
 - chore(release): 0.6.1 (27df16c)
