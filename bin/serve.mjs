@@ -117,9 +117,12 @@ const server = createServer((req, res) => {
   }
 
   // All other requests are resolved against dist/ directly.
-  // e.g. /c64-ready/assets/index-xxx.js → dist/c64-ready/assets/index-xxx.js
-  //      /c64.wasm                       → dist/c64.wasm
-  const relative = urlPath.startsWith('/') ? urlPath.slice(1) : urlPath;
+  // Vite bakes base='/c64-ready/' into all asset URLs, so strip that prefix
+  // before resolving so the path maps into dist/ correctly:
+  //   /c64-ready/assets/index-xxx.js  → dist/assets/index-xxx.js
+  //   /c64.wasm                       → dist/c64.wasm
+  const stripped = urlPath.startsWith('/c64-ready/') ? urlPath.slice('/c64-ready/'.length) : urlPath;
+  const relative = stripped.startsWith('/') ? stripped.slice(1) : stripped;
   const filePath = resolve(DIST_DIR, normalize(relative));
 
   // Path traversal guard
