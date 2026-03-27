@@ -8,7 +8,7 @@ No unreleased changes.
 
 ## v0.6.1 - 2026-03-27T20:36:27+00:00
 
-- chore(release): 0.6.1 (1d2e797)
+- chore(release): 0.6.1 (27df16c)
 - fix: serve path corrected for running emulator via npm (56b9f1a)
 - chore: updated changelogs (e9c6320)
 
