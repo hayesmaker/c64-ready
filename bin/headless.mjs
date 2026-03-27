@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 hayesmaker
+// See LICENSE in the project root for full license information.
 /**
  * c64-headless — CLI entry point
  *

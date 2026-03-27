@@ -54,6 +54,7 @@
     "./wasm": "./public/c64.wasm"
   },
   "files": [
+    "LICENSE",
     "bin/",
     "src/",
     "dist/",
