@@ -1,5 +1,7 @@
 {
   "name": "c64-ready",
+  "description": "Commodore 64 emulator for the browser and Node.js — browser player, headless streaming CLI, and TypeScript API",
+  "keywords": ["c64", "commodore64", "emulator", "wasm", "headless", "retro"],
   "license": "MIT",
   "version": "0.5.1",
   "type": "module",
@@ -11,6 +13,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "headless:build": "npx tsc -p tsconfig.build.json",
+    "package:build": "npm run build && npm run headless:build",
     "headless:start": "node bin/headless.mjs",
     "release": "./tools/release.sh",
     "preview": "vite preview",
@@ -21,18 +24,40 @@
     "format": "prettier --write src/"
   },
   "bin": {
+    "c64-ready": "bin/serve.mjs",
     "c64-headless": "bin/headless.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist-ts/types/index.d.ts",
+      "import": "./dist-ts/types/index.js"
+    },
+    "./emulator": {
+      "types": "./dist-ts/emulator/c64-emulator.d.ts",
+      "import": "./dist-ts/emulator/c64-emulator.js"
+    },
+    "./headless": {
+      "types": "./dist-ts/headless/c64-headless.d.ts",
+      "import": "./dist-ts/headless/c64-headless.js"
+    },
+    "./input-bridge": {
+      "types": "./dist-ts/headless/input-bridge.d.ts",
+      "import": "./dist-ts/headless/input-bridge.js"
+    },
+    "./wasm": "./public/c64.wasm"
   },
   "files": [
     "bin/",
-    "src/headless/",
-    "dist-ts/emulator/",
+    "src/",
+    "dist/",
+    "dist-ts/",
     "public/c64.wasm",
+    "public/audio-worklet-processor.js",
     "public/games/cartridges/*",
-    "tsconfig.build2.json"
+    "public/led-on.svg",
+    "public/led-off.svg"
   ],
   "devDependencies": {
-    "ts-node": "^10.9.1",
     "@eslint/js": "^10.0.1",
     "@types/dompurify": "^3.0.5",
     "@types/gif.js": "^0.2.5",
@@ -44,6 +69,7 @@
     "gif.js": "^0.2.0",
     "jsdom": "^26.1.0",
     "prettier": "^3.8.1",
+    "ts-node": "^10.9.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.1",
     "vite": "^8.0.0-beta.13",
@@ -51,9 +77,12 @@
   },
   "dependencies": {
     "dompurify": "^3.0.5",
-    "marked": "^5.0.2"
+    "marked": "^5.0.2",
+    "ws": "^8.20.0"
   },
   "overrides": {
     "vite": "^8.0.0-beta.13"
   }
 }
+
+

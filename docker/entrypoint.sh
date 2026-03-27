@@ -29,6 +29,12 @@ if [ "${AUDIO}" = "1" ] || [ "${AUDIO}" = "true" ]; then
   ARGS="$ARGS --audio"
 fi
 
+# Enable WebSocket input server for remote control.
+if [ "${INPUT_ENABLED}" = "1" ] || [ "${INPUT_ENABLED}" = "true" ]; then
+  ARGS="$ARGS --input"
+  ARGS="$ARGS --ws-port ${WS_PORT:-9001}"
+fi
+
 if [ -n "${VERBOSE}" ]; then
   ARGS="$ARGS --verbose"
 fi

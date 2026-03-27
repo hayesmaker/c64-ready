@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish docs/*.md to the repository GitHub Wiki.
-# Usage: ./scripts/publish_wiki.sh <git@github.com:OWNER/REPO.wiki.git>
-# Example: ./scripts/publish_wiki.sh git@github.com:youruser/c64-ready.wiki.git
+# Usage: ./tools/publish_wiki.sh <git@github.com:OWNER/REPO.wiki.git>
+# Example: ./tools/publish_wiki.sh git@github.com:youruser/c64-ready.wiki.git
 
 set -eu
 

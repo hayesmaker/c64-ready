@@ -25,16 +25,25 @@ export class InputBridge {
   }
 
   /**
-   * Example: encode a keypress for transmission
+   * Encode a keypress for transmission
    */
-  static encodeKeypress(key: string): string {
-    return JSON.stringify({ type: 'key', key });
+  static encodeKeypress(key: string | number, action: 'down' | 'up' = 'down'): string {
+    return JSON.stringify({ type: 'key', key, action });
   }
 
-  static encodeJoystick(port: 1 | 2, direction?: string, fire?: boolean): string {
+  /**
+   * Encode a joystick event for transmission
+   */
+  static encodeJoystick(
+    port: 1 | 2,
+    action: 'push' | 'release',
+    direction?: string,
+    fire?: boolean,
+  ): string {
     return JSON.stringify({
       type: 'joystick',
       joystickPort: port,
+      action,
       direction,
       fire,
     });

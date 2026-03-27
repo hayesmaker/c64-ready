@@ -13,6 +13,8 @@
  *   --output <path|url>  Output file or rtmp:// URL   [default: temp/c64-record-<ts>.mp4]
  *   --duration <secs>    Recording duration in seconds [default: 60]
  *   --fps <n>            Frame rate                   [default: 50  (PAL)]
+ *   --input              Start WebSocket input server for remote control
+ *   --ws-port <n>        WebSocket server port        [default: 9001]
  *   --verbose            Print per-frame diagnostics
  *   --help               Show this help
  *
@@ -49,12 +51,14 @@ Options:
   --output <path|url>  Output file path or rtmp:// stream URL
   --duration <secs>    Recording duration in seconds  (omit for endless streaming)
   --fps <n>            Target frame rate  (default: 50 for PAL)
+  --input              Start WebSocket input server for remote control
+  --ws-port <n>        WebSocket server port  (default: 9001)
   --verbose            Print per-frame diagnostics to stderr
   --help               Show this help
 
 Prerequisites:
   ffmpeg must be on PATH for --record
-  Build the JS wrapper once:  npx tsc -p tsconfig.build2.json
+  ws npm package must be installed for --input (it is a dependency of c64-ready)
 
 Examples:
   # RTMP live stream (5 minutes)
@@ -65,9 +69,9 @@ Examples:
   c64-headless --wasm public/c64.wasm --no-game --record \\
     --output out.mp4 --duration 30
 
-  # Load a cartridge and stream
+  # Stream with remote input enabled
   c64-headless --wasm public/c64.wasm --game game.crt --record \\
-    --output rtmp://localhost:1935/live/c64 --duration 3600
+    --output rtmp://localhost:1935/live/c64 --input --ws-port 9001
 `.trim();
   console.log(help);
   process.exit(0);

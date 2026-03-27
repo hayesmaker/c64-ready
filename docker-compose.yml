@@ -53,6 +53,8 @@ services:
     env_file:
       - path: docker/.env
         required: false
+    ports:
+      - "${WS_HOST_PORT:-9001}:9001"           # WebSocket input server
     # Bind-mount the WASM binary and games folder from the host so you can
     # swap cartridges without rebuilding the image.
     volumes:

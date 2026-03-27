@@ -25,10 +25,25 @@ export interface AudioBuffer {
 
 export interface InputEvent {
   type: 'key' | 'joystick';
-  key?: string;
+
+  /** For 'key' events: the C64 key code (numeric or string) */
+  key?: string | number;
+
+  /** 'push'/'release' for joystick, 'down'/'up' for keyboard. Required for proper release handling. */
+  action?: 'push' | 'release' | 'down' | 'up';
+
+  /** 1-based joystick port (1 or 2). Default: 2. */
   joystickPort?: 1 | 2;
+
+  /** Joystick direction name */
   direction?: 'up' | 'down' | 'left' | 'right';
+
+  /** Unified fire button */
+  fire?: boolean;
+
+  /** @deprecated Use `fire` instead */
   fire1?: boolean;
+  /** @deprecated Use `fire` instead */
   fire2?: boolean;
 }
 

@@ -26,6 +26,8 @@ export async function runHeadless(options = {}) {
   let raw = false;
   let output = null;
   let durationSec = 0; // 0 means no --duration was passed → stream forever when recording
+  let enableInput = false;
+  let wsPort = 9001;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -42,6 +44,8 @@ export async function runHeadless(options = {}) {
     else if (a === '--fps') fps = Number(argv[++i]);
     else if (a === '--use-fixed-dt') useFixedDt = true;
     else if (a === '--use-wall-clock') useFixedDt = false;
+    else if (a === '--input') enableInput = true;
+    else if (a === '--ws-port') wsPort = Number(argv[++i]);
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
@@ -189,6 +193,57 @@ export async function runHeadless(options = {}) {
     out.push('ERROR: dist-ts wrapper failed to load — cannot run headless');
     console.error('[headless] FATAL: dist-ts wrapper unavailable. Run: npx tsc -p tsconfig.build2.json');
     return {ok: false, output: out};
+  }
+
+  // ── Input server (WebSocket) ──────────────────────────────────────────────
+  // Start the embedded WebSocket input server when --input is passed.
+  // Remote clients connect and send JSON InputEvent messages which are
+  // forwarded directly to the WASM joystick/keyboard exports.
+  let inputServer = null;
+  if (enableInput) {
+    try {
+      const { createInputServer } = await import('./input-server.mjs');
+      const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
+      inputServer = createInputServer({
+        port: wsPort,
+        verbose,
+        onInput: (event) => {
+          if (!exports) return;
+          try {
+            if (event.type === 'joystick') {
+              const port = ((event.joystickPort ?? 2) - 1);  // 1-based → 0-based
+              const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
+              const fire = (event.fire || event.fire1) ? 0x10 : 0;
+
+              if (event.action === 'release') {
+                if (dir) exports.c64_joystick_release(port, dir);
+                if (fire) exports.c64_joystick_release(port, fire);
+              } else {
+                // Default to push for backwards compat (action missing)
+                if (dir) exports.c64_joystick_push(port, dir);
+                if (fire) exports.c64_joystick_push(port, fire);
+              }
+            } else if (event.type === 'key') {
+              const keyCode = Number(event.key);
+              if (!Number.isNaN(keyCode)) {
+                if (event.action === 'up') {
+                  exports.keyboard_keyReleased(keyCode);
+                } else {
+                  // Default to keyPressed for backwards compat (action missing)
+                  exports.keyboard_keyPressed(keyCode);
+                }
+              }
+            }
+          } catch (err) {
+            if (verbose) console.error('[headless] input dispatch error:', err);
+          }
+        },
+      });
+      out.push(`Input server listening on ws://0.0.0.0:${wsPort}`);
+    } catch (e) {
+      console.error('[headless] Failed to start input server:', e && e.message ? e.message : e);
+      out.push(`input-server-failed: ${String(e)}`);
+    }
   }
 
   // Run state and timing
@@ -415,6 +470,17 @@ export async function runHeadless(options = {}) {
 
   const elapsed = (Date.now() - runStartTime) / 1000;
   out.push(`Run complete. frames=${frameCount} elapsed=${elapsed.toFixed(2)}s`);
+
+  // ── Shut down input server ────────────────────────────────────────────────
+  if (inputServer) {
+    try {
+      await inputServer.close();
+      if (verbose) console.error('[headless] input server closed');
+    } catch (e) {
+      console.error('[headless] input server close error:', e && e.message ? e.message : e);
+    }
+  }
+
   if (record && ffmpegRunner) {
     // Clear audio interval if it was used (currently null/no-op)
     if (audioInterval) {
