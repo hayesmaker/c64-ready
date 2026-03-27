@@ -1,9 +1,16 @@
 {
   "name": "c64-ready",
   "description": "Commodore 64 emulator for the browser and Node.js — browser player, headless streaming CLI, and TypeScript API",
-  "keywords": ["c64", "commodore64", "emulator", "wasm", "headless", "retro"],
+  "keywords": [
+    "c64",
+    "commodore64",
+    "emulator",
+    "wasm",
+    "headless",
+    "retro"
+  ],
   "license": "MIT",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "engines": {
     "node": ">=24.14"
@@ -84,5 +91,3 @@
     "vite": "^8.0.0-beta.13"
   }
 }
-
-

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+No unreleased changes.
+
+## v0.5.2 - 2026-03-27T20:21:24+00:00
+
+- chore(release): 0.5.2 (0cb70cd)
+- feat: added input handling api to the headless runner (73eebfb)
+- fix(headless): use correct output path relative to project (299607e)
+- chore: add cartridges to headless npm (f8d72c9)
+- Merge pull request #20 from hayesmaker/feature/headless-audio (ba60d4b)
+- feat: headless player with audio working good (4203361)
+- fix: docker env file reading (3761a76)
+- Merge pull request #19 from hayesmaker/chore/docker-headless (da1d530)
+- chore: Docker docs (054323d)
+- chore: changelogs (auto) (2a3dab0)
 - chore: dockerized headless c64 player (7bc7770)
 - chore: cleanup source files (27925b4)
 
