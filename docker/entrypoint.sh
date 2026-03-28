@@ -13,26 +13,41 @@ else
   ARGS="$ARGS --no-game"
 fi
 
-ARGS="$ARGS --record"
-ARGS="$ARGS --output ${RTMP_URL:-rtmp://nms:1935/live/c64}"
+# ── Streaming mode ────────────────────────────────────────────────────────────
+# WEBRTC_ENABLED=1  → low-latency WebRTC player page + signalling on WEBRTC_PORT.
+#                     Input server is ALWAYS started in this mode (on WS_PORT)
+#                     because the embedded browser page connects to it directly.
+# Default (unset)   → legacy RTMP path via ffmpeg + Node-Media-Server.
+#                     Input server only starts when INPUT_ENABLED=1.
+if [ "${WEBRTC_ENABLED}" = "1" ] || [ "${WEBRTC_ENABLED}" = "true" ]; then
+  echo "[entrypoint] MODE: WebRTC  (player → http://0.0.0.0:${WEBRTC_PORT:-9002}/  input → ws://0.0.0.0:${WS_PORT:-9001}/)"
+  ARGS="$ARGS --webrtc"
+  ARGS="$ARGS --webrtc-port ${WEBRTC_PORT:-9002}"
+  # Input is always enabled in WebRTC mode — the browser page connects to it.
+  ARGS="$ARGS --input"
+  ARGS="$ARGS --ws-port ${WS_PORT:-9001}"
+else
+  echo "[entrypoint] MODE: RTMP    (output → ${RTMP_URL:-rtmp://nms:1935/live/c64})"
+  ARGS="$ARGS --record"
+  ARGS="$ARGS --output ${RTMP_URL:-rtmp://nms:1935/live/c64}"
+
+  # Enable SID audio muxing only when AUDIO is explicitly "1" or "true".
+  if [ "${AUDIO}" = "1" ] || [ "${AUDIO}" = "true" ]; then
+    ARGS="$ARGS --audio"
+  fi
+
+  # Input server is opt-in for RTMP mode.
+  if [ "${INPUT_ENABLED}" = "1" ] || [ "${INPUT_ENABLED}" = "true" ]; then
+    ARGS="$ARGS --input"
+    ARGS="$ARGS --ws-port ${WS_PORT:-9001}"
+  fi
+fi
+
 ARGS="$ARGS --fps ${FPS:-50}"
 
 # Only pass --duration when explicitly set; omitting it means stream forever.
 if [ -n "${DURATION}" ]; then
   ARGS="$ARGS --duration $DURATION"
-fi
-
-# Enable SID audio muxing only when AUDIO is explicitly "1" or "true".
-# Intentionally NOT using [ -n "${AUDIO}" ] because AUDIO=0 is non-empty
-# and would incorrectly enable audio.
-if [ "${AUDIO}" = "1" ] || [ "${AUDIO}" = "true" ]; then
-  ARGS="$ARGS --audio"
-fi
-
-# Enable WebSocket input server for remote control.
-if [ "${INPUT_ENABLED}" = "1" ] || [ "${INPUT_ENABLED}" = "true" ]; then
-  ARGS="$ARGS --input"
-  ARGS="$ARGS --ws-port ${WS_PORT:-9001}"
 fi
 
 if [ -n "${VERBOSE}" ]; then

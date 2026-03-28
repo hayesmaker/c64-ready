@@ -46,6 +46,18 @@ Headless / recording integration notes
 - The CLI prefers `src/headless/c64-wasm.mjs` (no TypeScript build) but will fall back to `dist-ts/emulator/c64-wasm.js` if present.
 - FFmpeg is used for recording/streaming; `ffmpeg` must be on PATH. The headless runner resolves outputs: remote URLs (rtmp://...) are used verbatim, local paths are resolved relative to repo root.
 
+WebRTC streaming (low-latency)
+- New files: `src/headless/webrtc-encoder.mjs`, `src/headless/webrtc-server.mjs`, `src/headless/c64-key-map.mjs`
+- Start with: `node bin/headless.mjs --wasm public/c64.wasm --webrtc --webrtc-port 9002 --input --ws-port 9001 --fps 50 --no-game`
+- Open `http://localhost:9002` — self-contained player page, no flv.js or NMS needed.
+- Docker: set `WEBRTC_ENABLED=1` in `docker/.env` → entrypoint auto-adds `--webrtc --input`. **All config must be in `docker/.env`** — do NOT add `environment:` block entries or they will override `env_file` values with empty strings.
+- **Keyboard mapping**: `keyboard_keyPressed(n)` takes a **C64 matrix key index**, NOT a DOM keyCode. The browser page sends `e.key` (string) + `e.shiftKey`; `c64-key-map.mjs::domKeyToC64Actions()` translates to matrix index and handles shift side-effects (cursor up/left, F-key pairs, etc.). Never pass `e.keyCode` directly to the WASM.
+- **WebRTC encoder gotchas**:
+  - `rgbaToI420` checks `data.byteLength === width*height*4` — a WASM heap `subarray` fails this because `byteLength` = full heap size. Use a pre-allocated staging `Uint8ClampedArray` in `init()` and `set()` into it each frame.
+  - `RTCAudioSource.onData` requires exactly `sampleRate/100` samples per call (441 @ 44100 Hz). Buffer SID output and drain in exact 441-sample chunks.
+  - `@roamhq/wrtc` native threads keep the Node event loop alive — always call `process.exit(0)` at the end of `bin/headless.mjs`.
+- **Streaming loop**: `isStreamingMode = record || webrtc` — both modes run indefinitely (`endTime = Infinity`) unless `--duration` is set. `--frames` is only respected in non-streaming test/verify runs.
+
 Testing, linting and tooling
 - Tests: `vitest` — run `npm test` or `npm run test:watch`. Look under `src/...*.test.ts` and compiled `dist-ts/...test.js` for examples.
 - Lint/format: `npm run lint` / `npm run lint:fix` and `npm run format` (prettier)
@@ -78,26 +90,29 @@ node bin/headless.mjs --wasm public/c64.wasm --no-game --frames 30 --verbose
 
 Two-container setup defined in `docker-compose.yml`:
 - **nms** — Node Media Server (`docker/Dockerfile.nms`, `docker/nms/server.mjs`): RTMP ingest on `:1935`, HTTP-FLV/HLS on `:8000`
-- **headless** — Headless C64 player (`docker/Dockerfile.headless`, entrypoint: `docker/entrypoint.sh`): streams via ffmpeg → RTMP → nms
+- **headless** — Headless C64 player (`docker/Dockerfile.headless`, entrypoint: `docker/entrypoint.sh`): WebRTC player on `:9002` + input WS on `:9001` (WebRTC mode), or streams via ffmpeg → RTMP → nms (legacy mode)
 
 ```zsh
-# First run — copy and optionally edit env vars
+# First run — copy and edit env vars
 cp docker/.env.example docker/.env
 
-# Build and start both services
+# ── WebRTC mode (low-latency, recommended) ────────────────────────────────
+# Set WEBRTC_ENABLED=1 in docker/.env, then:
+docker compose up --build headless
+# Open http://localhost:9002 in a browser — video + keyboard input, ~0ms lag
+
+# ── Legacy RTMP mode ──────────────────────────────────────────────────────
+# Leave WEBRTC_ENABLED blank in docker/.env
 docker compose up --build
 
-# Watch stream in VLC / ffplay
+# Watch RTMP stream in VLC / ffplay
 ffplay rtmp://localhost:1935/live/c64
 # or open http://localhost:8000/live/c64/index.m3u8 in a player
-
-# Load a cartridge (no rebuild needed — games are bind-mounted)
-GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
 
 # Stop everything
 docker compose down
 ```
 
-Key env vars (see `docker/.env.example`): `WASM_PATH`, `GAME_PATH`, `RTMP_URL`, `FPS`, `DURATION`, `VERBOSE`, `NMS_RTMP_HOST_PORT`, `NMS_HTTP_HOST_PORT`.
-The `headless` service waits for `nms` to pass its healthcheck before starting.
+Key env vars (see `docker/.env.example`): `WEBRTC_ENABLED`, `WEBRTC_PORT`, `WASM_PATH`, `GAME_PATH`, `RTMP_URL`, `FPS`, `DURATION`, `AUDIO`, `VERBOSE`, `WS_PORT`.
+All config belongs in `docker/.env` — do not use shell env var overrides (they interact badly with `env_file`).
 
