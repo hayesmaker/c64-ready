@@ -53,15 +53,15 @@ updateFavicon();
 // Listen for files selected via the UI and load into the emulator
 window.addEventListener('c64-load-file', async (e: Event) => {
   const detail = (e as CustomEvent).detail;
-  const file: File | undefined = detail?.file;
+  const file: File | undefined = detail.file;
   if (!file) return;
   try {
-    renderer.showLoader?.();
+    renderer.showLoader();
     await player.loadFile(file);
-    renderer.hideLoader?.();
+    renderer.hideLoader();
   } catch (err) {
     console.error(err);
-    renderer.setError?.('LOAD ERROR');
+    renderer.setError('LOAD ERROR');
     status.textContent = `Load error: ${err}`;
     status.style.color = '#f44';
   }
@@ -74,7 +74,7 @@ window.addEventListener('c64-load-error', (e: Event) => {
     | undefined;
   const msg = detail?.error ?? 'Unknown load error';
   console.error('C64 load error event:', detail);
-  renderer.setError?.('LOAD ERROR');
+  renderer.setError('LOAD ERROR');
   status.textContent = `Load error: ${msg}`;
   status.style.color = '#f44';
 });

@@ -3,13 +3,19 @@
 #
 # Services:
 #   nms       — Node Media Server (RTMP ingest + HTTP-FLV / HLS playback)
-#   headless  — Headless C64 emulator (pushes RGBA frames → ffmpeg → RTMP)
+#   headless  — Headless C64 emulator (pushes RGBA frames → ffmpeg → RTMP,
+#               or serves a WebRTC player page directly on port 9002)
 #
-# Quick start:
-#   cp docker/.env.example docker/.env   # edit to taste (game, audio, fps…)
+# Quick start (RTMP / legacy):
+#   cp docker/.env.example docker/.env   # edit to taste
 #   docker compose up --build
 #
-# Watch the stream:
+# Quick start (WebRTC — low latency, no NMS needed):
+#   Set WEBRTC_ENABLED=1 in docker/.env, then:
+#     docker compose up --build headless
+#   Open http://localhost:9002 in a browser
+#
+# Watch the RTMP stream (legacy mode):
 #   HTTP-FLV  → http://localhost:8000/live/c64.flv
 #   HLS       → http://localhost:8000/live/c64/index.m3u8
 #   RTMP      → rtmp://localhost:1935/live/c64  (VLC / OBS / ffplay)
@@ -44,17 +50,28 @@ services:
       dockerfile: docker/Dockerfile.headless
     container_name: c64-headless
     restart: unless-stopped
+    # NMS dependency: only blocks on NMS health when running in RTMP mode.
+    # In WebRTC mode (WEBRTC_ENABLED=1) NMS is not needed so we use
+    # service_started (non-blocking) instead of service_healthy.
+    # Note: depends_on is evaluated at compose startup — if you only run
+    # `docker compose up headless`, NMS is not started at all and this
+    # dependency is effectively ignored.
     depends_on:
       nms:
-        condition: service_healthy
-    # docker/.env is the primary config — copy docker/.env.example to docker/.env
-    # and edit it. Individual vars can still be overridden inline on the CLI:
-    #   GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
+        condition: service_started
+    # ── Environment variables ─────────────────────────────────────────────────
+    # All runtime config comes from docker/.env (copy from docker/.env.example).
+    # Edit docker/.env to switch modes, set game path, fps, etc.
+    # There is no shell one-liner override — Docker Compose has no way to pass
+    # a shell variable into the container without also clobbering env_file values
+    # for unset variables. Use docker/.env as the single source of truth.
     env_file:
       - path: docker/.env
         required: false
     ports:
-      - "${WS_HOST_PORT:-9001}:9001"           # WebSocket input server
+      - "${WS_HOST_PORT:-9001}:9001"              # WebSocket input server
+      - "${WEBRTC_HOST_PORT:-9002}:9002"           # WebRTC player page + signalling
+      - "50000-50100:50000-50100/udp"              # ICE/SRTP UDP port range
     # Bind-mount the WASM binary and games folder from the host so you can
     # swap cartridges without rebuilding the image.
     volumes:

@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import {fileURLToPath} from 'url';
 import FFmpegRunner from './ffmpeg-runner.mjs';
+import { domKeyToC64Actions } from './c64-key-map.mjs';
 
 /**
  * Run headless emulator. Exported so tests can inject a fake WebAssembly.instantiate.
@@ -28,6 +29,8 @@ export async function runHeadless(options = {}) {
   let durationSec = 0; // 0 means no --duration was passed → stream forever when recording
   let enableInput = false;
   let wsPort = 9001;
+  let webrtc = false;
+  let webrtcPort = 9002;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -46,6 +49,8 @@ export async function runHeadless(options = {}) {
     else if (a === '--use-wall-clock') useFixedDt = false;
     else if (a === '--input') enableInput = true;
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
+    else if (a === '--webrtc') webrtc = true;
+    else if (a === '--webrtc-port') webrtcPort = Number(argv[++i]);
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
@@ -224,14 +229,22 @@ export async function runHeadless(options = {}) {
                 if (fire) exports.c64_joystick_push(port, fire);
               }
             } else if (event.type === 'key') {
-              const keyCode = Number(event.key);
-              if (!Number.isNaN(keyCode)) {
-                if (event.action === 'up') {
-                  exports.keyboard_keyReleased(keyCode);
+              // event.key is a DOM key string ('a', 'ArrowUp', 'Enter', …)
+              // Translate to one or more C64 matrix key actions, including
+              // shift side-effects for cursor keys, F-key pairs, etc.
+              const domKey   = String(event.key ?? '');
+              const shiftKey = !!event.shiftKey;
+              const evType   = event.action === 'up' ? 'keyup' : 'keydown';
+              const c64acts  = domKeyToC64Actions(domKey, shiftKey, evType);
+              for (const act of c64acts) {
+                if (act.action === 'press') {
+                  exports.keyboard_keyPressed(act.key);
                 } else {
-                  // Default to keyPressed for backwards compat (action missing)
-                  exports.keyboard_keyPressed(keyCode);
+                  exports.keyboard_keyReleased(act.key);
                 }
+              }
+              if (verbose && c64acts.length > 0) {
+                console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
               }
             }
           } catch (err) {
@@ -243,6 +256,49 @@ export async function runHeadless(options = {}) {
     } catch (e) {
       console.error('[headless] Failed to start input server:', e && e.message ? e.message : e);
       out.push(`input-server-failed: ${String(e)}`);
+    }
+  }
+
+  // ── WebRTC server (low-latency streaming, replaces RTMP+flv.js) ─────────
+  // Started when --webrtc is passed. Opens an HTTP+WS signalling server on
+  // webrtcPort (default 9002). Each connecting browser gets its own
+  // RTCPeerConnection fed by the shared encoder tracks.
+  let webrtcEncoder = null;
+  let webrtcServer  = null;
+
+  if (webrtc) {
+    try {
+      const { WebRTCEncoder }      = await import('./webrtc-encoder.mjs');
+      const { createWebRTCServer } = await import('./webrtc-server.mjs');
+      const wrtcLib = (await import('@roamhq/wrtc')).default;
+      const { MediaStream } = wrtcLib;
+
+      webrtcEncoder = new WebRTCEncoder();
+      webrtcEncoder.init({ width: 384, height: 272, sampleRate: 44100 });
+
+      const { videoTrack, audioTrack } = webrtcEncoder;
+
+      webrtcServer = createWebRTCServer({
+        port: webrtcPort,
+        verbose,
+        inputPort: wsPort,
+        // onOffer fires BEFORE createAnswer() — the right place to addTrack()
+        onOffer(pc) {
+          const stream = new MediaStream([videoTrack, audioTrack]);
+          pc.addTrack(videoTrack, stream);
+          pc.addTrack(audioTrack, stream);
+          if (verbose) console.error('[webrtc] tracks attached to peer');
+        },
+        onPeerConnected(pc) {
+          if (verbose) console.error('[webrtc] peer ICE connected');
+        },
+      });
+
+      out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/`);
+    } catch (e) {
+      console.error('[headless] Failed to start WebRTC server:', e && e.message ? e.message : e);
+      out.push(`webrtc-server-failed: ${String(e)}`);
+      webrtc = false;
     }
   }
 
@@ -266,7 +322,8 @@ export async function runHeadless(options = {}) {
   // the total crosses a 4096-sample boundary, sending the full 4096-sample
   // chunk to ffmpeg at that point.
   const SID_BUFFER_SIZE = 4096;
-  let sidSampleAccum = 0; // samples accumulated since last sid_getAudioBuffer call
+  let sidSampleAccum = 0; // samples accumulated since last sid_getAudioBuffer call (ffmpeg path)
+  let sidSampleAccumWrtc = 0; // independent accumulator for the WebRTC audio path
 
   // Resolve output path once — treat remote URLs verbatim, local file paths
   // should be resolved relative to the current working directory (process.cwd()).
@@ -320,15 +377,18 @@ export async function runHeadless(options = {}) {
   // runStartTime is set AFTER ffmpeg starts so --duration counts from when
   // recording actually begins (after any RTMP probe/stabilisation delay).
   const runStartTime = Date.now();
-  // When recording without an explicit --duration, run forever (endTime = Infinity).
-  const endTime = record
+  // Run forever when streaming (record or webrtc) without an explicit --duration.
+  // --frames is only respected when neither --record nor --webrtc is active
+  // (i.e. verification / test runs).
+  const isStreamingMode = record || webrtc;
+  const endTime = isStreamingMode
     ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
     : null;
   let lastTick = Date.now();
   let windowStart = Date.now();
   let windowCount = 0;
 
-  while (record ? Date.now() < endTime : frameCount < frames) {
+  while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
     // iteration start timestamp (declare in outer scope so it's available
     // to the throttle logic even if the try block throws)
     let iterStart = Date.now();
@@ -360,6 +420,35 @@ export async function runHeadless(options = {}) {
         exports.debugger_update(stepMs);
       } catch (e) {
         if (verbose) console.error('[headless] debugger_update threw', e);
+      }
+
+      // ── WebRTC: push video + audio into the live track ─────────────────
+      // This is independent of ffmpeg recording; both can run simultaneously.
+      if (webrtc && webrtcEncoder) {
+        try {
+          const ptr  = exports.c64_getPixelBuffer();
+          const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
+          webrtcEncoder.pushVideoFrame(rgba);
+        } catch (e) {
+          if (verbose) console.error('[headless] webrtc video push error:', e && e.message);
+        }
+
+        // WebRTC audio — independent SID accumulator so it never interferes
+        // with the ffmpeg audio path (both can be active at the same time).
+        if (exports.sid_getAudioBuffer) {
+          sidSampleAccumWrtc += samplesPerFrame;
+          if (sidSampleAccumWrtc >= SID_BUFFER_SIZE) {
+            sidSampleAccumWrtc -= SID_BUFFER_SIZE;
+            try {
+              const sidPtr  = exports.sid_getAudioBuffer();
+              const sidBase = sidPtr >> 2;
+              const audioSamples = heap.heapF32.subarray(sidBase, sidBase + SID_BUFFER_SIZE);
+              webrtcEncoder.pushAudioFrame(audioSamples);
+            } catch (e) {
+              if (verbose) console.error('[headless] webrtc audio push error:', e && e.message);
+            }
+          }
+        }
       }
 
       // Capture video frame and audio chunk, then write both atomically.
@@ -478,6 +567,16 @@ export async function runHeadless(options = {}) {
       if (verbose) console.error('[headless] input server closed');
     } catch (e) {
       console.error('[headless] input server close error:', e && e.message ? e.message : e);
+    }
+  }
+
+  // ── Shut down WebRTC server ───────────────────────────────────────────────
+  if (webrtcServer) {
+    try {
+      await webrtcServer.close();
+      if (verbose) console.error('[headless] webrtc server closed');
+    } catch (e) {
+      console.error('[headless] webrtc server close error:', e && e.message ? e.message : e);
     }
   }
 

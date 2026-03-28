@@ -54,6 +54,8 @@ Options:
   --output <path|url>  Output file path or rtmp:// stream URL
   --duration <secs>    Recording duration in seconds  (omit for endless streaming)
   --fps <n>            Target frame rate  (default: 50 for PAL)
+  --webrtc             Start a WebRTC streaming server (low-latency; replaces RTMP+flv.js)
+  --webrtc-port <n>    WebRTC signalling + player HTTP port  (default: 9002)
   --input              Start WebSocket input server for remote control
   --ws-port <n>        WebSocket server port  (default: 9001)
   --verbose            Print per-frame diagnostics to stderr
@@ -61,9 +63,14 @@ Options:
 
 Prerequisites:
   ffmpeg must be on PATH for --record
+  @roamhq/wrtc must be installed for --webrtc  (npm install @roamhq/wrtc)
   ws npm package must be installed for --input (it is a dependency of c64-ready)
 
 Examples:
+  # Low-latency WebRTC stream (open http://localhost:9002 in a browser)
+  c64-headless --wasm public/c64.wasm --no-game --webrtc \\
+    --webrtc-port 9002 --input --ws-port 9001 --fps 50
+
   # RTMP live stream (5 minutes)
   c64-headless --wasm public/c64.wasm --no-game --record \\
     --output rtmp://localhost:1935/live/c64 --duration 300
@@ -72,9 +79,9 @@ Examples:
   c64-headless --wasm public/c64.wasm --no-game --record \\
     --output out.mp4 --duration 30
 
-  # Stream with remote input enabled
-  c64-headless --wasm public/c64.wasm --game game.crt --record \\
-    --output rtmp://localhost:1935/live/c64 --input --ws-port 9001
+  # WebRTC + simultaneous RTMP (both active at once)
+  c64-headless --wasm public/c64.wasm --game game.crt --webrtc \\
+    --record --output rtmp://localhost:1935/live/c64 --input --ws-port 9001
 `.trim();
   console.log(help);
   process.exit(0);
@@ -100,3 +107,8 @@ if (!res.ok) {
   }
   process.exit(1);
 }
+
+// Force exit: native addons (@roamhq/wrtc) keep the event loop alive
+// even after all work is done. This is safe — all cleanup already ran above.
+process.exit(0);
+
