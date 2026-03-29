@@ -583,9 +583,15 @@ export async function runHeadless(options = {}) {
           if (verbose) console.error('[headless] debugger_update threw', e);
         }
         if (step < INPUT_SUBSTEPS - 1) {
-          // Yield between sub-steps so WS message handlers can run and
-          // write fresh input to the WASM joystick/keyboard registers.
-          await new Promise((r) => setImmediate(r));
+          // Only yield if we still have time left in this frame's budget.
+          // Skipping the yield when already over-budget (e.g. the frame after
+          // a cart load/reset) prevents the yield overhead from compounding on
+          // catch-up frames, which was the root cause of input lag growing after
+          // each game load or reset.
+          const elapsedSoFar = Date.now() - iterStart;
+          if (elapsedSoFar < frameMs) {
+            await new Promise((r) => setImmediate(r));
+          }
         }
       }
 
