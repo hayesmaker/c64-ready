@@ -101,6 +101,11 @@ export async function runHeadless(options = {}) {
   let heap     = null;
   let c64wasm  = null;   // ← hoisted: needed by onCommand for allocAndWrite
   let wrapperUsed = false;
+  // Frame-loop timing — hoisted so onCommand can reset them after blocking
+  // WASM work (cart load / reset) to prevent burst iterations.
+  let lastTick    = Date.now();
+  let windowStart = Date.now();
+  let windowCount = 0;
 
   // If a test injected a fake instantiate function, prefer that path so
   // tests can run without the compiled wrapper. Provide a minimal import
@@ -222,6 +227,7 @@ export async function runHeadless(options = {}) {
         port: wsPort,
         verbose,
         validateKickToken,
+        initialCartFilename: gamePath ? path.basename(gamePath) : null,
         onCommand: (cmd) => {
           if (!exports) return;
           try {
@@ -252,6 +258,15 @@ export async function runHeadless(options = {}) {
           } catch (err) {
             if (verbose) console.error('[headless] command error:', err);
           }
+          // Reset the frame-loop timing reference so the first post-command
+          // iteration doesn't inherit a stale lastTick from before the WASM
+          // work ran. Without this, iterElapsed ≈ 0 on several consecutive
+          // frames, sleepMs fires immediately (already queued), and the
+          // emulator races ahead in a burst of back-to-back debugger_update
+          // calls — producing the perceived lag / speed-up after cart load.
+          lastTick = Date.now();
+          windowStart = Date.now();
+          windowCount = 0;
         },
         onInput: (event) => {
           if (!exports) return;
@@ -418,16 +433,15 @@ export async function runHeadless(options = {}) {
   // runStartTime is set AFTER ffmpeg starts so --duration counts from when
   // recording actually begins (after any RTMP probe/stabilisation delay).
   const runStartTime = Date.now();
-  // Run forever when streaming (record or webrtc) without an explicit --duration.
-  // --frames is only respected when neither --record nor --webrtc is active
-  // (i.e. verification / test runs).
   const isStreamingMode = record || webrtc;
   const endTime = isStreamingMode
     ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
     : null;
-  let lastTick = Date.now();
-  let windowStart = Date.now();
-  let windowCount = 0;
+  // Reset timing refs to now so the first frame interval is correct
+  // (they may have been set much earlier during inputServer setup).
+  lastTick    = Date.now();
+  windowStart = Date.now();
+  windowCount = 0;
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
     // iteration start timestamp (declare in outer scope so it's available

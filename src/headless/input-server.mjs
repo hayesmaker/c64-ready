@@ -41,6 +41,15 @@ export function createInputServer(opts = {}) {
   let p2Username    = null;
   let inviteToken   = null;
 
+  // Joystick port swap — when true, host uses port 1, P2 uses port 2
+  let portsSwapped  = false;
+  // Currently loaded cartridge filename (for hello message to late joiners).
+  // Seeded from opts.initialCartFilename when a default game is pre-loaded.
+  let currentCartFilename = opts.initialCartFilename ?? null;
+
+  function hostPort() { return portsSwapped ? 1 : 2; }
+  function p2Port()   { return portsSwapped ? 2 : 1; }
+
   // ── Host inactivity timeout ───────────────────────────────────────────────
   let hostTimeoutTimer = null;
 
@@ -149,14 +158,41 @@ export function createInputServer(opts = {}) {
         hostClient   = ws;
         hostUsername = msg.username ?? 'player';
         ws.send(JSON.stringify({
-          type: 'host-confirmed', username: hostUsername, joystickPort: 2,
-          player2: p2Username ? { username: p2Username, joystickPort: 1 } : null,
+          type: 'host-confirmed', username: hostUsername, joystickPort: hostPort(),
+          player2: p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
         }));
-        broadcastExcept(ws, { type: 'host-joined', username: hostUsername, joystickPort: 2 });
+        broadcastExcept(ws, { type: 'host-joined', username: hostUsername, joystickPort: hostPort() });
         if (verbose) console.error(`[input-server] host claimed by ${hostUsername}`);
         resetHostTimeout();
         // P2 slot just opened (host present, no P2)
         broadcastExcept(ws, { type: 'p2-slot-status', open: isP2SlotOpen() });
+        return;
+      }
+
+      // ── Swap joystick ports ───────────────────────────────────────────────
+      if (msg.type === 'swap-ports') {
+        if (ws !== hostClient) return;
+        portsSwapped = !portsSwapped;
+        if (verbose) console.error(`[input-server] ports swapped: host=${hostPort()} p2=${p2Port()}`);
+        broadcastAll({
+          type:      'ports-swapped',
+          swapped:   portsSwapped,
+          hostPort:  hostPort(),
+          p2Port:    p2Port(),
+        });
+        return;
+      }
+      // ── Voluntary player 2 leave ──────────────────────────────────────────
+      if (msg.type === 'p2-leave') {
+        if (ws === p2Client) {
+          p2Client       = null;
+          const leaving  = p2Username;
+          p2Username     = null;
+          if (verbose) console.error(`[input-server] player2 ${leaving} voluntarily left`);
+          ws.send(JSON.stringify({ type: 'player2-left', username: leaving, voluntary: true }));
+          broadcastExcept(ws, { type: 'player2-left', username: leaving, voluntary: true });
+          broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+        }
         return;
       }
 
@@ -168,6 +204,7 @@ export function createInputServer(opts = {}) {
           const leaving     = hostUsername;
           hostUsername      = null;
           inviteToken       = null;
+          portsSwapped      = false;
           if (verbose) console.error(`[input-server] host ${leaving} voluntarily left`);
           ws.send(JSON.stringify({ type: 'host-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'host-left', username: leaving, voluntary: true });
@@ -209,9 +246,9 @@ export function createInputServer(opts = {}) {
         p2Username  = msg.username ?? 'player2';
         inviteToken = null; // clear any pending invite — slot is now filled
         ws.send(JSON.stringify({
-          type: 'join-p2-confirmed', username: p2Username, joystickPort: 1,
+          type: 'join-p2-confirmed', username: p2Username, joystickPort: p2Port(),
         }));
-        broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: 1 });
+        broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: p2Port() });
         // Notify all clients that the slot is now taken
         broadcastAll({ type: 'p2-slot-status', open: false });
         if (verbose) console.error(`[input-server] player2 open-joined: ${p2Username}`);
@@ -232,9 +269,9 @@ export function createInputServer(opts = {}) {
         p2Username  = msg.username ?? 'player2';
         inviteToken = null;
         ws.send(JSON.stringify({
-          type: 'join-p2-confirmed', username: p2Username, joystickPort: 1,
+          type: 'join-p2-confirmed', username: p2Username, joystickPort: p2Port(),
         }));
-        broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: 1 });
+        broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: p2Port() });
         broadcastAll({ type: 'p2-slot-status', open: false });
         if (verbose) console.error(`[input-server] player2 joined: ${p2Username}`);
         return;
@@ -300,13 +337,19 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient) return;
         if (verbose) console.error(`[input-server] load-crt: ${msg.filename ?? '?'}`);
         broadcastAll({ type: 'cart-loading', filename: msg.filename ?? '' });
-        try {
-          onCommand({ type: 'load-crt', filename: msg.filename ?? '', data: msg.data ?? '' });
-          broadcastAll({ type: 'cart-loaded', filename: msg.filename ?? '' });
-        } catch (e) {
-          broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
-          if (verbose) console.error('[input-server] load-crt error:', e);
-        }
+        // Defer the heavy WASM work so this WS message handler returns first,
+        // allowing any already-queued input events to drain before we block
+        // the event loop with allocAndWrite + c64_loadCartridge + c64_reset.
+        setImmediate(() => {
+          try {
+            onCommand({ type: 'load-crt', filename: msg.filename ?? '', data: msg.data ?? '' });
+            currentCartFilename = msg.filename ?? null;
+            broadcastAll({ type: 'cart-loaded', filename: msg.filename ?? '' });
+          } catch (e) {
+            broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
+            if (verbose) console.error('[input-server] load-crt error:', e);
+          }
+        });
         return;
       }
 
@@ -314,6 +357,7 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] detach-crt');
         onCommand({ type: 'detach-crt' });
+        currentCartFilename = null;
         broadcastAll({ type: 'cart-detached' });
         return;
       }
@@ -322,6 +366,7 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] hard-reset');
         onCommand({ type: 'hard-reset' });
+        currentCartFilename = null;
         broadcastAll({ type: 'machine-reset' });
         return;
       }
@@ -348,6 +393,7 @@ export function createInputServer(opts = {}) {
         const leaving = hostUsername;
         hostUsername  = null;
         inviteToken   = null;
+        portsSwapped  = false;
         if (verbose) console.error(`[input-server] host ${leaving} disconnected`);
         broadcastExcept(ws, { type: 'host-left', username: leaving });
         promoteP2ToHost();
@@ -374,9 +420,10 @@ export function createInputServer(opts = {}) {
       protocol:    'c64-input',
       version:     1,
       hostTaken:   hostActive,
-      host:        hostActive ? { username: hostUsername, joystickPort: 2 } : null,
-      player2:     p2Username ? { username: p2Username, joystickPort: 1 } : null,
+      host:        hostActive ? { username: hostUsername, joystickPort: hostPort() } : null,
+      player2:     p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
       p2SlotOpen:  isP2SlotOpen(),
+      ...(currentCartFilename ? { cartFilename: currentCartFilename } : {}),
       joystickBitmask: { up: 0x1, down: 0x2, left: 0x4, right: 0x8, fire: 0x10 },
     }));
   });
