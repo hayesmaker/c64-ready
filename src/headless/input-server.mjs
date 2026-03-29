@@ -147,7 +147,16 @@ export function createInputServer(opts = {}) {
         if (verbose) console.error(`[input-server] bad message:`, err.message);
         return;
       }
-      if (verbose) console.error(`[input-server] rx:`, JSON.stringify(msg));
+      // Avoid re-serialising load-crt messages for logging — the base64 data
+      // field can be 100KB+ and JSON.stringify-ing it synchronously on the
+      // main thread causes a noticeable pause proportional to file size.
+      if (verbose) {
+        if (msg.type === 'load-crt') {
+          console.error(`[input-server] rx: load-crt filename=${msg.filename ?? '?'} dataLen=${(msg.data ?? '').length}`);
+        } else {
+          console.error(`[input-server] rx:`, JSON.stringify(msg));
+        }
+      }
 
       // ── Host claim ────────────────────────────────────────────────────────
       if (msg.type === 'host') {
@@ -336,20 +345,21 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'load-crt') {
         if (ws !== hostClient) return;
         if (verbose) console.error(`[input-server] load-crt: ${msg.filename ?? '?'}`);
-        broadcastAll({ type: 'cart-loading', filename: msg.filename ?? '' });
-        // Defer the heavy WASM work so this WS message handler returns first,
-        // allowing any already-queued input events to drain before we block
-        // the event loop with allocAndWrite + c64_loadCartridge + c64_reset.
-        setImmediate(() => {
-          try {
-            onCommand({ type: 'load-crt', filename: msg.filename ?? '', data: msg.data ?? '' });
-            currentCartFilename = msg.filename ?? null;
-            broadcastAll({ type: 'cart-loaded', filename: msg.filename ?? '' });
-          } catch (e) {
+        const loadFilename = msg.filename ?? '';
+        broadcastAll({ type: 'cart-loading', filename: loadFilename });
+        // onCommand may return a Promise (deferred async load) or be sync.
+        // In either case wait for completion before broadcasting the outcome
+        // so clients don't receive cart-loaded before the WASM work is done.
+        Promise.resolve()
+          .then(() => onCommand({ type: 'load-crt', filename: loadFilename, data: msg.data ?? '' }))
+          .then(() => {
+            currentCartFilename = loadFilename || null;
+            broadcastAll({ type: 'cart-loaded', filename: loadFilename });
+          })
+          .catch((e) => {
             broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
             if (verbose) console.error('[input-server] load-crt error:', e);
-          }
-        });
+          });
         return;
       }
 

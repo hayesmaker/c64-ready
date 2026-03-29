@@ -101,11 +101,14 @@ export async function runHeadless(options = {}) {
   let heap     = null;
   let c64wasm  = null;   // ← hoisted: needed by onCommand for allocAndWrite
   let wrapperUsed = false;
-  // Frame-loop timing — hoisted so onCommand can reset them after blocking
-  // WASM work (cart load / reset) to prevent burst iterations.
+  // Frame-loop timing — hoisted so onCommand can reset lastTick after
+  // blocking WASM work, preventing a stale delta on the next iteration.
   let lastTick    = Date.now();
   let windowStart = Date.now();
   let windowCount = 0;
+  // SID audio constants — hoisted so the SID-cache block and the frame loop
+  // both see them regardless of declaration order.
+  const SID_BUFFER_SIZE = 4096;
 
   // If a test injected a fake instantiate function, prefer that path so
   // tests can run without the compiled wrapper. Provide a minimal import
@@ -190,6 +193,7 @@ export async function runHeadless(options = {}) {
         exports.c64_loadCartridge(ptr, gameData.length);
         exports.free(ptr);
         exports.c64_reset();
+        exports.debugger_set_speed(100);
         exports.debugger_play();
       } catch (e) {
         out.push(`Failed to load game: ${String(e)}`);
@@ -206,6 +210,7 @@ export async function runHeadless(options = {}) {
     return {ok: false, output: out};
   }
 
+
   // ── Input server (WebSocket) ──────────────────────────────────────────────
   // Start the embedded WebSocket input server when --input is passed.
   // Remote clients connect and send JSON InputEvent messages which are
@@ -216,13 +221,32 @@ export async function runHeadless(options = {}) {
       const { createInputServer } = await import('./input-server.mjs');
       // Try to import the kick-token validator from the co-located c64cade server.
       // If it's not present (standalone c64-ready usage) fall back to no-op.
+      // NOTE: The import path is computed at runtime (not a string literal) so
+      // Vite/Vitest does NOT attempt to resolve/bundle it at transform time —
+      // dynamic import of a non-literal string is left to the JS engine.
       let validateKickToken = () => null;
       try {
-        const kickTokens = await import('../../c64cade/packages/server/utils/kick-tokens.js');
+        const kickTokenRelPath = '../../c64cade/packages/server/utils/kick-tokens.js';
+        const kickTokenUrl = new URL(kickTokenRelPath, import.meta.url).href;
+        const kickTokens = await import(kickTokenUrl);
         validateKickToken = kickTokens.validateKickToken;
       } catch { /* standalone mode — admin kick not available */ }
 
       const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
+
+      /** Flush all SID ring state after any emulator reset/cart-change.
+       *  The WASM SID resets its internal write cursor on c64_reset(), so any
+       *  samples still in the JS ring are from the old game and must be discarded.
+       *  sidSampleAccum is also zeroed so the next pull aligns with the freshly
+       *  restarted SID write cursor rather than inheriting stale offset. */
+      function resetSidRing() {
+        sidSampleAccum = 0;
+        sidRingWrite   = 0;
+        sidRingRead    = 0;
+        sidRingCount   = 0;
+        sidFrameBuf.fill(0);
+      }
+
       inputServer = createInputServer({
         port: wsPort,
         verbose,
@@ -232,39 +256,71 @@ export async function runHeadless(options = {}) {
           if (!exports) return;
           try {
             if (cmd.type === 'load-crt') {
-              // data is base64-encoded .crt file contents
+              // Decode base64 → Uint8Array immediately and release the large
+              // base64 string from the cmd object as soon as possible so GC
+              // can reclaim it during the subsequent async gap.
               const buf = Buffer.from(cmd.data, 'base64');
-              const arr = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-              const ptr = c64wasm.allocAndWrite(arr);
-              c64wasm.updateHeapViews();
-              heap = c64wasm.heap;
-              exports.c64_loadCartridge(ptr, arr.length);
-              exports.free(ptr);
-              exports.c64_reset();
-              exports.debugger_play();
-              if (verbose) console.error(`[headless] cart loaded: ${cmd.filename} (${arr.length} bytes)`);
+              // Slice to own ArrayBuffer — avoids aliasing Node's pooled Buffer
+              // which could span a much larger backing store than the data alone.
+              const arr = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength).slice();
+              cmd.data = null; // release base64 string early
+              const byteLen = arr.length;
+              const filename = cmd.filename;
+              // Defer the blocking WASM work (malloc + copy + cartridge parse)
+              // via setImmediate so the event loop can drain any pending frame
+              // writes / setTimeout callbacks before the synchronous WASM work
+              // begins. This prevents the frame loop from stalling mid-write.
+              // Return a Promise so input-server waits before broadcasting
+              // cart-loaded — ensuring clients are told only after load succeeds.
+              return new Promise((resolve, reject) => {
+                setImmediate(() => {
+                  try {
+                    const ptr = c64wasm.allocAndWrite(arr);
+                    c64wasm.updateHeapViews();
+                    heap = c64wasm.heap;
+                    exports.c64_loadCartridge(ptr, byteLen);
+                    exports.free(ptr);
+                    exports.c64_reset();
+                    exports.debugger_set_speed(100);
+                    exports.debugger_play();
+                    resetSidRing();
+                    if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
+                    resolve();
+                  } catch (err) {
+                    if (verbose) console.error('[headless] cart load (deferred) error:', err);
+                    reject(err);
+                  } finally {
+                    // Reset timing after the blocking work completes so the
+                    // next frame interval is measured from now, not from
+                    // before the blocking WASM work ran.
+                    lastTick    = Date.now();
+                    windowStart = Date.now();
+                    windowCount = 0;
+                  }
+                });
+              });
             } else if (cmd.type === 'detach-crt') {
               if (typeof exports.c64_removeCartridge === 'function') {
                 exports.c64_removeCartridge();
               }
               exports.c64_reset();
+              exports.debugger_set_speed(100);
               exports.debugger_play();
+              resetSidRing();
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
               exports.c64_reset();
+              exports.debugger_set_speed(100);
               exports.debugger_play();
+              resetSidRing();
               if (verbose) console.error('[headless] hard reset');
             }
           } catch (err) {
             if (verbose) console.error('[headless] command error:', err);
           }
-          // Reset the frame-loop timing reference so the first post-command
-          // iteration doesn't inherit a stale lastTick from before the WASM
-          // work ran. Without this, iterElapsed ≈ 0 on several consecutive
-          // frames, sleepMs fires immediately (already queued), and the
-          // emulator races ahead in a burst of back-to-back debugger_update
-          // calls — producing the perceived lag / speed-up after cart load.
-          lastTick = Date.now();
+          // Reset lastTick so the next frame interval is measured from now,
+          // not from before the blocking WASM work ran.
+          lastTick    = Date.now();
           windowStart = Date.now();
           windowCount = 0;
         },
@@ -368,18 +424,74 @@ export async function runHeadless(options = {}) {
   const samplesPerFrame = Math.floor(audioSampleRate / targetFps); // 882 @ 50fps
   let audioInterval = null;
 
-  // SID audio buffer is 4096 Float32 samples. debugger_update accumulates
-  // samples into it across multiple calls. sid_getAudioBuffer() must be
-  // called once per full 4096-sample fill — NOT once per video frame —
-  // to read the complete buffer and reset it for the next fill cycle.
+  // SID audio design — two-stage pipeline:
   //
-  // At 50fps: 882 samples/frame × ~4.65 frames = 4096 samples per SID buffer.
-  // We track accumulated samples and call sid_getAudioBuffer() each time
-  // the total crosses a 4096-sample boundary, sending the full 4096-sample
-  // chunk to ffmpeg at that point.
-  const SID_BUFFER_SIZE = 4096;
-  let sidSampleAccum = 0; // samples accumulated since last sid_getAudioBuffer call (ffmpeg path)
-  let sidSampleAccumWrtc = 0; // independent accumulator for the WebRTC audio path
+  // Stage 1 (WASM → JS ring):
+  //   Call sid_getAudioBuffer() exactly once per SID_BUFFER_SIZE samples of
+  //   emulated audio (every ~4.65 video frames at 50fps). This is the ONLY
+  //   safe call rate — calling it more often resets the SID's internal write
+  //   counter and causes runaway emulation speed (per AGENTS.md).
+  //   Each pull copies the full 4096-sample WASM buffer into a JS-side ring.
+  //
+  // Stage 2 (JS ring → ffmpeg/WebRTC):
+  //   Every video frame, dequeue exactly samplesPerFrame samples from the JS
+  //   ring into sidFrameBuf. Send that to ffmpeg/WebRTC every frame — no
+  //   bursting, perfectly aligned with the video frame rate, no A/V drift.
+  //   The ring provides the decoupling: WASM pushes in 4096-sample chunks,
+  //   consumers pull in 882-sample chunks.
+  //
+  // Ring sizing: hold at least 2× SID_BUFFER_SIZE so one full WASM pull
+  // never overflows while the consumer hasn't caught up yet.
+  const SID_RING_SIZE  = SID_BUFFER_SIZE * 4;  // 16384 samples of headroom
+  const sidRing        = new Float32Array(SID_RING_SIZE);
+  let   sidRingWrite   = 0;   // next write position in sidRing
+  let   sidRingRead    = 0;   // next read  position in sidRing
+  let   sidRingCount   = 0;   // samples currently in the ring
+  // Accumulator: how many emulated samples have passed since last WASM pull.
+  let   sidSampleAccum = 0;
+  // Single staging buffer for per-frame audio delivered to ffmpeg/WebRTC.
+  const sidFrameBuf    = new Float32Array(samplesPerFrame);
+
+  /** Pull one 4096-sample chunk from the WASM SID buffer into the JS ring. */
+  function pullSidBuffer() {
+    if (!exports || !heap || typeof exports.sid_getAudioBuffer !== 'function') return;
+    try {
+      const ptr     = exports.sid_getAudioBuffer();
+      const base    = ptr >> 2;
+      const src     = heap.heapF32;
+      for (let i = 0; i < SID_BUFFER_SIZE; i++) {
+        sidRing[(sidRingWrite + i) % SID_RING_SIZE] = src[base + i];
+      }
+      sidRingWrite = (sidRingWrite + SID_BUFFER_SIZE) % SID_RING_SIZE;
+      sidRingCount = Math.min(sidRingCount + SID_BUFFER_SIZE, SID_RING_SIZE);
+    } catch (_) {}
+  }
+
+  /** Dequeue up to n samples from the JS ring into sidFrameBuf. Returns true if enough data. */
+  function dequeueSidFrame() {
+    // If the ring doesn't have a full frame yet, pad with silence rather than
+    // stalling — this can happen on the very first frames before the SID has
+    // had time to fill a full 4096-sample chunk.
+    if (sidRingCount < samplesPerFrame) {
+      sidFrameBuf.fill(0);
+      return false;
+    }
+    for (let i = 0; i < samplesPerFrame; i++) {
+      sidFrameBuf[i] = sidRing[(sidRingRead + i) % SID_RING_SIZE];
+    }
+    sidRingRead  = (sidRingRead + samplesPerFrame) % SID_RING_SIZE;
+    sidRingCount -= samplesPerFrame;
+    return true;
+  }
+
+  // ── Input lag reduction ───────────────────────────────────────────────────
+  // Split each video frame into INPUT_SUBSTEPS sub-steps of (frameMs / substeps)
+  // each. Between sub-steps the event loop is yielded via setImmediate so any
+  // queued WebSocket input messages can be flushed to the WASM registers before
+  // the next sub-step of CPU emulation runs. This roughly halves average input
+  // latency (worst case drops from ~20ms to ~5ms at 50fps with 4 substeps)
+  // without changing the emulated frame rate or audio timing.
+  const INPUT_SUBSTEPS = 4;
 
   // Resolve output path once — treat remote URLs verbatim, local file paths
   // should be resolved relative to the current working directory (process.cwd()).
@@ -444,37 +556,51 @@ export async function runHeadless(options = {}) {
   windowCount = 0;
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
-    // iteration start timestamp (declare in outer scope so it's available
-    // to the throttle logic even if the try block throws)
     let iterStart = Date.now();
     try {
       if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
-      // Record iteration start time and compute deltaMs. Always update
-      // lastTick so the throttle calculation below works correctly for
-      // both fixed-dt and wall-clock modes.
       iterStart = Date.now();
       let deltaMs;
       if (useFixedDt) {
         deltaMs = Math.round(1000 / targetFps);
       } else {
-        // wall-clock delta in milliseconds since last tick
         deltaMs = iterStart - lastTick;
         if (deltaMs <= 0) deltaMs = Math.round(1000 / targetFps);
-        // clamp to a single frame interval to avoid huge jumps
         if (deltaMs > 1000) deltaMs = Math.round(1000 / targetFps);
       }
       lastTick = iterStart;
-      // Drive the emulator for one frame interval. One call to debugger_update
-      // with the target frame duration (20ms at 50fps) advances exactly one
-      // PAL frame worth of C64 cycles. Do NOT call it multiple times per loop
-      // iteration — that runs the emulator faster than real-time.
-      const stepMs = Math.round(1000 / targetFps); // 20ms at 50fps
-      try {
-        // Advance emulator one frame. Previously we logged dt/ret here for
-        // debugging; remove the per-frame diagnostic to avoid noisy output.
-        exports.debugger_update(stepMs);
-      } catch (e) {
-        if (verbose) console.error('[headless] debugger_update threw', e);
+      // Drive the emulator for one frame interval using sub-steps.
+      // Each sub-step yields to the event loop (setImmediate) so queued
+      // WebSocket input events can flush their WASM register writes before
+      // the next sub-step of CPU emulation runs. This reduces worst-case
+      // input latency from ~20ms to ~5ms at 50fps with 4 sub-steps.
+      const frameMs = Math.round(1000 / targetFps);
+      const subStepMs = Math.max(1, Math.round(frameMs / INPUT_SUBSTEPS));
+      for (let step = 0; step < INPUT_SUBSTEPS; step++) {
+        try {
+          exports.debugger_update(subStepMs);
+        } catch (e) {
+          if (verbose) console.error('[headless] debugger_update threw', e);
+        }
+        if (step < INPUT_SUBSTEPS - 1) {
+          // Yield between sub-steps so WS message handlers can run and
+          // write fresh input to the WASM joystick/keyboard registers.
+          await new Promise((r) => setImmediate(r));
+        }
+      }
+
+      // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
+      // Accumulate emulated samples; when we cross a SID_BUFFER_SIZE boundary
+      // pull one 4096-sample chunk from the WASM into the JS ring (safe call
+      // rate — never resets the SID counter mid-stream).
+      // Then dequeue exactly samplesPerFrame into sidFrameBuf for this frame.
+      if (audio || (webrtc && webrtcEncoder)) {
+        sidSampleAccum += samplesPerFrame;
+        while (sidSampleAccum >= SID_BUFFER_SIZE) {
+          sidSampleAccum -= SID_BUFFER_SIZE;
+          pullSidBuffer();
+        }
+        dequeueSidFrame(); // fills sidFrameBuf (or silence if ring not primed yet)
       }
 
       // ── WebRTC: push video + audio into the live track ─────────────────
@@ -488,20 +614,13 @@ export async function runHeadless(options = {}) {
           if (verbose) console.error('[headless] webrtc video push error:', e && e.message);
         }
 
-        // WebRTC audio — independent SID accumulator so it never interferes
-        // with the ffmpeg audio path (both can be active at the same time).
-        if (exports.sid_getAudioBuffer) {
-          sidSampleAccumWrtc += samplesPerFrame;
-          if (sidSampleAccumWrtc >= SID_BUFFER_SIZE) {
-            sidSampleAccumWrtc -= SID_BUFFER_SIZE;
-            try {
-              const sidPtr  = exports.sid_getAudioBuffer();
-              const sidBase = sidPtr >> 2;
-              const audioSamples = heap.heapF32.subarray(sidBase, sidBase + SID_BUFFER_SIZE);
-              webrtcEncoder.pushAudioFrame(audioSamples);
-            } catch (e) {
-              if (verbose) console.error('[headless] webrtc audio push error:', e && e.message);
-            }
+        // WebRTC audio — send exactly samplesPerFrame samples every frame
+        // using the sidFrameBuf already dequeued from the JS ring above.
+        if (audio || sidRingCount >= 0) {
+          try {
+            webrtcEncoder.pushAudioFrame(sidFrameBuf);
+          } catch (e) {
+            if (verbose) console.error('[headless] webrtc audio push error:', e && e.message);
           }
         }
       }
@@ -548,24 +667,11 @@ export async function runHeadless(options = {}) {
         try {
           const ptr = exports.c64_getPixelBuffer();
           const videoFrame = heap.heapU8.subarray(ptr, ptr + frameSize);
-          let audioChunk = null;
-          if (audio && exports.sid_getAudioBuffer) {
-            // Accumulate samples. sid_getAudioBuffer() fills 4096 samples per
-            // cycle — call it exactly when the accumulator crosses that boundary,
-            // then send the full 4096-sample buffer. This matches the original
-            // ScriptProcessorNode pattern in c64.js (audioBufferLength = 4096).
-            sidSampleAccum += samplesPerFrame;
-            if (sidSampleAccum >= SID_BUFFER_SIZE) {
-              sidSampleAccum -= SID_BUFFER_SIZE;
-              try {
-                const sidPtr = exports.sid_getAudioBuffer();
-                const sidBase = sidPtr >> 2;
-                // Copy the full 4096-sample buffer so ffmpeg gets a consistent chunk
-                audioChunk = heap.heapF32.slice(sidBase, sidBase + SID_BUFFER_SIZE);
-              } catch (_) {
-              }
-            }
-          }
+          // Audio: use the per-frame slice dequeued from the JS ring above —
+          // samplesPerFrame samples per frame, every frame (silence until primed).
+          // This ensures ffmpeg receives audio at a constant rate perfectly
+          // aligned with video, eliminating A/V sync drift.
+          const audioChunk = audio ? sidFrameBuf : null;
           await ffmpegRunner.writeFrame(videoFrame, audioChunk);
         } catch (e) {
           const errMsg = `ffmpeg write error after ${frameCount} frames: ${e && e.message ? e.message : String(e)}`;
@@ -605,7 +711,7 @@ export async function runHeadless(options = {}) {
     } else if (frameCount % 120 === 0) {
       //out.push(`HEADLESS: frame=${frameCount}`);
     }
-    // Throttle to target FPS: sleep for the remainder of the frame interval
+    // Throttle to target FPS: sleep for the remainder of the frame interval.
     const frameMs = Math.round(1000 / targetFps);
     const iterElapsed = Date.now() - iterStart;
     const sleepMs = Math.max(0, frameMs - iterElapsed);
