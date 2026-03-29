@@ -141,12 +141,12 @@ cp docker/.env.example docker/.env
 
 # ── WebRTC mode (low-latency, recommended) ────────────────────────────────
 # Set WEBRTC_ENABLED=1 in docker/.env, then:
-docker compose up --build headless
+docker compose build headless && docker compose up -d headless
 # Open http://localhost:9002 in a browser — video + keyboard input, ~0ms lag
 
 # ── Legacy RTMP mode ──────────────────────────────────────────────────────
 # Leave WEBRTC_ENABLED blank in docker/.env
-docker compose up --build
+docker compose build && docker compose up -d
 
 # Watch RTMP stream in VLC / ffplay
 ffplay rtmp://localhost:1935/live/c64
@@ -154,6 +154,22 @@ ffplay rtmp://localhost:1935/live/c64
 
 # Stop everything
 docker compose down
+```
+
+**Source-code change workflow** — `src/headless/`, `src/emulator/` and `bin/` are
+bind-mounted into the container (see `docker-compose.yml` volumes), so edits on the
+host take effect immediately without rebuilding:
+
+```zsh
+# After editing any file under src/headless/, src/emulator/, or bin/
+docker compose restart headless        # seconds — no rebuild needed
+
+# Only rebuild when package.json / package-lock.json changes
+docker compose build headless && docker compose up -d headless
+
+# NOTE: `docker compose up --build` does NOT accept --no-cache.
+# If you ever need a full cache-busting rebuild (e.g. base image update):
+docker compose build --no-cache headless && docker compose up -d headless
 ```
 
 Key env vars (see `docker/.env.example`): `WEBRTC_ENABLED`, `WEBRTC_PORT`, `WASM_PATH`, `GAME_PATH`, `RTMP_URL`, `FPS`, `DURATION`, `AUDIO`, `VERBOSE`, `WS_PORT`.

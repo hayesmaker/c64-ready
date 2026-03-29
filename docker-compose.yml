@@ -74,7 +74,12 @@ services:
       - "50000-50100:50000-50100/udp"              # ICE/SRTP UDP port range
     # Bind-mount the WASM binary and games folder from the host so you can
     # swap cartridges without rebuilding the image.
+    # src/headless and bin are also bind-mounted so source edits take effect
+    # with `docker compose restart headless` — no rebuild required.
     volumes:
       - ./public/c64.wasm:/app/public/c64.wasm:ro
       - ./public/games:/app/public/games:ro
+      - ./src/headless:/app/src/headless:ro
+      - ./src/emulator:/app/src/emulator:ro
+      - ./bin:/app/bin:ro
 
