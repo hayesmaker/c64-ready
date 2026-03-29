@@ -234,6 +234,19 @@ export async function runHeadless(options = {}) {
 
       const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
 
+      // Track the raw bytes of the currently-loaded cartridge so hard-reset
+      // can reload it instead of calling the slow bare c64_reset() path.
+      // c64_reset() with a cart resident takes ~1.4 s (the WASM runs the full
+      // ROM + cart init synchronously).  The fast path is:
+      //   removeCartridge (0 ms) → reset (105 ms) → loadCartridge (7 ms) → reset (6 ms)
+      // Total ~120 ms vs 1400 ms — 10× faster, event loop unblocked.
+      let currentCartBytes = null;
+
+      // Seed from the initial gamePath if one was loaded at startup.
+      if (gamePath) {
+        try { currentCartBytes = new Uint8Array(await fs.readFile(gamePath)); } catch (_) {}
+      }
+
       /** Flush all SID ring state after any emulator reset/cart-change.
        *  The WASM SID resets its internal write cursor on c64_reset(), so any
        *  samples still in the JS ring are from the old game and must be discarded.
@@ -284,6 +297,7 @@ export async function runHeadless(options = {}) {
                     exports.debugger_set_speed(100);
                     exports.debugger_play();
                     resetSidRing();
+                    currentCartBytes = arr; // remember for fast hard-reset
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
                     resolve();
                   } catch (err) {
@@ -297,22 +311,64 @@ export async function runHeadless(options = {}) {
                 });
               });
             } else if (cmd.type === 'detach-crt') {
-              if (typeof exports.c64_removeCartridge === 'function') {
-                exports.c64_removeCartridge();
-              }
-              exports.c64_reset();
-              exports.debugger_set_speed(100);
-              exports.debugger_play();
-              resetSidRing();
-              markEmulatorReset();
-              if (verbose) console.error('[headless] cart detached');
+              // Defer via setImmediate so the event loop can drain pending
+              // frame work before the synchronous WASM calls run.
+              // Return a Promise so input-server waits before broadcasting
+              // cart-detached — client only hears it after work completes.
+              return new Promise((resolve) => {
+                setImmediate(() => {
+                  try {
+                    if (typeof exports.c64_removeCartridge === 'function') {
+                      exports.c64_removeCartridge();
+                    }
+                    exports.c64_reset();
+                    exports.debugger_set_speed(100);
+                    exports.debugger_play();
+                    resetSidRing();
+                    currentCartBytes = null; // no cart loaded
+                    if (verbose) console.error('[headless] cart detached');
+                  } finally {
+                    markEmulatorReset();
+                    resolve();
+                  }
+                });
+              });
             } else if (cmd.type === 'hard-reset') {
-              exports.c64_reset();
-              exports.debugger_set_speed(100);
-              exports.debugger_play();
-              resetSidRing();
-              markEmulatorReset();
-              if (verbose) console.error('[headless] hard reset');
+              // c64_reset() can block the event loop for up to 3 s when a
+              // cartridge is loaded (ROM + cart init runs synchronously inside
+              // the WASM). Defer via setImmediate so the event loop can drain
+              // pending frame/input callbacks before the blocking work starts.
+              // Return a Promise so input-server waits before broadcasting
+              // machine-reset — client only hears it after work completes.
+              return new Promise((resolve) => {
+                setImmediate(() => {
+                  try {
+                    if (currentCartBytes && typeof exports.c64_removeCartridge === 'function') {
+                      // Fast reset path: remove cart (0ms) → bare reset (114ms) →
+                      // reload cart (7ms) = ~120ms total.
+                      // Do NOT call c64_reset() after reloading — that costs ~1.5s.
+                      // The cart auto-boots from the fresh reset state when loaded.
+                      console.error(`[headless] hard reset (fast path): ${currentCartBytes.length} bytes`);
+                      exports.c64_removeCartridge();
+                      exports.c64_reset();
+                      const ptr = c64wasm.allocAndWrite(currentCartBytes);
+                      c64wasm.updateHeapViews();
+                      heap = c64wasm.heap;
+                      exports.c64_loadCartridge(ptr, currentCartBytes.length);
+                      exports.free(ptr);
+                    } else {
+                      exports.c64_reset();
+                    }
+                    exports.debugger_set_speed(100);
+                    exports.debugger_play();
+                    resetSidRing();
+                    if (verbose) console.error('[headless] hard reset');
+                  } finally {
+                    markEmulatorReset();
+                    resolve();
+                  }
+                });
+              });
             }
           } catch (err) {
             if (verbose) console.error('[headless] command error:', err);

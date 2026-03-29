@@ -366,18 +366,35 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'detach-crt') {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] detach-crt');
-        onCommand({ type: 'detach-crt' });
-        currentCartFilename = null;
-        broadcastAll({ type: 'cart-detached' });
+        // onCommand returns a Promise (deferred via setImmediate) — wait for
+        // completion before broadcasting so clients hear cart-detached only
+        // after the WASM work finishes and the event loop is unblocked.
+        Promise.resolve()
+          .then(() => onCommand({ type: 'detach-crt' }))
+          .then(() => {
+            currentCartFilename = null;
+            broadcastAll({ type: 'cart-detached' });
+          })
+          .catch((e) => {
+            if (verbose) console.error('[input-server] detach-crt error:', e);
+          });
         return;
       }
 
       if (msg.type === 'hard-reset') {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] hard-reset');
-        onCommand({ type: 'hard-reset' });
-        currentCartFilename = null;
-        broadcastAll({ type: 'machine-reset' });
+        // onCommand returns a Promise (deferred via setImmediate) — wait for
+        // completion before broadcasting so clients hear machine-reset only
+        // after the WASM work finishes and the event loop is unblocked.
+        Promise.resolve()
+          .then(() => onCommand({ type: 'hard-reset' }))
+          .then(() => {
+            broadcastAll({ type: 'machine-reset' });
+          })
+          .catch((e) => {
+            if (verbose) console.error('[input-server] hard-reset error:', e);
+          });
         return;
       }
 
