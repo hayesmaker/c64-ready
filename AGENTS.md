@@ -2,6 +2,42 @@
 
 This file captures the minimal, high-value knowledge an automated coding agent needs to work effectively in c64-ready.
 
+---
+
+## Git workflow (mandatory)
+
+Follow these rules on every task, no exceptions:
+
+1. **New branch before any code change.**
+   Branch from `master` using a conventional prefix:
+   - `feat/<short-slug>` — new feature
+   - `fix/<short-slug>` — bug fix
+   - `chore/<short-slug>` — tooling / docs / refactor with no behaviour change
+   ```zsh
+   git checkout master && git pull
+   git checkout -b fix/my-short-slug
+   ```
+
+2. **Commit after each coherent set of changes.**
+   Use [Conventional Commits](https://www.conventionalcommits.org/) format:
+   ```
+   <type>(<scope>): <short present-tense summary>
+
+   Optional body explaining *why*, not just what.
+   ```
+   Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`.
+   Examples:
+   - `fix(headless): reset SID ring on cart load to prevent stale audio loop`
+   - `chore(agents): document git workflow`
+
+3. **Do not push or open a PR** unless explicitly asked.
+
+4. **When the user confirms everything is working** — add tests covering the last changes, commit them (`test(<scope>): ...`), then report back.
+
+5. **Never commit directly to `master`.**
+
+---
+
 Quick start
 - Install + run dev server: `npm install && npm run dev`
 - Build production + headless wrapper: `npm run build` and `npm run headless:build` (runs `npx tsc -p tsconfig.build.json`)
@@ -30,16 +66,21 @@ Critical, project-specific patterns & gotchas
   5. Call runtime init exps (`c64_init()`, `sid_setSampleRate(...)`, `debugger_set_speed(...)`, `debugger_play()`)
 
 - Frame / timing rules (headless + browser):
-  - Drive the emulator by calling `debugger_update(stepMs)` exactly once per frame (stepMs ≈ 1000/targetFps). Do NOT call it multiple times per loop — this speeds the emulator.
+  - Drive the emulator by calling `debugger_update(stepMs)` for one frame's worth of time per loop iteration. Do NOT call it with a total `frameMs` in a single call when input responsiveness matters — use sub-steps instead (see below).
+  - **Input-lag sub-stepping:** split each frame into `INPUT_SUBSTEPS` (currently 4) sub-calls of `frameMs / INPUT_SUBSTEPS` each. Between sub-steps, yield with `setImmediate` so queued WebSocket input events flush to the WASM registers before the next CPU sub-step runs. This reduces worst-case input latency from ~20ms to ~5ms at 50fps. **Only yield if `Date.now() - iterStart < frameMs`** — skip yields on over-budget frames (e.g. the frame immediately after a cart load) to prevent lag compounding during catch-up.
   - Clamp large delta times (if using wall-clock) to avoid burst execution (see clamp to ~1000/targetFps in `HEADLESS_RUNNING.md` and `src/headless/headless-cli.mjs`).
+  - After any `c64_reset()`, reset `lastTick = Date.now()` so the next frame's delta doesn't inherit the stale pre-reset timestamp.
 
 - Audio rules:
   - Read SID audio buffer via `sid_getAudioBuffer()` and the heap F32 view — buffer is 4096 Float32 samples.
   - NEVER call `sid_dumpBuffer()` in the normal playback frame loop (it resets SID internal counters and causes runaway speed).
-  - NEVER call `sid_getAudioBuffer()` per-frame in the headless loop — it has the SAME runaway-speed effect as `sid_dumpBuffer()`: it resets the SID's internal sample counter so the next `debugger_update` runs extra cycles to refill the buffer. It also takes ~5ms per call on top of that.
-  - Correct headless pattern: call `sid_getAudioBuffer()` **once** at init to cache the pointer, then read the buffer each frame via `heap.heapF32.subarray(cachedBase, cachedBase + samplesPerFrame)` (zero-copy). See `src/headless/headless-cli.mjs` (`sidAudioBase`).
-  - Use the worklet pull-model: worklet posts `'need-samples'`, main thread reads `sid_getAudioBuffer()` and posts Float32Array back (see `public/audio-worklet-processor.js` and `src/player/audio-engine.ts`). The worklet pull-model is fine because `sid_getAudioBuffer()` is called infrequently (pulled by the audio thread, not every video frame).
-  - The SID buffer is **4096 samples** filled by `debugger_update` across multiple calls. `sid_getAudioBuffer()` must be called once per full 4096-sample fill — NOT once per video frame. At 50fps (882 samples/frame) this is every ~4.65 frames. Track accumulated samples and call once per boundary crossing, sending the full 4096-sample buffer. See `sidSampleAccum` / `SID_BUFFER_SIZE` in `src/headless/headless-cli.mjs`.
+  - NEVER call `sid_getAudioBuffer()` more than once per 4096 accumulated emulated samples — it resets the SID's internal write counter, causing the next `debugger_update` to run extra cycles to refill, and takes ~5ms per call.
+  - NEVER try to cache the SID pointer and read a sliding subarray from the heap each frame — the SID ring has its own internal write cursor; reading ahead of it produces stale/repeated audio (sounds like the first notes looping).
+  - **Correct headless pattern — two-stage ring buffer** (implemented in `src/headless/headless-cli.mjs`):
+    - **Stage 1 (WASM → JS ring):** accumulate `samplesPerFrame` per video frame into `sidSampleAccum`. Each time it crosses `SID_BUFFER_SIZE` (4096), call `sid_getAudioBuffer()` once and copy the 4096-sample chunk into a JS-side `Float32Array` ring (`sidRing`, sized `SID_BUFFER_SIZE * 4` for headroom).
+    - **Stage 2 (JS ring → consumer):** every video frame, dequeue exactly `samplesPerFrame` from the JS ring into `sidFrameBuf`. If the ring is not yet primed (first ~5 frames), output silence. Send `sidFrameBuf` to ffmpeg and/or WebRTC every frame — no bursting, constant rate, no A/V drift.
+    - **On every `c64_reset()` / cart load / detach:** call `resetSidRing()` to zero `sidSampleAccum`, `sidRingWrite/Read/Count`, and fill `sidFrameBuf` with silence. The WASM SID resets its write cursor on reset; stale JS-ring data from the previous game must be discarded.
+  - Use the worklet pull-model in the browser: worklet posts `'need-samples'`, main thread reads `sid_getAudioBuffer()` and posts Float32Array back (see `public/audio-worklet-processor.js` and `src/player/audio-engine.ts`). The worklet pull-model is safe because it is driven by the audio thread at the correct rate, not by every video frame.
 
 Headless / recording integration notes
 - `bin/headless.mjs` is the user-facing CLI wrapper; it imports `src/headless/headless-cli.mjs`.
