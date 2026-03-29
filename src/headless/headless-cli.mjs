@@ -290,12 +290,9 @@ export async function runHeadless(options = {}) {
                     if (verbose) console.error('[headless] cart load (deferred) error:', err);
                     reject(err);
                   } finally {
-                    // Reset timing after the blocking work completes so the
-                    // next frame interval is measured from now, not from
-                    // before the blocking WASM work ran.
-                    lastTick    = Date.now();
-                    windowStart = Date.now();
-                    windowCount = 0;
+                    // Reset timing and activate the post-reset grace window so
+                    // the ROM boot frames keep yielding input events properly.
+                    markEmulatorReset();
                   }
                 });
               });
@@ -307,22 +304,19 @@ export async function runHeadless(options = {}) {
               exports.debugger_set_speed(100);
               exports.debugger_play();
               resetSidRing();
+              markEmulatorReset();
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
               exports.c64_reset();
               exports.debugger_set_speed(100);
               exports.debugger_play();
               resetSidRing();
+              markEmulatorReset();
               if (verbose) console.error('[headless] hard reset');
             }
           } catch (err) {
             if (verbose) console.error('[headless] command error:', err);
           }
-          // Reset lastTick so the next frame interval is measured from now,
-          // not from before the blocking WASM work ran.
-          lastTick    = Date.now();
-          windowStart = Date.now();
-          windowCount = 0;
         },
         onInput: (event) => {
           if (!exports) return;
@@ -493,6 +487,29 @@ export async function runHeadless(options = {}) {
   // without changing the emulated frame rate or audio timing.
   const INPUT_SUBSTEPS = 4;
 
+  // After a cart load or reset the ROM boot sequence can make the first N frames
+  // CPU-heavy (each debugger_update taking longer than its sub-step budget).
+  // The normal "skip yield when over-budget" guard would suppress all
+  // setImmediate yields for every one of those frames, pushing input latency
+  // back to one full frame (~20ms).  We counter this by counting down a
+  // "post-reset grace" window: for POST_RESET_GRACE_FRAMES frames after any
+  // reset/cart-load we always yield on every sub-step, ignoring the elapsed
+  // budget guard entirely.  64 frames ≈ 1.28 s @ 50 fps, which comfortably
+  // covers the C64 ROM boot sequence.
+  const POST_RESET_GRACE_FRAMES = 64;
+  let   postResetFrames = 0;
+
+  // Called by onCommand whenever the emulator is reset so the grace window
+  // activates for the next N frames.  Also resets the frame-loop timing refs
+  // so the first post-reset frame interval is measured from now, not from
+  // before the blocking WASM work ran.
+  function markEmulatorReset() {
+    postResetFrames = POST_RESET_GRACE_FRAMES;
+    lastTick    = Date.now();
+    windowStart = Date.now();
+    windowCount = 0;
+  }
+
   // Resolve output path once — treat remote URLs verbatim, local file paths
   // should be resolved relative to the current working directory (process.cwd()).
   // If no output provided, fall back to repoRoot/temp as before.
@@ -577,19 +594,27 @@ export async function runHeadless(options = {}) {
       const frameMs = Math.round(1000 / targetFps);
       const subStepMs = Math.max(1, Math.round(frameMs / INPUT_SUBSTEPS));
       for (let step = 0; step < INPUT_SUBSTEPS; step++) {
+        const subStepStart = Date.now();
         try {
           exports.debugger_update(subStepMs);
         } catch (e) {
           if (verbose) console.error('[headless] debugger_update threw', e);
         }
         if (step < INPUT_SUBSTEPS - 1) {
-          // Only yield if we still have time left in this frame's budget.
-          // Skipping the yield when already over-budget (e.g. the frame after
-          // a cart load/reset) prevents the yield overhead from compounding on
-          // catch-up frames, which was the root cause of input lag growing after
-          // each game load or reset.
-          const elapsedSoFar = Date.now() - iterStart;
-          if (elapsedSoFar < frameMs) {
+          // Yield to the event loop so queued input WebSocket messages can
+          // flush their WASM register writes before the next sub-step runs.
+          //
+          // Guard: skip the yield only when this individual sub-step was
+          // already over its own budget AND we are not in the post-reset
+          // grace window.  The grace window (POST_RESET_GRACE_FRAMES) covers
+          // the C64 ROM boot sequence where each debugger_update() can run
+          // longer than its nominal sub-step budget — without the grace window
+          // the whole-frame over-budget guard would suppress all yields for
+          // ~1 second after every reset, effectively removing the input-lag
+          // benefit of sub-stepping during the most latency-sensitive period.
+          const subElapsed = Date.now() - subStepStart;
+          const inGrace    = postResetFrames > 0;
+          if (inGrace || subElapsed < subStepMs) {
             await new Promise((r) => setImmediate(r));
           }
         }
@@ -695,6 +720,8 @@ export async function runHeadless(options = {}) {
     } catch (_) {
     }
     frameCount++;
+    // Tick down the post-reset grace window (clamped to 0).
+    if (postResetFrames > 0) postResetFrames--;
     // diagnostics
     windowCount++;
     if (windowCount >= 50) {
