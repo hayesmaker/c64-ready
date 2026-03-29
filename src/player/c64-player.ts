@@ -1,6 +1,7 @@
 import { C64Emulator } from '../emulator/c64-emulator';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
+import type { InputMode } from '../emulator/input';
 import type CanvasRenderer from './canvas-renderer';
 import { AudioEngine } from './audio-engine';
 import InputHandler from './input-handler';
@@ -209,6 +210,17 @@ export class C64Player {
    */
   setKeyboardJoystickPort(port: JoystickPort): void {
     this.inputHandler?.setKeyboardJoystickPort(port);
+  }
+
+  /**
+   * Change the input mode ('joystick' | 'keyboard' | 'mixed').
+   * - 'joystick' — arrows + ControlLeft control the joystick only (default)
+   * - 'keyboard' — all keys go to the C64 keyboard matrix
+   * - 'mixed'    — arrows + Z + ControlLeft drive the joystick; all other
+   *                keys route to the C64 keyboard matrix simultaneously
+   */
+  setInputMode(mode: InputMode): void {
+    this.inputHandler?.setInputMode(mode);
   }
 }
 

@@ -163,6 +163,17 @@ export default class UIController {
           <label><input type="radio" name="c64-joy-port" value="2" checked /> Port 2</label>
         </div>
         <div style="height:8px"></div>
+        <label style="font-size:13px;color:#aaa">Input Mode</label>
+        <div style="margin-top:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <label><input type="radio" name="c64-input-mode" value="joystick" checked /> Joystick</label>
+          <label><input type="radio" name="c64-input-mode" value="keyboard" /> Keyboard</label>
+          <label><input type="radio" name="c64-input-mode" value="mixed" /> Mixed</label>
+        </div>
+        <div style="height:4px"></div>
+        <div id="c64-input-mode-hint" style="font-size:11px;color:#888;line-height:1.4">
+          Arrows + Ctrl = joystick
+        </div>
+        <div style="height:8px"></div>
         <label style="font-size:13px;color:#aaa">Display</label>
         <div style="margin-top:8px; display:flex; gap:12px; align-items:center;">
           <label><input type="radio" name="c64-display-mode" value="standard" checked /> Standard</label>
@@ -294,6 +305,33 @@ export default class UIController {
     joyRadios.forEach((r) => {
       r.addEventListener('change', () => {
         if (r.checked) setJoyPort(Number(r.value) as JoystickPort);
+      });
+    });
+
+    // ── Input mode wiring ──────────────────────────────────────────────────
+    const inputModeHints: Record<string, string> = {
+      joystick: 'Arrows + Ctrl = joystick only',
+      keyboard: 'All keys &rarr; C64 keyboard matrix',
+      mixed:    'Arrows + Z + Ctrl = joystick &amp; all other keys &rarr; C64 keyboard',
+    };
+    const inputModeRadios = panel.querySelectorAll(
+      'input[name="c64-input-mode"]',
+    ) as NodeListOf<HTMLInputElement>;
+    const hintEl = panel.querySelector('#c64-input-mode-hint') as HTMLElement | null;
+    const applyInputMode = (mode: string) => {
+      if (hintEl) hintEl.innerHTML = inputModeHints[mode] ?? '';
+      window.dispatchEvent(new CustomEvent('c64-set-input-mode', { detail: { mode } }));
+      if (this.player && typeof this.player.setInputMode === 'function') {
+        try {
+          this.player.setInputMode(mode as import('../emulator/input').InputMode);
+        } catch {
+          // ignore
+        }
+      }
+    };
+    inputModeRadios.forEach((r) => {
+      r.addEventListener('change', () => {
+        if (r.checked) applyInputMode(r.value);
       });
     });
 

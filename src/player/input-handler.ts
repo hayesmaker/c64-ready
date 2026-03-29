@@ -1,4 +1,5 @@
-import { EmulatorInput, JOYSTICK_KEY_CODES } from '../emulator/input';
+import { EmulatorInput, JOYSTICK_KEY_CODES, MIXED_JOYSTICK_KEYS } from '../emulator/input';
+import type { InputMode } from '../emulator/input';
 import type { JoystickPort } from '../emulator/constants';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
@@ -30,10 +31,22 @@ export default class InputHandler {
     this.emulatorInput.setKeyboardPort(port);
   }
 
+  /** Change the input mode ('joystick' | 'keyboard' | 'mixed') */
+  setInputMode(mode: InputMode): void {
+    this.emulatorInput.setInputMode(mode);
+  }
+
+  getInputMode(): InputMode {
+    return this.emulatorInput.getInputMode();
+  }
+
   private onCaptureKeyDown(e: KeyboardEvent): void {
-    // Only block joystick-mapped keys to avoid interfering with other browser/UI shortcuts
-    // Use the canonical mapping from the emulator to decide which keys to block
-    const JOY_KEYS = new Set(JOYSTICK_KEY_CODES as string[]);
+    // Block joystick-mapped keys (standard + mixed mode) when overlays are
+    // visible or the document is unfocused. Use the union of both key sets.
+    const JOY_KEYS = new Set([
+      ...(JOYSTICK_KEY_CODES as string[]),
+      ...Object.keys(MIXED_JOYSTICK_KEYS),
+    ]);
     if (!JOY_KEYS.has(e.code)) return;
 
     // Block if document is unfocused. Prefer the Visibility API (document.hidden)
@@ -80,8 +93,11 @@ export default class InputHandler {
   }
 
   private onCaptureKeyUp(e: KeyboardEvent): void {
-    // Only block joystick-mapped keys
-    const JOY_KEYS = new Set(JOYSTICK_KEY_CODES as string[]);
+    // Only block joystick-mapped keys (standard + mixed mode)
+    const JOY_KEYS = new Set([
+      ...(JOYSTICK_KEY_CODES as string[]),
+      ...Object.keys(MIXED_JOYSTICK_KEYS),
+    ]);
     if (!JOY_KEYS.has(e.code)) return;
 
     // Mirror the same blocking logic for keyup events

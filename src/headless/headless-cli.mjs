@@ -96,9 +96,10 @@ export async function runHeadless(options = {}) {
   out.push(`Starting headless C64 using WASM: ${wasmPath}` + (gamePath ? ` game: ${gamePath}` : ''));
 
   const wasmBinary = await fs.readFile(wasmPath);
-  // runtime state placeholders
-  let exports = null;
-  let heap = null;
+  // runtime state placeholders — hoisted so onCommand handler can access c64wasm
+  let exports  = null;
+  let heap     = null;
+  let c64wasm  = null;   // ← hoisted: needed by onCommand for allocAndWrite
   let wrapperUsed = false;
 
   // If a test injected a fake instantiate function, prefer that path so
@@ -163,7 +164,7 @@ export async function runHeadless(options = {}) {
       wasmBinary.byteOffset,
       wasmBinary.byteOffset + wasmBinary.byteLength,
     );
-    const c64wasm = new C64WASM();
+    c64wasm = new C64WASM();   // assigns to outer let
     await c64wasm.instantiate(wasmAb);
 
     exports = c64wasm.exports;
@@ -208,10 +209,50 @@ export async function runHeadless(options = {}) {
   if (enableInput) {
     try {
       const { createInputServer } = await import('./input-server.mjs');
+      // Try to import the kick-token validator from the co-located c64cade server.
+      // If it's not present (standalone c64-ready usage) fall back to no-op.
+      let validateKickToken = () => null;
+      try {
+        const kickTokens = await import('../../c64cade/packages/server/utils/kick-tokens.js');
+        validateKickToken = kickTokens.validateKickToken;
+      } catch { /* standalone mode — admin kick not available */ }
+
       const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
       inputServer = createInputServer({
         port: wsPort,
         verbose,
+        validateKickToken,
+        onCommand: (cmd) => {
+          if (!exports) return;
+          try {
+            if (cmd.type === 'load-crt') {
+              // data is base64-encoded .crt file contents
+              const buf = Buffer.from(cmd.data, 'base64');
+              const arr = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+              const ptr = c64wasm.allocAndWrite(arr);
+              c64wasm.updateHeapViews();
+              heap = c64wasm.heap;
+              exports.c64_loadCartridge(ptr, arr.length);
+              exports.free(ptr);
+              exports.c64_reset();
+              exports.debugger_play();
+              if (verbose) console.error(`[headless] cart loaded: ${cmd.filename} (${arr.length} bytes)`);
+            } else if (cmd.type === 'detach-crt') {
+              if (typeof exports.c64_removeCartridge === 'function') {
+                exports.c64_removeCartridge();
+              }
+              exports.c64_reset();
+              exports.debugger_play();
+              if (verbose) console.error('[headless] cart detached');
+            } else if (cmd.type === 'hard-reset') {
+              exports.c64_reset();
+              exports.debugger_play();
+              if (verbose) console.error('[headless] hard reset');
+            }
+          } catch (err) {
+            if (verbose) console.error('[headless] command error:', err);
+          }
+        },
         onInput: (event) => {
           if (!exports) return;
           try {
