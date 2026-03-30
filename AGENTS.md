@@ -66,10 +66,7 @@ Critical, project-specific patterns & gotchas
   5. Call runtime init exps (`c64_init()`, `sid_setSampleRate(...)`, `debugger_set_speed(...)`, `debugger_play()`)
 
 - Frame / timing rules (headless + browser):
-  - Drive the emulator by calling `debugger_update(stepMs)` for one frame's worth of time per loop iteration. Do NOT call it with a total `frameMs` in a single call when input responsiveness matters — use sub-steps instead (see below).
-  - **Input-lag sub-stepping:** split each frame into `INPUT_SUBSTEPS` (currently 4) sub-calls of `frameMs / INPUT_SUBSTEPS` each. Between sub-steps, yield with `setImmediate` so queued WebSocket input events flush to the WASM registers before the next CPU sub-step runs. This reduces worst-case input latency from ~20ms to ~5ms at 50fps.
-    - **Yield guard (per-sub-step):** skip the `setImmediate` yield only when the *just-completed sub-step* itself took longer than its own budget (`subElapsed >= subStepMs`). Do NOT gate on the whole-frame elapsed — that would suppress yields for all remaining sub-steps if any one was slow.
-    - **Post-reset grace window (`POST_RESET_GRACE_FRAMES = 64`):** after any `c64_reset()` / cart load / detach, call `markEmulatorReset()` to set `postResetFrames = 64`. While `postResetFrames > 0` the per-sub-step guard is bypassed entirely — every sub-step always yields. This is essential because the C64 ROM boot sequence makes the first ~1 second of `debugger_update()` calls CPU-heavy (each taking longer than its nominal budget), which would otherwise suppress all yields and push input latency back to one full frame for the entire boot period.
+  - Drive the emulator by calling `debugger_update(frameMs)` once per loop iteration with the full frame duration.
   - Clamp large delta times (if using wall-clock) to avoid burst execution (see clamp to ~1000/targetFps in `HEADLESS_RUNNING.md` and `src/headless/headless-cli.mjs`).
   - After any `c64_reset()`, reset `lastTick = Date.now()` so the next frame's delta doesn't inherit the stale pre-reset timestamp.
 
