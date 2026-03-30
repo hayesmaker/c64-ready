@@ -22,8 +22,6 @@ export async function runHeadless(options = {}) {
   let verify = false;
   let record = false;
   let audio = false;
-  // Use fixed timestep by default to keep emulation timing stable.
-  let useFixedDt = true;
   let raw = false;
   let output = null;
   let durationSec = 0; // 0 means no --duration was passed → stream forever when recording
@@ -45,8 +43,6 @@ export async function runHeadless(options = {}) {
     else if (a === '--no-game') noGame = true;
     else if (a === '--verbose') verbose = true;
     else if (a === '--fps') fps = Number(argv[++i]);
-    else if (a === '--use-fixed-dt') useFixedDt = true;
-    else if (a === '--use-wall-clock') useFixedDt = false;
     else if (a === '--input') enableInput = true;
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
     else if (a === '--webrtc') webrtc = true;
@@ -101,11 +97,6 @@ export async function runHeadless(options = {}) {
   let heap     = null;
   let c64wasm  = null;   // ← hoisted: needed by onCommand for allocAndWrite
   let wrapperUsed = false;
-  // Frame-loop timing — hoisted so onCommand can reset lastTick after
-  // blocking WASM work, preventing a stale delta on the next iteration.
-  let lastTick    = Date.now();
-  let windowStart = Date.now();
-  let windowCount = 0;
   // SID audio constants — hoisted so the SID-cache block and the frame loop
   // both see them regardless of declaration order.
   const SID_BUFFER_SIZE = 4096;
@@ -296,8 +287,6 @@ export async function runHeadless(options = {}) {
                   } catch (err) {
                     if (verbose) console.error('[headless] cart load (deferred) error:', err);
                     reject(err);
-                  } finally {
-                    markEmulatorReset();
                   }
                 });
               });
@@ -314,7 +303,6 @@ export async function runHeadless(options = {}) {
               exports.debugger_set_speed(100);
               exports.debugger_play();
               resetSidRing();
-              markEmulatorReset();
               if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
@@ -327,7 +315,6 @@ export async function runHeadless(options = {}) {
               exports.c64_removeCartridge();
               exports.c64_reset();
               resetSidRing();
-              markEmulatorReset();
               if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] hard reset');
             }
@@ -500,36 +487,11 @@ export async function runHeadless(options = {}) {
   }
 
   // ── Input lag reduction ───────────────────────────────────────────────────
-  // Split each video frame into INPUT_SUBSTEPS sub-steps of (frameMs / substeps)
-  // each. Between sub-steps the event loop is yielded via setImmediate so any
-  // queued WebSocket input messages can be flushed to the WASM registers before
-  // the next sub-step of CPU emulation runs. This roughly halves average input
-  // latency (worst case drops from ~20ms to ~5ms at 50fps with 4 substeps)
-  // without changing the emulated frame rate or audio timing.
-  const INPUT_SUBSTEPS = 4;
-
-  // After a cart load or reset the ROM boot sequence can make the first N frames
-  // CPU-heavy (each debugger_update taking longer than its sub-step budget).
-  // The normal "skip yield when over-budget" guard would suppress all
-  // setImmediate yields for every one of those frames, pushing input latency
-  // back to one full frame (~20ms).  We counter this by counting down a
-  // "post-reset grace" window: for POST_RESET_GRACE_FRAMES frames after any
-  // reset/cart-load we always yield on every sub-step, ignoring the elapsed
-  // budget guard entirely.  64 frames ≈ 1.28 s @ 50 fps, which comfortably
-  // covers the C64 ROM boot sequence.
-  const POST_RESET_GRACE_FRAMES = 64;
-  let   postResetFrames = 0;
-
-  // Called by onCommand whenever the emulator is reset so the grace window
-  // activates for the next N frames.  Also resets the frame-loop timing refs
-  // so the first post-reset frame interval is measured from now, not from
-  // before the blocking WASM work ran.
-  function markEmulatorReset() {
-    postResetFrames = POST_RESET_GRACE_FRAMES;
-    lastTick    = Date.now();
-    windowStart = Date.now();
-    windowCount = 0;
-  }
+  // Split each frame into two half-steps with a setImmediate yield between them.
+  // The yield lets queued WebSocket input events flush to the WASM registers
+  // before the second half runs, halving worst-case input latency from ~20ms
+  // to ~10ms at 50fps — without any sub-step bookkeeping or grace windows.
+  const halfFrameMs = Math.round((1000 / targetFps) / 2); // 10ms @ 50fps
 
   // Resolve output path once — treat remote URLs verbatim, local file paths
   // should be resolved relative to the current working directory (process.cwd()).
@@ -587,64 +549,23 @@ export async function runHeadless(options = {}) {
   const endTime = isStreamingMode
     ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
     : null;
-  // Reset timing refs to now so the first frame interval is correct
-  // (they may have been set much earlier during inputServer setup).
-  lastTick    = Date.now();
-  windowStart = Date.now();
-  windowCount = 0;
+
+  let windowStart = Date.now();
+  let windowCount = 0;
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
-    let iterStart = Date.now();
     try {
       if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
-      iterStart = Date.now();
-      let deltaMs;
-      if (useFixedDt) {
-        deltaMs = Math.round(1000 / targetFps);
-      } else {
-        deltaMs = iterStart - lastTick;
-        if (deltaMs <= 0) deltaMs = Math.round(1000 / targetFps);
-        if (deltaMs > 1000) deltaMs = Math.round(1000 / targetFps);
-      }
-      lastTick = iterStart;
-      // Drive the emulator for one frame interval using sub-steps.
-      // Each sub-step yields to the event loop (setImmediate) so queued
-      // WebSocket input events can flush their WASM register writes before
-      // the next sub-step of CPU emulation runs. This reduces worst-case
-      // input latency from ~20ms to ~5ms at 50fps with 4 sub-steps.
-      const frameMs = Math.round(1000 / targetFps);
-      const subStepMs = Math.max(1, Math.round(frameMs / INPUT_SUBSTEPS));
-      for (let step = 0; step < INPUT_SUBSTEPS; step++) {
-        const subStepStart = Date.now();
-        exports.debugger_update(subStepMs);
-        if (step < INPUT_SUBSTEPS - 1) {
-          // Yield to the event loop so queued input WebSocket messages can
-          // flush their WASM register writes before the next sub-step runs.
-          //
-          // Guard: skip the yield only when this individual sub-step was
-          // already over its own budget AND we are not in the post-reset
-          // grace window.  The grace window (POST_RESET_GRACE_FRAMES) covers
-          // the C64 ROM boot sequence where each debugger_update() can run
-          // longer than its nominal sub-step budget — without the grace window
-          // the whole-frame over-budget guard would suppress all yields for
-          // ~1 second after every reset, effectively removing the input-lag
-          // benefit of sub-stepping during the most latency-sensitive period.
-          const subElapsed = Date.now() - subStepStart;
-          const inGrace    = postResetFrames > 0;
-          if (inGrace || subElapsed < subStepMs) {
-            await new Promise((r) => setImmediate(r));
-          }
-        }
-      }
-      // Re-capture iterStart after sub-steps complete.
-      // If a loadCartridge blockage (~1300ms) fired inside one of the sub-step
-      // yields, the original iterStart is stale and sleepMs would be 0, causing
-      // the loop to spin at many times real-clock speed: the emulator runs too
-      // fast (input lag that "gets better" over ~65 frames as the debt works off),
-      // and audio is pushed into the ring faster than it drains (audio drifts late).
-      // Re-capturing here means sleepMs is always relative to when this frame's
-      // emulation actually finished, giving a correct ~20ms sleep every time.
-      iterStart = Date.now();
+
+      // Run first half-frame, yield to let queued input events flush, run second half.
+      exports.debugger_update(halfFrameMs);
+      await new Promise((r) => setImmediate(r));
+      exports.debugger_update(halfFrameMs);
+
+      // Capture time after emulation work — sleepMs is then always measured
+      // from when this frame actually finished, never stale from before a
+      // loadCartridge blockage that may have fired inside the yield above.
+      const iterStart = Date.now();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Accumulate emulated samples; when we cross a SID_BUFFER_SIZE boundary
@@ -743,38 +664,32 @@ export async function runHeadless(options = {}) {
           }
         }
       }
+      // Throttle to target FPS: sleep for the remainder of the frame interval.
+      // iterStart was captured after emulation finished above, so sleepMs is
+      // never stale from a loadCartridge blockage that fired inside the yield.
+      const frameMs = Math.round(1000 / targetFps);
+      const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
+      await new Promise((r) => setTimeout(r, sleepMs));
     } catch (_) {
     }
     frameCount++;
-    // Tick down the post-reset grace window (clamped to 0).
-    if (postResetFrames > 0) postResetFrames--;
     // diagnostics
     windowCount++;
     if (windowCount >= 50) {
       const now = Date.now();
       const secs = (now - windowStart) / 1000;
-      const obsFps = windowCount / (secs || 1);
-      //console.error(`[headless] observed fps=${obsFps.toFixed(2)} over ${secs.toFixed(2)}s (frames ${frameCount - windowCount}..${frameCount})`);
       windowStart = now;
       windowCount = 0;
     }
     if (verify && frameCount % 60 === 0) {
       const cycleCount = exports.c64_getCycleCount ? exports.c64_getCycleCount() : null;
       out.push(JSON.stringify({pid: process.pid, frame: frameCount, cycles: cycleCount}));
-      // Also emit a stderr heartbeat so interactive runs show progress.
       try {
         const pc = exports.c64_getPC ? exports.c64_getPC() : null;
         console.error(`[headless] verify: frame=${frameCount} pc=${pc} cycles=${cycleCount}`);
       } catch (_) {
       }
-    } else if (frameCount % 120 === 0) {
-      //out.push(`HEADLESS: frame=${frameCount}`);
     }
-    // Throttle to target FPS: sleep for the remainder of the frame interval.
-    const frameMs = Math.round(1000 / targetFps);
-    const iterElapsed = Date.now() - iterStart;
-    const sleepMs = Math.max(0, frameMs - iterElapsed);
-    await new Promise((r) => setTimeout(r, sleepMs));
   }
 
   const elapsed = (Date.now() - runStartTime) / 1000;
