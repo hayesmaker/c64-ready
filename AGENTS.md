@@ -36,6 +36,13 @@ Follow these rules on every task, no exceptions:
 
 5. **Never commit directly to `master`.**
 
+6. **Always pipe pager commands through `| cat`** — `git diff`, `git log`, `git show`, `git stash show`, and any other command that may invoke a pager will block the terminal thread without it.
+   ```zsh
+   git diff | cat
+   git log --oneline | cat
+   git show HEAD | cat
+   ```
+
 ---
 
 Quick start
@@ -171,4 +178,3 @@ docker compose build --no-cache headless && docker compose up -d headless
 
 Key env vars (see `docker/.env.example`): `WEBRTC_ENABLED`, `WEBRTC_PORT`, `WASM_PATH`, `GAME_PATH`, `RTMP_URL`, `FPS`, `DURATION`, `AUDIO`, `VERBOSE`, `WS_PORT`.
 All config belongs in `docker/.env` — do not use shell env var overrides (they interact badly with `env_file`).
-
