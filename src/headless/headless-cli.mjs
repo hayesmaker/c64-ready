@@ -277,9 +277,10 @@ export async function runHeadless(options = {}) {
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
                     exports.c64_loadCartridge(ptr, byteLen);
-                    exports.free(ptr);
-                    exports.debugger_set_speed(100);
-                    exports.debugger_play();
+                    // free(ptr), debugger_set_speed and debugger_play are
+                    // intentionally omitted: c64_loadCartridge internally resets
+                    // and resumes the machine. Calling them again re-triggers the
+                    // ROM boot sequence and was the root cause of post-load input lag.
                     resetSidRing();
                     if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
@@ -296,12 +297,10 @@ export async function runHeadless(options = {}) {
               // to run inline without setImmediate deferral.
               // Return a Promise so input-server still awaits before broadcasting
               // cart-detached (keeps the protocol consistent with load-crt).
-              if (typeof exports.c64_removeCartridge === 'function') {
-                exports.c64_removeCartridge();
-              }
-              exports.c64_reset();
-              exports.debugger_set_speed(100);
-              exports.debugger_play();
+              exports.c64_removeCartridge();
+              // c64_reset, debugger_set_speed and debugger_play are intentionally
+              // omitted: calling them after removeCartridge re-triggers the ROM boot
+              // sequence and was the root cause of post-detach input lag.
               resetSidRing();
               if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] cart detached');
@@ -486,12 +485,6 @@ export async function runHeadless(options = {}) {
     return true;
   }
 
-  // ── Input lag reduction ───────────────────────────────────────────────────
-  // Split each frame into two half-steps with a setImmediate yield between them.
-  // The yield lets queued WebSocket input events flush to the WASM registers
-  // before the second half runs, halving worst-case input latency from ~20ms
-  // to ~10ms at 50fps — without any sub-step bookkeeping or grace windows.
-  const halfFrameMs = Math.round((1000 / targetFps) / 2); // 10ms @ 50fps
 
   // Resolve output path once — treat remote URLs verbatim, local file paths
   // should be resolved relative to the current working directory (process.cwd()).
@@ -557,14 +550,13 @@ export async function runHeadless(options = {}) {
     try {
       if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
 
-      // Run first half-frame, yield to let queued input events flush, run second half.
-      exports.debugger_update(halfFrameMs);
-      await new Promise((r) => setImmediate(r));
-      exports.debugger_update(halfFrameMs);
+      // Run one full frame of emulation.
+      const frameMs = Math.round(1000 / targetFps);
+      exports.debugger_update(frameMs);
 
       // Capture time after emulation work — sleepMs is then always measured
       // from when this frame actually finished, never stale from before a
-      // loadCartridge blockage that may have fired inside the yield above.
+      // loadCartridge blockage.
       const iterStart = Date.now();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
@@ -665,9 +657,6 @@ export async function runHeadless(options = {}) {
         }
       }
       // Throttle to target FPS: sleep for the remainder of the frame interval.
-      // iterStart was captured after emulation finished above, so sleepMs is
-      // never stale from a loadCartridge blockage that fired inside the yield.
-      const frameMs = Math.round(1000 / targetFps);
       const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
       await new Promise((r) => setTimeout(r, sleepMs));
     } catch (_) {

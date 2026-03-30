@@ -91,9 +91,9 @@ describe('headless CLI', () => {
     expect(summary).toBeTruthy();
   });
 
-  // ── Sub-stepping: debugger_update called INPUT_SUBSTEPS times per frame ──
+  // ── debugger_update: called exactly once per frame ───────────────────────
 
-  it('calls debugger_update twice per frame (two half-steps)', async () => {
+  it('calls debugger_update once per frame', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..');
     const wasmPath = path.join(repoRoot, 'virtual', 'fake.wasm');
 
@@ -121,9 +121,9 @@ describe('headless CLI', () => {
     });
 
     expect(res.ok).toBe(true);
-    // Each frame = 2 half-steps; 3 frames = 6 calls minimum.
-    expect(updateCalls.length).toBeGreaterThanOrEqual(FRAMES * 2);
-    // Every half-step receives a positive duration.
+    // Each frame = exactly 1 debugger_update call.
+    expect(updateCalls.length).toBe(FRAMES);
+    // Every call receives a positive duration.
     expect(updateCalls.every((dt) => dt > 0)).toBe(true);
   });
 
