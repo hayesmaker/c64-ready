@@ -226,17 +226,18 @@ export async function runHeadless(options = {}) {
       const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
 
 
-      /** Flush all SID ring state after any emulator reset/cart-change.
-       *  The WASM SID resets its internal write cursor on c64_reset(), so any
-       *  samples still in the JS ring are from the old game and must be discarded.
-       *  sidSampleAccum is also zeroed so the next pull aligns with the freshly
-       *  restarted SID write cursor rather than inheriting stale offset. */
+      /** Flush all SID ring state after any emulator reset/cart-change, then
+       *  re-prime with 2 buffer pulls so audio starts immediately without a
+       *  silent gap on the first ~4 frames of the new game. */
       function resetSidRing() {
         sidSampleAccum = 0;
         sidRingWrite   = 0;
         sidRingRead    = 0;
         sidRingCount   = 0;
         sidFrameBuf.fill(0);
+        // Re-prime: the WASM SID has just reset its write cursor; pull 2 fresh
+        // buffers so the JS ring is ready before the next frame is encoded.
+        primeSidRing();
       }
 
       inputServer = createInputServer({
@@ -468,6 +469,21 @@ export async function runHeadless(options = {}) {
     } catch (_) {}
   }
 
+  /**
+   * Re-prime the JS SID ring with 2 full WASM buffer pulls (~8192 samples).
+   * Must be called after any emulator reset/cart-change once the WASM SID's
+   * own write cursor has been restarted — i.e. AFTER resetSidRing() zeros
+   * the JS ring state.  Runs ~186ms of emulated pre-roll (not captured).
+   */
+  function primeSidRing() {
+    if (!exports || typeof exports.debugger_update !== 'function') return;
+    const primeMs = Math.ceil(SID_BUFFER_SIZE / (audioSampleRate / 1000)); // ~93ms
+    for (let p = 0; p < 2; p++) {
+      exports.debugger_update(primeMs);
+      pullSidBuffer();
+    }
+  }
+
   /** Dequeue up to n samples from the JS ring into sidFrameBuf. Returns true if enough data. */
   function dequeueSidFrame() {
     // If the ring doesn't have a full frame yet, pad with silence rather than
@@ -535,6 +551,24 @@ export async function runHeadless(options = {}) {
     }
   }
 
+  // ── SID ring pre-prime ───────────────────────────────────────────────────
+  // Without pre-priming, the ring starts empty and the first ~4 frames are
+  // silent (sidSampleAccum hasn't crossed SID_BUFFER_SIZE yet).  Worse, the
+  // ring drains to zero every ~4.65 frames (882 × 4 = 3528 < 4096) so the
+  // 5th frame after each pull would also be silent in steady state.
+  //
+  // Fix: run 2× SID_BUFFER_SIZE worth of emulation (~186ms) before the frame
+  // loop and pull both 4096-sample chunks into the JS ring.  The ring then
+  // starts at 8192 samples — a comfortable ~9.3 frames of headroom — and
+  // never runs dry because subsequent pulls always arrive before it reaches 0.
+  //
+  // This emulation is "throwaway" pre-roll: the pixel buffer is not captured
+  // and the CPU state matches what a real C64 would be doing at startup.
+  if (audio || (webrtc && webrtcEncoder)) {
+    primeSidRing();
+    if (verbose) console.error(`[headless] SID ring primed: ${sidRingCount} samples ready`);
+  }
+
   // runStartTime is set AFTER ffmpeg starts so --duration counts from when
   // recording actually begins (after any RTMP probe/stabilisation delay).
   const runStartTime = Date.now();
@@ -550,21 +584,15 @@ export async function runHeadless(options = {}) {
     try {
       if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
 
-      // Run one full frame as two half-steps with a setImmediate yield between
-      // them.  Input events that arrive during the first half (via WebSocket)
-      // are drained by the Node event loop during the yield and are fed to the
-      // emulator in the second half — halving worst-case input latency from
-      // one full frame (20ms @ 50fps) to half a frame (10ms).
-      const frameMs    = Math.round(1000 / targetFps);
-      const halfFrameMs = Math.round(frameMs / 2);
-      exports.debugger_update(halfFrameMs);
-      await new Promise((r) => setImmediate(r)); // yield — input events drain here
-      exports.debugger_update(halfFrameMs);
-
-      // Capture time after emulation work — sleepMs is then always measured
-      // from when this frame actually finished, never stale from before a
-      // loadCartridge blockage.
+      // Capture frame start time BEFORE emulation so sleepMs accounts for
+      // ALL work in this iteration (emulation + audio + video push + ffmpeg).
       const iterStart = Date.now();
+      const frameMs   = Math.round(1000 / targetFps);
+
+      // Run a single full-frame emulation step.
+      // Input events from WebSocket are applied between frames (in the sleep
+      // phase below) — no mid-frame split needed; the yield comes after work.
+      exports.debugger_update(frameMs);
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Accumulate emulated samples; when we cross a SID_BUFFER_SIZE boundary
@@ -663,9 +691,25 @@ export async function runHeadless(options = {}) {
           }
         }
       }
-      // Throttle to target FPS: sleep for the remainder of the frame interval.
+      // Throttle to target FPS, then yield so input events are committed
+      // to WASM before the next debugger_update.
+      //
+      // Ordering matters for input latency:
+      //   1. setTimeout(sleepMs)  — event loop sleeps; WebSocket 'message'
+      //      I/O callbacks fire during this window and call onInput() which
+      //      writes directly to WASM exports (keyboard_keyPressed, etc.)
+      //   2. setImmediate yield   — runs after all pending I/O callbacks,
+      //      guaranteeing any message that arrived right at the end of the
+      //      sleep is also committed before we continue.
+      //   3. top of next iteration: debugger_update() reads the now-current
+      //      WASM input state.
+      //
+      // Worst-case input latency = one full frame (20ms @ 50fps): a keydown
+      // that lands just AFTER step 2 waits until the following frame.
+      // Average latency = half a frame (~10ms).
       const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
-      await new Promise((r) => setTimeout(r, sleepMs));
+      if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
+      await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
     } catch (_) {
     }
     frameCount++;
