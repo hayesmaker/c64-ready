@@ -290,6 +290,7 @@ export async function runHeadless(options = {}) {
                     exports.debugger_set_speed(100);
                     exports.debugger_play();
                     resetSidRing();
+                    if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
                     resolve();
                   } catch (err) {
@@ -314,6 +315,7 @@ export async function runHeadless(options = {}) {
               exports.debugger_play();
               resetSidRing();
               markEmulatorReset();
+              if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
               // Instant hard reset: detach cart and soft-reset the machine.
@@ -326,6 +328,7 @@ export async function runHeadless(options = {}) {
               exports.c64_reset();
               resetSidRing();
               markEmulatorReset();
+              if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] hard reset');
             }
           } catch (err) {
@@ -426,6 +429,10 @@ export async function runHeadless(options = {}) {
   let frameCount = 0;
   let ffmpegDied = false; // set to true if ffmpeg exits unexpectedly and we give up
   const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
+  // Now that targetFps is known, configure the WebRTC encoder's frame duration
+  // so video timestamps are driven by frame count × frame duration (µs) rather
+  // than wall clock — making loadCartridge blockages invisible to the receiver.
+  if (webrtcEncoder) webrtcEncoder.setFps(targetFps);
 
   // ── Audio timing ──────────────────────────────────────────────────────────
   const audioSampleRate = 44100;

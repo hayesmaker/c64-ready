@@ -31,6 +31,14 @@ export class WebRTCEncoder {
   _height = 272;
   _sampleRate = 44100;
 
+  // Monotonic video frame counter — used to compute an explicit timestamp
+  // for each frame passed to videoSource.onFrame().  Driving the timestamp
+  // from the frame count rather than Date.now() means the ~1300ms wall-clock
+  // blockage during loadCartridge() is invisible to the WebRTC receiver:
+  // frames resume at the next sequential timestamp with no perceived gap.
+  _videoFrameCount = 0;
+  _videoFrameDurationUs = 0; // microseconds per frame, set in init()
+
   // RTCAudioSource.onData() requires exactly (sampleRate / 100) samples per call —
   // that is one 10 ms WebRTC audio processing frame.  At 44100 Hz that is 441 samples.
   // The SID buffer is 4096 samples, so we queue incoming audio and drain it in
@@ -53,6 +61,7 @@ export class WebRTCEncoder {
     this._sampleRate = sampleRate;
     this._audioChunkSize = Math.floor(sampleRate / 100); // 441 @ 44100, 480 @ 48000
     this._audioQueue = new Float32Array(0);
+    this._videoFrameCount = 0;
 
     // Staging buffers with exact byte sizes that rgbaToI420 expects
     this._rgbaBuf = new Uint8ClampedArray(width * height * 4);
@@ -64,6 +73,25 @@ export class WebRTCEncoder {
 
     this.videoTrack = this.videoSource.createTrack();
     this.audioTrack = this.audioSource.createTrack();
+  }
+
+  /**
+   * Reset the video frame counter to 0.
+   * Call this after every cart load / reset so the timestamp sequence
+   * restarts cleanly and doesn't accumulate a growing offset from
+   * repeated ~1300ms blockages.
+   */
+  resetVideoTimestamp() {
+    this._videoFrameCount = 0;
+  }
+
+  /**
+   * Set the frame rate used to compute video timestamps.
+   * Must be called after init() if the fps differs from the default 50.
+   * @param {number} fps
+   */
+  setFps(fps) {
+    this._videoFrameDurationUs = Math.round(1_000_000 / fps);
   }
 
   /**
@@ -85,7 +113,13 @@ export class WebRTCEncoder {
       { width, height, data: this._i420Buf },
     );
 
-    this.videoSource.onFrame({ width, height, data: this._i420Buf });
+    // Drive timestamp from frame count × frame duration (microseconds).
+    // This makes the video timeline independent of wall-clock gaps caused by
+    // blocking WASM calls (loadCartridge, etc.).
+    const timestamp = this._videoFrameCount * this._videoFrameDurationUs;
+    this._videoFrameCount++;
+
+    this.videoSource.onFrame({ width, height, data: this._i420Buf, timestamp });
   }
 
   /**
