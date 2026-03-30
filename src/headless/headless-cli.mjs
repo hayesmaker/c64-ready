@@ -182,10 +182,10 @@ export async function runHeadless(options = {}) {
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
         exports.c64_loadCartridge(ptr, gameData.length);
-        exports.free(ptr);
-        exports.c64_reset();
-        exports.debugger_set_speed(100);
-        exports.debugger_play();
+        // free(ptr), c64_reset, debugger_set_speed, debugger_play intentionally
+        // omitted: c64_loadCartridge already resets and resumes the machine
+        // internally. Calling them re-triggers the ROM boot sequence — the same
+        // root cause of post-load input lag fixed for the load-crt command path.
       } catch (e) {
         out.push(`Failed to load game: ${String(e)}`);
       }
@@ -226,18 +226,22 @@ export async function runHeadless(options = {}) {
       const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
 
 
-      /** Flush all SID ring state after any emulator reset/cart-change, then
-       *  re-prime with 2 buffer pulls so audio starts immediately without a
-       *  silent gap on the first ~4 frames of the new game. */
+      /** Flush all SID ring state after any emulator reset/cart-change.
+       *  The WASM SID resets its internal write cursor on c64_reset(), so any
+       *  samples still in the JS ring are from the old game and must be discarded.
+       *  sidSampleAccum is also zeroed so the next pull aligns with the freshly
+       *  restarted SID write cursor rather than inheriting stale offset.
+       *  Note: we do NOT call primeSidRing() here — that would run 186ms of
+       *  synchronous debugger_update inside the load-crt setImmediate callback
+       *  and add unwanted post-load blockage. The ring re-fills naturally within
+       *  ~5 frames; those frames output silence which is inaudible during the
+       *  game's own startup sound sequence. */
       function resetSidRing() {
         sidSampleAccum = 0;
         sidRingWrite   = 0;
         sidRingRead    = 0;
         sidRingCount   = 0;
         sidFrameBuf.fill(0);
-        // Re-prime: the WASM SID has just reset its write cursor; pull 2 fresh
-        // buffers so the JS ring is ready before the next frame is encoded.
-        primeSidRing();
       }
 
       inputServer = createInputServer({
@@ -401,6 +405,25 @@ export async function runHeadless(options = {}) {
         },
         onPeerConnected(pc) {
           if (verbose) console.error('[webrtc] peer ICE connected');
+          // Reduce video sender bitrate after connection to minimise encode
+          // latency. A tight ceiling keeps frame sizes small and predictable,
+          // reducing the encoder's internal queue and decode buffer on the
+          // receiving end. 800 kbps is well above lossless for 384×272 @ 50fps.
+          try {
+            const senders = pc.getSenders();
+            for (const sender of senders) {
+              if (sender.track && sender.track.kind === 'video') {
+                const params = sender.getParameters();
+                if (params.encodings && params.encodings.length > 0) {
+                  params.encodings[0].maxBitrate = 800_000;
+                } else {
+                  params.encodings = [{ maxBitrate: 800_000 }];
+                }
+                sender.setParameters(params).catch(() => {});
+                break;
+              }
+            }
+          } catch (_) {}
         },
       });
 

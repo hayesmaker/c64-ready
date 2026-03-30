@@ -83,7 +83,10 @@ export class WebRTCEncoder {
     const i420Size = width * height + (width >> 1) * (height >> 1) * 2;
     this._i420Buf = new Uint8ClampedArray(i420Size);
 
-    this.videoSource = new RTCVideoSource();
+    // isScreencast: true — tells libwebrtc this is screen/game content, not a camera.
+    // Effect: disables temporal noise filtering, prefers crisp frames over smooth
+    // motion estimation, and reduces encoder buffering latency.
+    this.videoSource = new RTCVideoSource({ isScreencast: true });
     this.audioSource = new RTCAudioSource();
 
     this.videoTrack = this.videoSource.createTrack();
@@ -91,13 +94,20 @@ export class WebRTCEncoder {
   }
 
   /**
-   * Reset the video frame counter to 0.
-   * Call this after every cart load / reset so the timestamp sequence
-   * restarts cleanly and doesn't accumulate a growing offset from
-   * repeated ~1300ms blockages.
+   * Previously reset the video frame counter to 0 on each cart load.
+   * This caused the browser WebRTC receiver to see a backwards timestamp
+   * jump (e.g. 50 000 000 µs → 0 µs), forcing a 20-25 s re-buffer window
+   * that manifested as apparent input lag after every game switch.
+   *
+   * The counter must be monotonically increasing across cart loads — the
+   * ~1300 ms loadCartridge blockage is already invisible to the receiver
+   * because no frames are sent during it; timestamps simply resume from
+   * where they left off with no discontinuity.
+   *
+   * Kept as a no-op for call-site compatibility.
    */
   resetVideoTimestamp() {
-    this._videoFrameCount = 0;
+    // intentional no-op — do NOT reset _videoFrameCount
   }
 
   /**

@@ -106,6 +106,28 @@ export function createWebRTCServer({
           onOffer?.(pc);
 
           const answer = await pc.createAnswer();
+
+          // ── Low-latency SDP tweaks ────────────────────────────────────────
+          // Inject x-google-min/max-bitrate into the video m-section of the
+          // SDP answer. The VP8 encoder in @roamhq/wrtc respects these fmtp
+          // parameters: a tight bitrate ceiling (800 kbps for 384×272 @ 50fps
+          // is well above visually lossless) forces the encoder to produce
+          // smaller frames which reduces encode latency and queuing delay.
+          // x-google-min-bitrate prevents the encoder from dropping to 0 kbps
+          // (which causes I-frame-only bursts on reconnect).
+          let sdp = answer.sdp;
+          if (sdp) {
+            // Find VP8 payload type in the offer and append fmtp constraints
+            sdp = sdp.replace(
+              /(a=rtpmap:(\d+) VP8\/\d+\r?\n)/,
+              (match, line, pt) => {
+                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=200;x-google-max-bitrate=800\r\n`;
+                return line + fmtp;
+              }
+            );
+            answer.sdp = sdp;
+          }
+
           await pc.setLocalDescription(answer);
 
           if (ws.readyState === ws.OPEN) {
@@ -369,7 +391,37 @@ function buildBrowserHtml(inputPort) {
 
     sigWs.onopen = async () => {
       setVideo('negotiating…');
-      const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+
+      // ── Prefer VP8 and request low-latency encoding ───────────────────────
+      // setCodecPreferences (Chrome 96+) lets us move VP8 to the front so the
+      // server's VP8 encoder is always chosen. We also request
+      // x-google-max-bitrate=800 in the offer fmtp so both sides agree on a
+      // tight ceiling from the start.
+      let transceiver = null;
+      try {
+        transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+      } catch (_) {}
+      try {
+        if (transceiver && typeof transceiver.setCodecPreferences === 'function') {
+          const caps = RTCRtpReceiver.getCapabilities('video');
+          if (caps) {
+            // Move VP8 to front; keep everything else as fallback
+            const vp8 = caps.codecs.filter(c => c.mimeType === 'video/VP8');
+            const rest = caps.codecs.filter(c => c.mimeType !== 'video/VP8');
+            if (vp8.length) transceiver.setCodecPreferences([...vp8, ...rest]);
+          }
+        }
+      } catch (_) {}
+
+      const offer = await pc.createOffer();
+      // Inject low-latency bitrate hint into the offer VP8 fmtp line
+      if (offer.sdp) {
+        offer.sdp = offer.sdp.replace(
+          /(a=rtpmap:(\d+) VP8\/\d+\r?\n)/,
+          function(match, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=200;x-google-max-bitrate=800\r\n'; }
+        );
+      }
       await pc.setLocalDescription(offer);
       sigWs.send(JSON.stringify(pc.localDescription));
     };
@@ -408,6 +460,34 @@ function buildBrowserHtml(inputPort) {
         inputBackoff   = 1000;
         inputBtn.classList.add('hidden');
         setInput('connected', 'ok');
+      };
+
+      // ── Live-edge resync on cart lifecycle events ─────────────────────
+      // Root cause of the 20-25 s apparent input lag after every game load:
+      // the browser's WebRTC media pipeline accumulates a playback buffer
+      // during the ~1300 ms loadCartridge blockage (no frames are sent).
+      // When frames resume, the browser plays from its buffer rather than
+      // the live edge — the player watches stale video while inputs land
+      // in real-time on the emulator, making controls feel unresponsive.
+      //
+      // Fix: on cart-loaded / machine-reset / cart-detached, set
+      // videoEl.srcObject = null then immediately restore it.  This forces
+      // the decoder to drop its accumulated buffer and resync to the next
+      // arriving frame — equivalent to a page refresh without losing the
+      // RTCPeerConnection.
+      inputWs.onmessage = ({ data }) => {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
+            if (remoteStream && videoEl.srcObject) {
+              videoEl.srcObject = null;
+              requestAnimationFrame(() => {
+                videoEl.srcObject = remoteStream;
+                videoEl.play().catch(() => {});
+              });
+            }
+          }
+        } catch (_) {}
       };
 
       inputWs.onclose = () => {
