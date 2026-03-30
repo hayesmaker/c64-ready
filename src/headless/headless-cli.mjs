@@ -550,9 +550,16 @@ export async function runHeadless(options = {}) {
     try {
       if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
 
-      // Run one full frame of emulation.
-      const frameMs = Math.round(1000 / targetFps);
-      exports.debugger_update(frameMs);
+      // Run one full frame as two half-steps with a setImmediate yield between
+      // them.  Input events that arrive during the first half (via WebSocket)
+      // are drained by the Node event loop during the yield and are fed to the
+      // emulator in the second half — halving worst-case input latency from
+      // one full frame (20ms @ 50fps) to half a frame (10ms).
+      const frameMs    = Math.round(1000 / targetFps);
+      const halfFrameMs = Math.round(frameMs / 2);
+      exports.debugger_update(halfFrameMs);
+      await new Promise((r) => setImmediate(r)); // yield — input events drain here
+      exports.debugger_update(halfFrameMs);
 
       // Capture time after emulation work — sleepMs is then always measured
       // from when this frame actually finished, never stale from before a

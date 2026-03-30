@@ -312,32 +312,45 @@ function buildBrowserHtml(inputPort) {
           }
         } catch (_) {}
 
-        // ── Live-edge enforcement via requestVideoFrameCallback ───────────
-        // Even with jitterBufferTarget=0 the <video> element may accumulate
-        // a small playback buffer. We use requestVideoFrameCallback (rVFC) to
-        // inspect the buffer on every decoded frame: if the difference between
-        // the latest buffered time and currentTime exceeds one frame interval
-        // (30 ms, 1.5× a 50 fps frame), snap currentTime forward to drop the
-        // queued frames and stay at the live edge.
-        // rVFC is available in Chrome 83+ / Edge 83+; gracefully falls back
-        // to no-op where unsupported.
-        if (typeof videoEl.requestVideoFrameCallback === 'function') {
-          const MAX_BEHIND_S = 0.030; // 30 ms — 1.5 frames @ 50 fps
-
-          function enforceLiveEdge() {
-            try {
-              if (videoEl.buffered && videoEl.buffered.length > 0) {
-                const liveEdge = videoEl.buffered.end(videoEl.buffered.length - 1);
-                if (liveEdge - videoEl.currentTime > MAX_BEHIND_S) {
-                  videoEl.currentTime = liveEdge;
+        // ── Live-edge enforcement via getStats() + playbackRate ───────────
+        // WebRTC video arrives through a jitter buffer, not a seekable media
+        // source, so videoEl.buffered is always empty — seeking currentTime
+        // does nothing.  Instead we use RTCPeerConnection.getStats() to read
+        // jitterBufferDelay / jitterBufferEmittedCount and compute the
+        // average jitter buffer delay.  When it exceeds one frame (20 ms @
+        // 50 fps) we speed up playback slightly (1.02×) to drain the buffer;
+        // once it falls below 10 ms we return to 1.0×.
+        // Polled every 2 s — low overhead, invisible to the user.
+        const CATCHUP_RATE   = 1.02;
+        const LAG_THRESH_S   = 0.020; // start catching up above 20 ms
+        const SYNC_THRESH_S  = 0.010; // return to normal below 10 ms
+        let prevJitterDelay  = 0;
+        let prevJitterCount  = 0;
+        setInterval(async () => {
+          if (!pc || videoEl.paused) return;
+          try {
+            const stats = await pc.getStats();
+            for (const report of stats.values()) {
+              if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                const delay = report.jitterBufferDelay   ?? 0;
+                const count = report.jitterBufferEmittedCount ?? 0;
+                const dDelay = delay - prevJitterDelay;
+                const dCount = count - prevJitterCount;
+                prevJitterDelay = delay;
+                prevJitterCount = count;
+                if (dCount > 0) {
+                  const avgDelayS = dDelay / dCount;
+                  if (avgDelayS > LAG_THRESH_S && videoEl.playbackRate === 1.0) {
+                    videoEl.playbackRate = CATCHUP_RATE;
+                  } else if (avgDelayS < SYNC_THRESH_S && videoEl.playbackRate !== 1.0) {
+                    videoEl.playbackRate = 1.0;
+                  }
                 }
+                break;
               }
-            } catch (_) {}
-            // Re-schedule for the next decoded frame
-            videoEl.requestVideoFrameCallback(enforceLiveEdge);
-          }
-          videoEl.requestVideoFrameCallback(enforceLiveEdge);
-        }
+            }
+          } catch (_) {}
+        }, 2000);
       }
     };
 
