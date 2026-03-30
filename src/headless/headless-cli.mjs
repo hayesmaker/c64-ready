@@ -636,6 +636,15 @@ export async function runHeadless(options = {}) {
           }
         }
       }
+      // Re-capture iterStart after sub-steps complete.
+      // If a loadCartridge blockage (~1300ms) fired inside one of the sub-step
+      // yields, the original iterStart is stale and sleepMs would be 0, causing
+      // the loop to spin at many times real-clock speed: the emulator runs too
+      // fast (input lag that "gets better" over ~65 frames as the debt works off),
+      // and audio is pushed into the ring faster than it drains (audio drifts late).
+      // Re-capturing here means sleepMs is always relative to when this frame's
+      // emulation actually finished, giving a correct ~20ms sleep every time.
+      iterStart = Date.now();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Accumulate emulated samples; when we cross a SID_BUFFER_SIZE boundary
