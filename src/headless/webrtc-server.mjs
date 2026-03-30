@@ -364,39 +364,34 @@ function buildBrowserHtml(inputPort) {
 
     function startDriftMonitor() {
       stopDriftMonitor();
-      // Poll every 100ms. If videoEl.buffered head is more than 80ms (4 frames
-      // @ 50fps) ahead of currentTime, snap currentTime forward. This keeps the
-      // display within 2 frames of the live edge during normal gameplay.
       driftTimer = setInterval(() => {
         if (!videoEl || !remoteStream || videoEl.paused || videoEl.readyState < 2) return;
         const buf = videoEl.buffered;
         if (!buf || buf.length === 0) return;
         const bufEnd = buf.end(buf.length - 1);
         const drift  = bufEnd - videoEl.currentTime;
-        if (drift > 0.08) {
+        if (drift > 0.3) {
+          console.warn('[WebRTC] drift ' + (drift*1000).toFixed(0) + 'ms — skipping to live edge');
           videoEl.currentTime = bufEnd;
         }
-      }, 100);
+      }, 200);
     }
 
     function stopDriftMonitor() {
       if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
     }
 
-    // Hard flush to live edge: called after cart-loaded / machine-reset /
-    // cart-detached. Sets srcObject=null then restores it, forcing the
-    // decoder to drop its entire buffer and resync to the next incoming frame.
-    // This is more reliable than a currentTime seek for post-load recovery
-    // because it works even when buffered.length === 0.
     function flushToLiveEdge() {
       applyMinLatency();
       if (!videoEl || !remoteStream) return;
-      // Hard flush: drop the buffer entirely
-      videoEl.srcObject = null;
-      requestAnimationFrame(() => {
-        videoEl.srcObject = remoteStream;
-        videoEl.play().catch(() => {});
-      });
+      const buf = videoEl.buffered;
+      if (buf && buf.length > 0) {
+        const bufEnd = buf.end(buf.length - 1);
+        const drift  = bufEnd - videoEl.currentTime;
+        console.log('[WebRTC] flushToLiveEdge: drift=' + (drift*1000).toFixed(0) + 'ms → skip to ' + bufEnd.toFixed(3) + 's');
+        videoEl.currentTime = bufEnd;
+      }
+      videoEl.play().catch(() => {});
     }
 
     const sigWs = new WebSocket('ws://' + location.host);

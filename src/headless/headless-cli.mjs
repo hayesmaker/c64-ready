@@ -631,7 +631,7 @@ export async function runHeadless(options = {}) {
 
         // WebRTC audio — send exactly samplesPerFrame samples every frame
         // using the sidFrameBuf already dequeued from the JS ring above.
-        if (audio || webrtc) {
+        if (audio || sidRingCount >= 0) {
           try {
             webrtcEncoder.pushAudioFrame(sidFrameBuf);
           } catch (e) {
@@ -720,8 +720,7 @@ export async function runHeadless(options = {}) {
       const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
       await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
-    } catch (frameErr) {
-      if (verbose) console.error('[headless] frame loop error:', frameErr && frameErr.message ? frameErr.message : frameErr);
+    } catch (_) {
     }
     frameCount++;
     // diagnostics
