@@ -384,9 +384,10 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'hard-reset') {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] hard-reset');
-        // onCommand returns a Promise (deferred via setImmediate) — wait for
-        // completion before broadcasting so clients hear machine-reset only
-        // after the WASM work finishes and the event loop is unblocked.
+        // onCommand runs synchronously (removeCartridge + c64_reset, ~110ms total,
+        // no loadCartridge so no event-loop block).  The Promise chain is kept for
+        // consistency with load-crt / detach-crt; it resolves immediately since
+        // onCommand returns undefined, and machine-reset is broadcast right after.
         Promise.resolve()
           .then(() => onCommand({ type: 'hard-reset' }))
           .then(() => {
@@ -399,15 +400,14 @@ export function createInputServer(opts = {}) {
       }
 
       // ── Input events ─────────────────────────────────────────────────────
-      // Accept input from host (port 2) and player 2 (port 1).
+      // Accept input from host (port 2) and player 2 (port 1) only.
       // Any input from the host resets the inactivity timer.
       if (msg.type === 'joystick' || msg.type === 'key') {
+        if (ws !== hostClient && ws !== p2Client) return; // ignore from unauthorised clients
         if (ws === hostClient) resetHostTimeout();
         if (onInput) onInput(msg);
         return;
       }
-
-      if (onInput) onInput(msg);
     });
 
     ws.on('close', () => {
