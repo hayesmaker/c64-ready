@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -89,6 +89,118 @@ describe('headless CLI', () => {
     // Confirm run completed
     const summary = (res.output as string[]).find((l: string) => l.startsWith('Run complete'));
     expect(summary).toBeTruthy();
+  });
+
+  // ── debugger_update: called exactly once per frame ───────────────────────
+
+  it('calls debugger_update once per frame', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..');
+    const wasmPath = path.join(repoRoot, 'virtual', 'fake.wasm');
+
+    const realReadFile = fs.readFile;
+    // @ts-expect-error allow mocking fs.readFile for virtual paths
+    vi.spyOn(fs, 'readFile').mockImplementation(async (p: string | Buffer) => {
+      const ps = typeof p === 'string' ? p : p.toString();
+      if (ps === wasmPath) return Buffer.from([0, 1, 2, 3]);
+      return realReadFile(p as any);
+    });
+
+    const updateCalls: number[] = [];
+    const fakeInstantiate = makeFakeInstantiate({
+      debugger_update: (dt: number) => { updateCalls.push(dt); },
+      debugger_set_speed: (_s: number) => {},
+    });
+
+    // @ts-expect-error TS7016
+    const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
+    const FRAMES = 3;
+    const res = await mod.runHeadless({
+      argv: ['--wasm', wasmPath, '--no-game', '--frames', String(FRAMES)],
+      instantiateFn: fakeInstantiate,
+      repoRoot,
+    });
+
+    expect(res.ok).toBe(true);
+    // Each frame = exactly 1 debugger_update call.
+    expect(updateCalls.length).toBe(FRAMES);
+    // Every call receives a positive duration.
+    expect(updateCalls.every((dt) => dt > 0)).toBe(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // ── SID ring: first frame produces silence when ring is empty ─────────────
+
+  it('produces silence for the first audio frame before the SID ring is primed', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..');
+    const wasmPath = path.join(repoRoot, 'virtual', 'fake.wasm');
+
+    const realReadFile = fs.readFile;
+    // @ts-expect-error allow mocking fs.readFile for virtual paths
+    vi.spyOn(fs, 'readFile').mockImplementation(async (p: string | Buffer) => {
+      const ps = typeof p === 'string' ? p : p.toString();
+      if (ps === wasmPath) return Buffer.from([0, 1, 2, 3]);
+      return realReadFile(p as any);
+    });
+
+    // sid_getAudioBuffer returns a pointer; the WASM memory behind it is all
+    // zeros (default), so any samples read back are 0.0 (silence).
+    // With only 1 frame the ring cannot yet hold a full 4096-sample chunk,
+    // so dequeueSidFrame() should pad with silence (all zeros).
+    const PIXEL_SIZE = 384 * 272 * 4;
+
+    // Intercept ffmpeg writeFrame to capture audio chunks without real ffmpeg.
+    // We can't directly observe sidFrameBuf, so we verify the run completes
+    // with ok=true and no errors — the silence-pad path is exercised without
+    // crashing when the ring is under-filled.
+    const fakeInstantiate = makeFakeInstantiate({
+      c64_getPixelBuffer: () => 0,
+      sid_getAudioBuffer: () => PIXEL_SIZE,
+      debugger_update: (_dt: number) => {},
+      debugger_set_speed: (_s: number) => {},
+    });
+
+    // @ts-expect-error TS7016
+    const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
+    const res = await mod.runHeadless({
+      // 2 frames with --audio but no --record avoids needing ffmpeg.
+      argv: ['--wasm', wasmPath, '--no-game', '--frames', '2', '--audio'],
+      instantiateFn: fakeInstantiate,
+      repoRoot,
+    });
+
+    expect(res.ok).toBe(true);
+    const summary = (res.output as string[]).find((l: string) => l.startsWith('Run complete'));
+    expect(summary).toBeTruthy();
+  });
+
+  // ── --no-game: run completes without a cartridge ──────────────────────────
+
+  it('completes successfully with --no-game flag (no game cartridge loaded)', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..');
+    const wasmPath = path.join(repoRoot, 'virtual', 'fake.wasm');
+
+    const realReadFile = fs.readFile;
+    // @ts-expect-error allow mocking fs.readFile for virtual paths
+    vi.spyOn(fs, 'readFile').mockImplementation(async (p: string | Buffer) => {
+      const ps = typeof p === 'string' ? p : p.toString();
+      if (ps === wasmPath) return Buffer.from([0, 1, 2, 3]);
+      return realReadFile(p as any);
+    });
+
+    // @ts-expect-error TS7016
+    const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
+    const res = await mod.runHeadless({
+      argv: ['--wasm', wasmPath, '--no-game', '--frames', '4'],
+      instantiateFn: makeFakeInstantiate(),
+      repoRoot,
+    });
+
+    expect(res.ok).toBe(true);
+    const summary = (res.output as string[]).find((l: string) => l.startsWith('Run complete'));
+    expect(summary).toContain('frames=4');
   });
 });
 

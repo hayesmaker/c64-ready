@@ -8,6 +8,9 @@ export class C64WASM {
   heap = null;
   wasmMemory = null;
 
+  // Reuse a single TextDecoder — avoids creating a new object on every fd_write call.
+  #textDecoder = new TextDecoder();
+
   static DYNAMICTOP_PTR = 5583504;
   static DYNAMIC_BASE = 10826544;
   static INITIAL_PAGES = 256;
@@ -112,7 +115,7 @@ export class C64WASM {
           const ptr = view.getUint32(iovs + i * 8, true);
           const len = view.getUint32(iovs + i * 8 + 4, true);
           if (fd === 2) {
-            const text = new TextDecoder().decode(u8.subarray(ptr, ptr + len));
+            const text = this.#textDecoder.decode(u8.subarray(ptr, ptr + len));
             console.error(text);
           }
           written += len;

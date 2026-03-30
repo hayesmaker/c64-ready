@@ -71,6 +71,7 @@
     "@types/gif.js": "^0.2.5",
     "@types/marked": "^5.0.2",
     "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
