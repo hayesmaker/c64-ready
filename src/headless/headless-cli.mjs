@@ -277,9 +277,10 @@ export async function runHeadless(options = {}) {
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
                     exports.c64_loadCartridge(ptr, byteLen);
-                    exports.free(ptr);
-                    exports.debugger_set_speed(100);
-                    exports.debugger_play();
+                    // free(ptr), debugger_set_speed and debugger_play are
+                    // intentionally omitted: c64_loadCartridge internally resets
+                    // and resumes the machine. Calling them again re-triggers the
+                    // ROM boot sequence and was the root cause of post-load input lag.
                     resetSidRing();
                     if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
@@ -296,12 +297,10 @@ export async function runHeadless(options = {}) {
               // to run inline without setImmediate deferral.
               // Return a Promise so input-server still awaits before broadcasting
               // cart-detached (keeps the protocol consistent with load-crt).
-              if (typeof exports.c64_removeCartridge === 'function') {
-                exports.c64_removeCartridge();
-              }
-              exports.c64_reset();
-              exports.debugger_set_speed(100);
-              exports.debugger_play();
+              exports.c64_removeCartridge();
+              // c64_reset, debugger_set_speed and debugger_play are intentionally
+              // omitted: calling them after removeCartridge re-triggers the ROM boot
+              // sequence and was the root cause of post-detach input lag.
               resetSidRing();
               if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] cart detached');
