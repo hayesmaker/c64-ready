@@ -272,20 +272,14 @@ export async function runHeadless(options = {}) {
               return new Promise((resolve, reject) => {
                 setImmediate(() => {
                   try {
-                    // c64_loadCartridge parses the cart and resets the machine
-                    // internally — the explicit c64_reset() after it is redundant
-                    // and costs another ~1250ms of event-loop blockage for nothing
-                    // (verified: PC is identical with or without the second reset).
-                    // removeCartridge first ensures no stale cart state during parse.
                     exports.c64_removeCartridge();
+                    exports.c64_reset();           // clean slate before loading new cart
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
                     exports.c64_loadCartridge(ptr, byteLen);
-                    // free(ptr), debugger_set_speed and debugger_play are
-                    // intentionally omitted: c64_loadCartridge internally resets
-                    // and resumes the machine. Calling them again re-triggers the
-                    // ROM boot sequence and was the root cause of post-load input lag.
+                    // free(ptr), debugger_set_speed and debugger_play intentionally
+                    // omitted: c64_loadCartridge internally resets and resumes.
                     resetSidRing();
                     if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
@@ -297,15 +291,8 @@ export async function runHeadless(options = {}) {
                 });
               });
             } else if (cmd.type === 'detach-crt') {
-              // Instant detach: same pattern as hard-reset.
-              // removeCartridge (~0ms) + c64_reset no-cart (~110ms) — fast enough
-              // to run inline without setImmediate deferral.
-              // Return a Promise so input-server still awaits before broadcasting
-              // cart-detached (keeps the protocol consistent with load-crt).
               exports.c64_removeCartridge();
-              // c64_reset, debugger_set_speed and debugger_play are intentionally
-              // omitted: calling them after removeCartridge re-triggers the ROM boot
-              // sequence and was the root cause of post-detach input lag.
+              exports.c64_reset();               // return to clean BASIC prompt
               resetSidRing();
               if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] cart detached');

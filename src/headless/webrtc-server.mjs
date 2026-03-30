@@ -485,9 +485,8 @@ function buildBrowserHtml(inputPort) {
           if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
             flushToLiveEdge();
             const cartName = msg.filename ? msg.filename.replace(/\\.crt$/i,'').replace(/[-_]/g,' ') : '';
-            if
- (msg.type === 'cart-loaded')   { setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');  setLoadStatus('loaded', 'ok');  detachBtn.disabled = false; resetBtn.disabled = false; }
-            if (msg.type === 'cart-detached') { setBadge(gameBadge, 'no game', 'dim'); setLoadStatus('', '');    detachBtn.disabled = true;  resetBtn.disabled = true;  }
+            if (msg.type === 'cart-loaded')   { setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');  setLoadStatus('loaded', 'ok');  detachBtn.disabled = false; resetBtn.disabled = false; }
+            if (msg.type === 'cart-detached') { setBadge(gameBadge, 'no game', 'dim'); setLoadStatus('', '');    detachBtn.disabled = true; /* resetBtn stays enabled */ }
             if (msg.type === 'machine-reset') { setLoadStatus('reset', 'warn'); }
           }
           if (msg.type === 'cart-loading')    setLoadStatus('loading…', 'warn');
