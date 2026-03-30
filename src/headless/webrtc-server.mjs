@@ -297,6 +297,47 @@ function buildBrowserHtml(inputPort) {
         remoteStream = e.streams[0];
         videoEl.srcObject = remoteStream;
         setVideo('live', 'ok');
+
+        // ── Minimise jitter buffer to show only the latest frame ─────────
+        // jitterBufferTarget = 0 tells the browser to buffer as little as
+        // possible (ideally 0 ms), effectively "buffer size of 1": stale
+        // frames are dropped rather than queued, keeping playback at the
+        // live edge. Supported in Chrome 87+ / Edge 87+; silently ignored
+        // in Firefox/Safari where it is undefined.
+        try {
+          for (const receiver of pc.getReceivers()) {
+            if ('jitterBufferTarget' in receiver) {
+              receiver.jitterBufferTarget = 0;
+            }
+          }
+        } catch (_) {}
+
+        // ── Live-edge enforcement via requestVideoFrameCallback ───────────
+        // Even with jitterBufferTarget=0 the <video> element may accumulate
+        // a small playback buffer. We use requestVideoFrameCallback (rVFC) to
+        // inspect the buffer on every decoded frame: if the difference between
+        // the latest buffered time and currentTime exceeds one frame interval
+        // (30 ms, 1.5× a 50 fps frame), snap currentTime forward to drop the
+        // queued frames and stay at the live edge.
+        // rVFC is available in Chrome 83+ / Edge 83+; gracefully falls back
+        // to no-op where unsupported.
+        if (typeof videoEl.requestVideoFrameCallback === 'function') {
+          const MAX_BEHIND_S = 0.030; // 30 ms — 1.5 frames @ 50 fps
+
+          function enforceLiveEdge() {
+            try {
+              if (videoEl.buffered && videoEl.buffered.length > 0) {
+                const liveEdge = videoEl.buffered.end(videoEl.buffered.length - 1);
+                if (liveEdge - videoEl.currentTime > MAX_BEHIND_S) {
+                  videoEl.currentTime = liveEdge;
+                }
+              }
+            } catch (_) {}
+            // Re-schedule for the next decoded frame
+            videoEl.requestVideoFrameCallback(enforceLiveEdge);
+          }
+          videoEl.requestVideoFrameCallback(enforceLiveEdge);
+        }
       }
     };
 
