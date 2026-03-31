@@ -278,6 +278,8 @@ function buildBrowserHtml(inputPort) {
     <button id="detach-btn" title="Eject cartridge → BASIC prompt" disabled>⏏ detach</button>
     <button id="reset-btn"  title="Hard reset (BASIC prompt)" disabled>↺ reset</button>
     <span class="sep">|</span>
+    <button id="sync-btn"   title="Flush video to live edge — use if display feels laggy">⟳ sync</button>
+    <span class="sep">|</span>
     <button id="mode-btn"   title="Toggle input mode">🕹+⌨ mixed</button>
     <span class="sep">|</span>
     <span id="load-status" class="badge dim"></span>
@@ -298,6 +300,7 @@ function buildBrowserHtml(inputPort) {
     const loadBtn     = document.getElementById('load-btn');
     const detachBtn   = document.getElementById('detach-btn');
     const resetBtn    = document.getElementById('reset-btn');
+    const syncBtn     = document.getElementById('sync-btn');
     const modeBtn     = document.getElementById('mode-btn');
     const fileInput   = document.getElementById('file-input');
 
@@ -544,6 +547,12 @@ function buildBrowserHtml(inputPort) {
     });
     detachBtn.addEventListener('click', () => { sendInput({ type: 'detach-crt' }); setLoadStatus('detaching…', 'warn'); blurAll(); });
     resetBtn.addEventListener('click',  () => { sendInput({ type: 'hard-reset' });  setLoadStatus('resetting…', 'warn'); blurAll(); });
+    syncBtn.addEventListener('click', () => {
+      flushToLiveEdge();
+      syncBtn.textContent = '✓ synced';
+      setTimeout(() => { syncBtn.textContent = '⟳ sync'; }, 1500);
+      blurAll();
+    });
     // ── Input mode ────────────────────────────────────────────────────────────
     const MODES = ['mixed', 'joy', 'kb'];
     const MODE_LABELS = { mixed: '🕹+⌨ mixed', joy: '🕹 joystick', kb: '⌨ keyboard' };
