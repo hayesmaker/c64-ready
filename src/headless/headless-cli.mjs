@@ -299,6 +299,7 @@ export async function runHeadless(options = {}) {
                       webrtcEncoder.pushSilenceForGap(gapMs);
                       if (verbose) console.error(`[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`);
                     }
+                    if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes, gap=${gapMs}ms)`);
                     resolve();
                   } catch (err) {
@@ -317,6 +318,7 @@ export async function runHeadless(options = {}) {
                 webrtcEncoder.pushSilenceForGap(gapMs);
                 if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after detach`);
               }
+              if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
               // Instant hard reset: detach cart and soft-reset the machine.
@@ -334,6 +336,7 @@ export async function runHeadless(options = {}) {
                 webrtcEncoder.pushSilenceForGap(gapMs);
                 if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after hard reset`);
               }
+              if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
               if (verbose) console.error('[headless] hard reset');
             }
         },

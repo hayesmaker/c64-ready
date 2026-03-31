@@ -45,6 +45,9 @@ export function createWebRTCServer({
   onOffer,
   onPeerConnected,
 } = {}) {
+  // Track all active peer connections so forceKeyframe() can reach them all.
+  const activePeers = new Set();
+
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -80,9 +83,11 @@ export function createWebRTCServer({
       if (verbose) console.error(`[webrtc] ICE state → ${pc.iceConnectionState} (${remoteAddr})`);
       const s = pc.iceConnectionState;
       if (s === 'connected' || s === 'completed') {
+        activePeers.add(pc);
         onPeerConnected?.(pc);
       }
       if (s === 'failed' || s === 'closed' || s === 'disconnected') {
+        activePeers.delete(pc);
         if (verbose) console.error(`[webrtc] closing peer (${remoteAddr}): ICE ${s}`);
         pc.close();
       }
@@ -144,6 +149,7 @@ export function createWebRTCServer({
     });
 
     ws.on('close', () => {
+      activePeers.delete(pc);
       if (verbose) console.error(`[webrtc] peer ws closed (${remoteAddr})`);
       pc.close();
     });
@@ -163,6 +169,38 @@ export function createWebRTCServer({
   });
 
   return {
+    /**
+     * Force an immediate VP8 keyframe (IDR) on all active peer connections.
+     *
+     * Why this fixes post-load lag:
+     *   After c64_loadCartridge() the frame loop resumes but the VP8 encoder
+     *   only emits an IDR at its normal interval (~2-3 seconds). The browser
+     *   cannot decode any frame until it receives an IDR — so it shows a
+     *   frozen/blank screen for up to 2-3 seconds after the load completes,
+     *   even though the server is pushing live frames.
+     *
+     *   Calling sender.replaceTrack(sameTrack) on the video sender triggers
+     *   libwebrtc to immediately emit an IDR on the next encoded frame.
+     *   The browser decoder gets a complete reference frame within one frame
+     *   period (≤20ms @ 50fps) and resumes rendering immediately.
+     *
+     * @param {MediaStreamTrack} videoTrack  The current video track.
+     */
+    forceKeyframe(videoTrack) {
+      if (!videoTrack) return;
+      let count = 0;
+      for (const pc of activePeers) {
+        try {
+          for (const sender of pc.getSenders()) {
+            if (sender.track && sender.track.kind === 'video') {
+              sender.replaceTrack(videoTrack).catch(() => {});
+              count++;
+            }
+          }
+        } catch (_) {}
+      }
+      if (verbose) console.error(`[webrtc] forceKeyframe: triggered on ${count} sender(s)`);
+    },
     close: () =>
       new Promise((resolve) => {
         wss.close(() => httpServer.close(() => resolve()));
@@ -373,13 +411,7 @@ function buildBrowserHtml(inputPort) {
         if (!buf || buf.length === 0) return;
         const bufEnd = buf.end(buf.length - 1);
         const drift  = bufEnd - videoEl.currentTime;
-        if (drift > 1.0) {
-          // Large drift (>1s): hard buffer discard — srcObject reset is the
-          // only reliable way to drop all buffered frames and resync to the
-          // live incoming stream after a long freeze (e.g. cart load gap).
-          console.warn('[WebRTC] large drift ' + (drift*1000).toFixed(0) + 'ms — hard srcObject reset');
-          flushToLiveEdge();
-        } else if (drift > 0.3) {
+        if (drift > 0.3) {
           console.warn('[WebRTC] drift ' + (drift*1000).toFixed(0) + 'ms — skipping to live edge');
           videoEl.currentTime = bufEnd;
         }
@@ -391,22 +423,16 @@ function buildBrowserHtml(inputPort) {
     }
 
     function flushToLiveEdge() {
-      // Hard buffer discard: set srcObject=null to drop all buffered frames,
-      // then restore on the next animation frame so the browser starts decoding
-      // from the very next incoming keyframe rather than seeking within stale
-      // buffered content. A currentTime seek is not sufficient — at the moment
-      // cart-loaded fires the server has just resumed pushing frames; the
-      // buffered range end is still the pre-load stale position, not the live
-      // edge. The null→restore pattern is the only reliable way to discard the
-      // entire accumulated buffer and re-sync to the current live stream.
+      applyMinLatency();
       if (!videoEl || !remoteStream) return;
-      console.log('[WebRTC] flushToLiveEdge: hard srcObject reset to discard buffer');
-      videoEl.srcObject = null;
-      requestAnimationFrame(() => {
-        videoEl.srcObject = remoteStream;
-        videoEl.play().catch(() => {});
-        applyMinLatency();
-      });
+      const buf = videoEl.buffered;
+      if (buf && buf.length > 0) {
+        const bufEnd = buf.end(buf.length - 1);
+        const drift  = bufEnd - videoEl.currentTime;
+        console.log('[WebRTC] flushToLiveEdge: drift=' + (drift*1000).toFixed(0) + 'ms → skip to live edge');
+        videoEl.currentTime = bufEnd;
+      }
+      videoEl.play().catch(() => {});
     }
 
     const sigWs = new WebSocket('ws://' + location.host);
