@@ -251,8 +251,7 @@ export async function runHeadless(options = {}) {
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         onCommand: (cmd) => {
           if (!exports) return;
-          try {
-            if (cmd.type === 'load-crt') {
+          if (cmd.type === 'load-crt') {
               // Decode base64 → Uint8Array immediately and release the large
               // base64 string from the cmd object as soon as possible so GC
               // can reclaim it during the subsequent async gap.
@@ -283,12 +282,12 @@ export async function runHeadless(options = {}) {
                     //
                     // ── KNOWN ISSUE: post-load input lag (unresolved) ──────────────
                     // After loading a new cartridge the player experiences ~1 second
-                    // of perceived input lag that persists for 20–30 seconds before
+                    // of input lag that persists for 20–30 seconds before
                     // resolving on its own. The pattern:
                     //   1. Initial game load — lag-free.
                     //   2. First load-crt command — ~1s lag onset, clears after ~25s.
                     //   3. Subsequent loads — lag-free for a while, then periodically
-                    //      returns and recovers, cycling unpredictably.
+                    //      returns and recovers.
                     //
                     // Investigation so far:
                     //   - The emulator itself responds within one frame (≤20ms);
@@ -296,12 +295,11 @@ export async function runHeadless(options = {}) {
                     //   - The lag is perceptual — the browser is displaying stale
                     //     buffered WebRTC video while live input lands on the server.
                     //   - flushToLiveEdge() (srcObject=null + restore) is called on
-                    //     cart-loaded in webrtc-server.mjs, but the buffer appears to
-                    //     partially re-accumulate over the following 20–30 seconds.
+                    //     cart-loaded in webrtc-server.mjs, but doesn't solve the lag.
                     //   - c64_loadCartridge() + c64_reset() together block the event
                     //     loop for ~1300ms inside this setImmediate. During that window
                     //     no video frames are pushed to WebRTC, leaving the browser
-                    //     jitter buffer ahead of real-time when frames resume.
+                    //     jitter buffer ahead of real-time when frames resume?
                     //   - The periodic recovery/relapse on subsequent loads suggests
                     //     a slow buffer-drain race: the browser catches up, then the
                     //     next load re-accumulates a smaller debt that clears faster.
@@ -343,47 +341,32 @@ export async function runHeadless(options = {}) {
               if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
               if (verbose) console.error('[headless] hard reset');
             }
-          } catch (err) {
-            if (verbose) console.error('[headless] command error:', err);
-          }
         },
         onInput: (event) => {
           if (!exports) return;
-          try {
-            if (event.type === 'joystick') {
-              const port = ((event.joystickPort ?? 2) - 1);  // 1-based → 0-based
-              const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
-              const fire = (event.fire || event.fire1) ? 0x10 : 0;
-
-              if (event.action === 'release') {
-                if (dir) exports.c64_joystick_release(port, dir);
-                if (fire) exports.c64_joystick_release(port, fire);
-              } else {
-                // Default to push for backwards compat (action missing)
-                if (dir) exports.c64_joystick_push(port, dir);
-                if (fire) exports.c64_joystick_push(port, fire);
-              }
-            } else if (event.type === 'key') {
-              // event.key is a DOM key string ('a', 'ArrowUp', 'Enter', …)
-              // Translate to one or more C64 matrix key actions, including
-              // shift side-effects for cursor keys, F-key pairs, etc.
-              const domKey   = String(event.key ?? '');
-              const shiftKey = !!event.shiftKey;
-              const evType   = event.action === 'up' ? 'keyup' : 'keydown';
-              const c64acts  = domKeyToC64Actions(domKey, shiftKey, evType);
-              for (const act of c64acts) {
-                if (act.action === 'press') {
-                  exports.keyboard_keyPressed(act.key);
-                } else {
-                  exports.keyboard_keyReleased(act.key);
-                }
-              }
-              if (verbose && c64acts.length > 0) {
-                console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
-              }
+          if (event.type === 'joystick') {
+            const port = ((event.joystickPort ?? 2) - 1);  // 1-based → 0-based
+            const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
+            const fire = (event.fire || event.fire1) ? 0x10 : 0;
+            if (event.action === 'release') {
+              if (dir)  exports.c64_joystick_release(port, dir);
+              if (fire) exports.c64_joystick_release(port, fire);
+            } else {
+              if (dir)  exports.c64_joystick_push(port, dir);
+              if (fire) exports.c64_joystick_push(port, fire);
             }
-          } catch (err) {
-            if (verbose) console.error('[headless] input dispatch error:', err);
+          } else if (event.type === 'key') {
+            const domKey   = String(event.key ?? '');
+            const shiftKey = !!event.shiftKey;
+            const evType   = event.action === 'up' ? 'keyup' : 'keydown';
+            const c64acts  = domKeyToC64Actions(domKey, shiftKey, evType);
+            for (const act of c64acts) {
+              if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+              else                        exports.keyboard_keyReleased(act.key);
+            }
+            if (verbose && c64acts.length > 0) {
+              console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
+            }
           }
         },
       });
@@ -634,15 +617,16 @@ export async function runHeadless(options = {}) {
       const frameMs   = Math.round(1000 / targetFps);
 
       // Run a single full-frame emulation step.
-      // Input events from WebSocket are applied between frames (in the sleep
-      // phase below) — no mid-frame split needed; the yield comes after work.
-      exports.debugger_update(frameMs);
+      // debugger_update() returns truthy when the emulator has completed a full
+      // video frame (VSync). c64.js gates its redraw on both this return value
+      // AND debugger_isRunning() — we mirror that here so we never push a stale
+      // or repeated pixel buffer into WebRTC during boot/reset sequences.
+      const frameReady = !!exports.debugger_update(frameMs);
+      const isRunning  = !!exports.debugger_isRunning();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
-      // Accumulate emulated samples; when we cross a SID_BUFFER_SIZE boundary
-      // pull one 4096-sample chunk from the WASM into the JS ring (safe call
-      // rate — never resets the SID counter mid-stream).
-      // Then dequeue exactly samplesPerFrame into sidFrameBuf for this frame.
+      // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
+      // audio clock stays continuous — gaps cause desync, not silence.
       if (audio || (webrtc && webrtcEncoder)) {
         sidSampleAccum += samplesPerFrame;
         while (sidSampleAccum >= SID_BUFFER_SIZE) {
@@ -653,25 +637,16 @@ export async function runHeadless(options = {}) {
       }
 
       // ── WebRTC: push video + audio into the live track ─────────────────
-      // This is independent of ffmpeg recording; both can run simultaneously.
       if (webrtc && webrtcEncoder) {
-        try {
+        // Only push a video frame when the emulator confirms one is ready and
+        // is actively running — mirrors c64.js: if (update && !!debugger_isRunning())
+        if (frameReady && isRunning) {
           const ptr  = exports.c64_getPixelBuffer();
           const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
           webrtcEncoder.pushVideoFrame(rgba);
-        } catch (e) {
-          if (verbose) console.error('[headless] webrtc video push error:', e && e.message);
         }
 
-        // WebRTC audio — send exactly samplesPerFrame samples every frame
-        // using the sidFrameBuf already dequeued from the JS ring above.
-        if (audio || sidRingCount >= 0) {
-          try {
-            webrtcEncoder.pushAudioFrame(sidFrameBuf);
-          } catch (e) {
-            if (verbose) console.error('[headless] webrtc audio push error:', e && e.message);
-          }
-        }
+        webrtcEncoder.pushAudioFrame(sidFrameBuf);
       }
 
       // Capture video frame and audio chunk, then write both atomically.
@@ -713,26 +688,11 @@ export async function runHeadless(options = {}) {
             break;
           }
         }
-        try {
+        if (frameReady && isRunning) {
           const ptr = exports.c64_getPixelBuffer();
           const videoFrame = heap.heapU8.subarray(ptr, ptr + frameSize);
-          // Audio: use the per-frame slice dequeued from the JS ring above —
-          // samplesPerFrame samples per frame, every frame (silence until primed).
-          // This ensures ffmpeg receives audio at a constant rate perfectly
-          // aligned with video, eliminating A/V sync drift.
           const audioChunk = audio ? sidFrameBuf : null;
           await ffmpegRunner.writeFrame(videoFrame, audioChunk);
-        } catch (e) {
-          const errMsg = `ffmpeg write error after ${frameCount} frames: ${e && e.message ? e.message : String(e)}`;
-          out.push(errMsg);
-          console.error(`[headless] ${errMsg}`);
-          // For URL outputs, don't give up immediately — ffmpeg may have just died,
-          // the isAlive() check at the top of next iteration will handle the retry.
-          if (!isRtmpOutput) {
-            ffmpegDied = true;
-            record = false;
-            break;
-          }
         }
       }
       // Throttle to target FPS, then yield so input events are committed
