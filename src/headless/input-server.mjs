@@ -28,8 +28,19 @@ export function createInputServer(opts = {}) {
   const onInput           = opts.onInput;
   const onCommand         = opts.onCommand         ?? (() => {});
   const verbose           = opts.verbose           ?? false;
+  const logEvents         = opts.logEvents         ?? false;
   const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 5 * 60 * 1000;
   const validateKickToken = opts.validateKickToken ?? (() => null);
+
+  /** Emit a structured event log line — only when --log-events is active.
+   *  Format: [event] <tag> key=value ...
+   *  Never called per-frame; only on meaningful state transitions. */
+  function logEv(tag, fields = {}) {
+    if (!logEvents) return;
+    const ts = new Date().toISOString();
+    const pairs = Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(' ');
+    console.error(`[event] ${ts} ${tag}${pairs ? ' ' + pairs : ''}`);
+  }
 
   const wss = new WebSocketServer({ port });
   const HOST_RECONNECT_GRACE = opts.hostReconnectGraceMs ?? 8_000;
@@ -82,6 +93,7 @@ export function createInputServer(opts = {}) {
     const leaving       = pendingHostUsername;
     pendingHostUsername = null;
     if (verbose) console.error(`[input-server] host grace expired for ${leaving} — promoting P2`);
+    logEv('host-grace-expired', { username: leaving });
     broadcastAll({ type: 'host-left', username: leaving, reason: 'disconnect' });
     promoteP2ToHost();
   }
@@ -91,6 +103,7 @@ export function createInputServer(opts = {}) {
     clearGrace();
     pendingHostUsername = leaving;
     if (verbose) console.error(`[input-server] host ${leaving} disconnected — grace ${HOST_RECONNECT_GRACE}ms`);
+    logEv('host-disconnected', { username: leaving, graceMs: HOST_RECONNECT_GRACE });
     // Tell everyone the host is temporarily gone; P2 should wait before acting.
     broadcastAll({ type: 'host-disconnected', username: leaving, graceMs: HOST_RECONNECT_GRACE });
     graceTimer = setTimeout(expireGrace, HOST_RECONNECT_GRACE);
@@ -99,6 +112,7 @@ export function createInputServer(opts = {}) {
   function kickHostForInactivity() {
     if (!hostClient) return;
     if (verbose) console.error(`[input-server] host ${hostUsername} timed out due to inactivity`);
+    logEv('host-timeout', { username: hostUsername });
     // Notify the host client they are being kicked
     if (hostClient.readyState === hostClient.OPEN) {
       hostClient.send(JSON.stringify({ type: 'host-timeout-kick', username: hostUsername }));
@@ -126,6 +140,7 @@ export function createInputServer(opts = {}) {
     p2Username   = null;
     inviteToken  = null;
     if (verbose) console.error(`[input-server] P2 ${hostUsername} promoted to host (joy port unchanged)`);
+    logEv('p2-promoted-to-host', { username: hostUsername, joystickPort: 1 });
     // Tell the promoted client
     hostClient.send(JSON.stringify({
       type:         'host-promoted',
@@ -166,12 +181,14 @@ export function createInputServer(opts = {}) {
 
   wss.on('listening', () => {
     console.error(`[input-server] WebSocket listening on ws://0.0.0.0:${port}`);
+    logEv('server-listening', { port });
   });
 
   wss.on('connection', (ws, req) => {
     clientCount++;
     const addr = req.socket.remoteAddress;
     if (verbose) console.error(`[input-server] client connected from ${addr} (${clientCount} total)`);
+    logEv('client-connected', { addr, total: clientCount });
 
     ws.on('message', (data) => {
       let msg;
@@ -179,6 +196,7 @@ export function createInputServer(opts = {}) {
         msg = JSON.parse(typeof data === 'string' ? data : data.toString('utf8'));
       } catch (err) {
         if (verbose) console.error(`[input-server] bad message:`, err.message);
+        logEv('error', { kind: 'bad-message', err: err.message });
         return;
       }
       // Avoid re-serialising load-crt messages for logging — the base64 data
@@ -196,6 +214,7 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'host') {
         if (hostClient && hostClient.readyState === hostClient.OPEN) {
           ws.send(JSON.stringify({ type: 'host-taken' }));
+          logEv('host-claim-rejected', { reason: 'slot-taken', username: msg.username ?? 'player' });
           return;
         }
         const isRejoin = graceTimer && pendingHostUsername === (msg.username ?? 'player');
@@ -212,6 +231,7 @@ export function createInputServer(opts = {}) {
           broadcastExcept(ws, { type: 'host-joined', username: hostUsername, joystickPort: hostPort() });
         }
         if (verbose) console.error(`[input-server] host ${isRejoin ? 're' : ''}claimed by ${hostUsername}`);
+        logEv(isRejoin ? 'host-rejoined' : 'host-joined', { username: hostUsername, joystickPort: hostPort() });
         resetHostTimeout();
         // P2 slot just opened (host present, no P2)
         broadcastExcept(ws, { type: 'p2-slot-status', open: isP2SlotOpen() });
@@ -223,6 +243,7 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient) return;
         portsSwapped = !portsSwapped;
         if (verbose) console.error(`[input-server] ports swapped: host=${hostPort()} p2=${p2Port()}`);
+        logEv('ports-swapped', { hostPort: hostPort(), p2Port: p2Port() });
         broadcastAll({
           type:      'ports-swapped',
           swapped:   portsSwapped,
@@ -238,6 +259,7 @@ export function createInputServer(opts = {}) {
           const leaving  = p2Username;
           p2Username     = null;
           if (verbose) console.error(`[input-server] player2 ${leaving} voluntarily left`);
+          logEv('p2-left', { username: leaving, reason: 'voluntary' });
           ws.send(JSON.stringify({ type: 'player2-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'player2-left', username: leaving, voluntary: true });
           broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
@@ -256,6 +278,7 @@ export function createInputServer(opts = {}) {
           inviteToken       = null;
           portsSwapped      = false;
           if (verbose) console.error(`[input-server] host ${leaving} voluntarily left`);
+          logEv('host-left', { username: leaving, reason: 'voluntary' });
           ws.send(JSON.stringify({ type: 'host-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'host-left', username: leaving, voluntary: true });
           promoteP2ToHost();
@@ -268,24 +291,26 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient) return;
         if (p2Client && p2Client.readyState === p2Client.OPEN) {
           ws.send(JSON.stringify({ type: 'invite-p2-error', reason: 'slot-taken' }));
+          logEv('invite-p2-rejected', { reason: 'slot-taken' });
           return;
         }
         inviteToken = randomBytes(6).toString('hex');
         ws.send(JSON.stringify({ type: 'invite-token', token: inviteToken }));
         if (verbose) console.error(`[input-server] invite token issued: ${inviteToken}`);
+        logEv('invite-p2-issued', { host: hostUsername });
         return;
       }
 
       // ── Player 2 open join (no token) ────────────────────────────────────
-      // Any connected client may join the P2 slot when it is vacant and a
-      // host is present. No invite token required.
       if (msg.type === 'join-p2-open') {
         if (!hostClient || hostClient.readyState !== hostClient.OPEN) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'no-host' }));
+          logEv('p2-join-rejected', { reason: 'no-host', username: msg.username ?? 'player2' });
           return;
         }
         if (p2Client && p2Client.readyState === p2Client.OPEN) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'slot-taken' }));
+          logEv('p2-join-rejected', { reason: 'slot-taken', username: msg.username ?? 'player2' });
           return;
         }
         if (ws === hostClient) {
@@ -294,7 +319,7 @@ export function createInputServer(opts = {}) {
         }
         p2Client    = ws;
         p2Username  = msg.username ?? 'player2';
-        inviteToken = null; // clear any pending invite — slot is now filled
+        inviteToken = null;
         ws.send(JSON.stringify({
           type: 'join-p2-confirmed', username: p2Username, joystickPort: p2Port(),
         }));
@@ -302,6 +327,7 @@ export function createInputServer(opts = {}) {
         // Notify all clients that the slot is now taken
         broadcastAll({ type: 'p2-slot-status', open: false });
         if (verbose) console.error(`[input-server] player2 open-joined: ${p2Username}`);
+        logEv('p2-joined', { username: p2Username, joystickPort: p2Port(), method: 'open' });
         return;
       }
 
@@ -309,6 +335,7 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'join-p2') {
         if (!inviteToken || msg.token !== inviteToken) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'invalid-token' }));
+          logEv('p2-join-rejected', { reason: 'invalid-token', username: msg.username ?? 'player2' });
           return;
         }
         if (p2Client && p2Client.readyState === p2Client.OPEN) {
@@ -324,6 +351,7 @@ export function createInputServer(opts = {}) {
         broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: p2Port() });
         broadcastAll({ type: 'p2-slot-status', open: false });
         if (verbose) console.error(`[input-server] player2 joined: ${p2Username}`);
+        logEv('p2-joined', { username: p2Username, joystickPort: p2Port(), method: 'token' });
         return;
       }
 
@@ -340,22 +368,23 @@ export function createInputServer(opts = {}) {
         if (leaving) broadcastAll({ type: 'player2-left', username: leaving });
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
         if (verbose) console.error(`[input-server] p2 revoked by host`);
+        logEv('p2-kicked', { username: leaving ?? '?', by: 'host' });
         return;
       }
 
       // ── Admin kick ────────────────────────────────────────────────────────
-      // Requires a valid one-time token issued by the Express server.
-      // { type: 'admin-kick', token: '<hex>', target: 'host'|'p2' }
       if (msg.type === 'admin-kick') {
         const valid = validateKickToken(msg.token ?? '');
         if (!valid) {
           ws.send(JSON.stringify({ type: 'admin-kick-error', reason: 'invalid-token' }));
           if (verbose) console.error('[input-server] admin-kick rejected: invalid token');
+          logEv('error', { kind: 'admin-kick-invalid-token' });
           return;
         }
         const target = valid.target;
         if (target === 'host' && hostClient) {
           if (verbose) console.error(`[input-server] admin kicked host ${hostUsername}`);
+          logEv('host-kicked', { username: hostUsername, by: 'admin' });
           clearHostTimeout();
           clearGrace();
           if (hostClient.readyState === hostClient.OPEN) {
@@ -369,6 +398,7 @@ export function createInputServer(opts = {}) {
           promoteP2ToHost();
         } else if (target === 'p2' && p2Client) {
           if (verbose) console.error(`[input-server] admin kicked player2 ${p2Username}`);
+          logEv('p2-kicked', { username: p2Username, by: 'admin' });
           if (p2Client.readyState === p2Client.OPEN) {
             p2Client.send(JSON.stringify({ type: 'kicked', reason: 'admin' }));
           }
@@ -378,20 +408,18 @@ export function createInputServer(opts = {}) {
           broadcastAll({ type: 'player2-left', username: leaving });
         } else {
           ws.send(JSON.stringify({ type: 'admin-kick-error', reason: 'target-not-present' }));
+          logEv('error', { kind: 'admin-kick-target-missing', target });
         }
         return;
       }
 
       // ── Emulator commands (host only) ─────────────────────────────────────
-      // load-crt: { type, filename, data: '<base64>' }
       if (msg.type === 'load-crt') {
         if (ws !== hostClient) return;
         if (verbose) console.error(`[input-server] load-crt: ${msg.filename ?? '?'}`);
+        logEv('cmd-load-crt', { filename: msg.filename ?? '?', dataLen: (msg.data ?? '').length });
         const loadFilename = msg.filename ?? '';
         broadcastAll({ type: 'cart-loading', filename: loadFilename });
-        // onCommand may return a Promise (deferred async load) or be sync.
-        // In either case wait for completion before broadcasting the outcome
-        // so clients don't receive cart-loaded before the WASM work is done.
         Promise.resolve()
           .then(() => onCommand({ type: 'load-crt', filename: loadFilename, data: msg.data ?? '' }))
           .then(() => {
@@ -401,6 +429,7 @@ export function createInputServer(opts = {}) {
           .catch((e) => {
             broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
             if (verbose) console.error('[input-server] load-crt error:', e);
+            logEv('error', { kind: 'load-crt-failed', filename: loadFilename, err: String(e?.message ?? e) });
           });
         return;
       }
@@ -408,9 +437,7 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'detach-crt') {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] detach-crt');
-        // onCommand returns a Promise (deferred via setImmediate) — wait for
-        // completion before broadcasting so clients hear cart-detached only
-        // after the WASM work finishes and the event loop is unblocked.
+        logEv('cmd-detach-crt', {});
         Promise.resolve()
           .then(() => onCommand({ type: 'detach-crt' }))
           .then(() => {
@@ -419,6 +446,7 @@ export function createInputServer(opts = {}) {
           })
           .catch((e) => {
             if (verbose) console.error('[input-server] detach-crt error:', e);
+            logEv('error', { kind: 'detach-crt-failed', err: String(e?.message ?? e) });
           });
         return;
       }
@@ -426,10 +454,7 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'hard-reset') {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] hard-reset');
-        // onCommand runs synchronously (removeCartridge + c64_reset, ~110ms total,
-        // no loadCartridge so no event-loop block).  The Promise chain is kept for
-        // consistency with load-crt / detach-crt; it resolves immediately since
-        // onCommand returns undefined, and machine-reset is broadcast right after.
+        logEv('cmd-hard-reset', { host: hostUsername });
         Promise.resolve()
           .then(() => onCommand({ type: 'hard-reset' }))
           .then(() => {
@@ -437,16 +462,18 @@ export function createInputServer(opts = {}) {
           })
           .catch((e) => {
             if (verbose) console.error('[input-server] hard-reset error:', e);
+            logEv('error', { kind: 'hard-reset-failed', err: String(e?.message ?? e) });
           });
         return;
       }
 
       // ── Input events ─────────────────────────────────────────────────────
-      // Accept input from host (port 2) and player 2 (port 1) only.
-      // Any input from the host resets the inactivity timer.
       if (msg.type === 'joystick' || msg.type === 'key') {
-        if (ws !== hostClient && ws !== p2Client) return; // ignore from unauthorised clients
+        if (ws !== hostClient && ws !== p2Client) return;
         if (ws === hostClient) resetHostTimeout();
+        // Tag with role so onInput can include it in logEvents output
+        // without input-server needing to know about logEvents details.
+        msg._role = ws === hostClient ? 'host' : 'p2';
         if (onInput) onInput(msg);
         return;
       }
@@ -455,6 +482,7 @@ export function createInputServer(opts = {}) {
     ws.on('close', () => {
       clientCount--;
       if (verbose) console.error(`[input-server] client disconnected (${clientCount} remaining)`);
+      logEv('client-disconnected', { total: clientCount });
 
       if (ws === hostClient) {
         clearHostTimeout();
@@ -463,7 +491,6 @@ export function createInputServer(opts = {}) {
         hostUsername  = null;
         inviteToken   = null;
         portsSwapped  = false;
-        // Start grace period — P2 promotion is deferred until it expires
         onHostDisconnect(leaving);
       }
 
@@ -472,6 +499,7 @@ export function createInputServer(opts = {}) {
         const leaving = p2Username;
         p2Username    = null;
         if (verbose) console.error(`[input-server] player2 ${leaving} disconnected`);
+        logEv('p2-disconnected', { username: leaving, total: clientCount });
         broadcastExcept(ws, { type: 'player2-left', username: leaving });
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
       }
@@ -479,6 +507,7 @@ export function createInputServer(opts = {}) {
 
     ws.on('error', (err) => {
       console.error(`[input-server] ws error:`, err.message);
+      logEv('error', { kind: 'ws-error', err: err.message });
     });
 
     // ── Hello handshake ───────────────────────────────────────────────────
@@ -501,6 +530,7 @@ export function createInputServer(opts = {}) {
 
   wss.on('error', (err) => {
     console.error(`[input-server] server error:`, err.message);
+    logEv('error', { kind: 'server-error', err: err.message });
   });
 
   const close = () => new Promise((resolve) => {

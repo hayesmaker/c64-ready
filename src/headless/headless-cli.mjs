@@ -29,6 +29,7 @@ export async function runHeadless(options = {}) {
   let wsPort = 9001;
   let webrtc = false;
   let webrtcPort = 9002;
+  let logEvents = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -42,6 +43,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--duration' || a === '-d') durationSec = Number(argv[++i]);
     else if (a === '--no-game') noGame = true;
     else if (a === '--verbose') verbose = true;
+    else if (a === '--log-events') logEvents = true;
     else if (a === '--fps') fps = Number(argv[++i]);
     else if (a === '--input') enableInput = true;
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
@@ -247,6 +249,7 @@ export async function runHeadless(options = {}) {
       inputServer = createInputServer({
         port: wsPort,
         verbose,
+        logEvents,
         validateKickToken,
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         onCommand: (cmd) => {
@@ -301,9 +304,11 @@ export async function runHeadless(options = {}) {
                     }
                     if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes, gap=${gapMs}ms)`);
+                    else if (logEvents) console.error(`[event] cart-loaded filename=${filename} bytes=${byteLen} gap=${gapMs}ms`);
                     resolve();
                   } catch (err) {
                     if (verbose) console.error('[headless] cart load (deferred) error:', err);
+                    else if (logEvents) console.error(`[event] error cart-load-failed filename=${filename} err=${err && err.message ? err.message : err}`);
                     reject(err);
                   }
                 });
@@ -320,6 +325,7 @@ export async function runHeadless(options = {}) {
               }
               if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
               if (verbose) console.error('[headless] cart detached');
+              else if (logEvents) console.error(`[event] cart-detached gap=${gapMs}ms`);
             } else if (cmd.type === 'hard-reset') {
               // Instant hard reset: detach cart and soft-reset the machine.
               // c64_removeCartridge() is ~0ms; c64_reset() with no cart is ~110ms
@@ -338,6 +344,7 @@ export async function runHeadless(options = {}) {
               }
               if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
               if (verbose) console.error('[headless] hard reset');
+              else if (logEvents) console.error(`[event] hard-reset gap=${gapMs}ms`);
             }
         },
         onInput: (event) => {
@@ -353,6 +360,10 @@ export async function runHeadless(options = {}) {
               if (dir)  exports.c64_joystick_push(port, dir);
               if (fire) exports.c64_joystick_push(port, fire);
             }
+            if (logEvents) {
+              const role = event._role ?? 'unknown';
+              console.error(`[event] input joystick role=${role} port=${event.joystickPort ?? 2} action=${event.action ?? 'press'} dir=${event.direction ?? '-'} fire=${!!(event.fire || event.fire1)}`);
+            }
           } else if (event.type === 'key') {
             const domKey   = String(event.key ?? '');
             const shiftKey = !!event.shiftKey;
@@ -361,6 +372,10 @@ export async function runHeadless(options = {}) {
             for (const act of c64acts) {
               if (act.action === 'press') exports.keyboard_keyPressed(act.key);
               else                        exports.keyboard_keyReleased(act.key);
+            }
+            if (logEvents && c64acts.length > 0) {
+              const role = event._role ?? 'unknown';
+              console.error(`[event] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
             }
             if (verbose && c64acts.length > 0) {
               console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
@@ -720,8 +735,18 @@ export async function runHeadless(options = {}) {
     if (windowCount >= 50) {
       const now = Date.now();
       const secs = (now - windowStart) / 1000;
+      const actualFps = 50 / secs;
       windowStart = now;
       windowCount = 0;
+      // Drift reporting: if actual FPS deviates more than 10% from target, warn.
+      // Only emit when --log-events is set; never emit per-frame.
+      if (logEvents || verbose) {
+        const drift = actualFps - targetFps;
+        const driftPct = Math.abs(drift / targetFps) * 100;
+        if (driftPct > 10) {
+          console.error(`[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`);
+        }
+      }
     }
     if (verify && frameCount % 60 === 0) {
       const cycleCount = exports.c64_getCycleCount ? exports.c64_getCycleCount() : null;

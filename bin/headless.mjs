@@ -59,6 +59,8 @@ Options:
   --input              Start WebSocket input server for remote control
   --ws-port <n>        WebSocket server port  (default: 9001)
   --verbose            Print per-frame diagnostics to stderr
+  --log-events         Log player joins/leaves, input events, emulator commands and
+                       A/V drift warnings (non-verbose; safe for production)
   --help               Show this help
 
 Prerequisites:
