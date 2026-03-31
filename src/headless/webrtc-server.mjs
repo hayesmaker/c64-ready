@@ -45,6 +45,9 @@ export function createWebRTCServer({
   onOffer,
   onPeerConnected,
 } = {}) {
+  // Track all active peer connections so forceKeyframe() can reach them all.
+  const activePeers = new Set();
+
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -80,9 +83,11 @@ export function createWebRTCServer({
       if (verbose) console.error(`[webrtc] ICE state → ${pc.iceConnectionState} (${remoteAddr})`);
       const s = pc.iceConnectionState;
       if (s === 'connected' || s === 'completed') {
+        activePeers.add(pc);
         onPeerConnected?.(pc);
       }
       if (s === 'failed' || s === 'closed' || s === 'disconnected') {
+        activePeers.delete(pc);
         if (verbose) console.error(`[webrtc] closing peer (${remoteAddr}): ICE ${s}`);
         pc.close();
       }
@@ -106,6 +111,28 @@ export function createWebRTCServer({
           onOffer?.(pc);
 
           const answer = await pc.createAnswer();
+
+          // ── Low-latency SDP tweaks ────────────────────────────────────────
+          // Inject x-google-min/max-bitrate into the video m-section of the
+          // SDP answer. The VP8 encoder in @roamhq/wrtc respects these fmtp
+          // parameters: a tight bitrate ceiling (800 kbps for 384×272 @ 50fps
+          // is well above visually lossless) forces the encoder to produce
+          // smaller frames which reduces encode latency and queuing delay.
+          // x-google-min-bitrate prevents the encoder from dropping to 0 kbps
+          // (which causes I-frame-only bursts on reconnect).
+          let sdp = answer.sdp;
+          if (sdp) {
+            // Find VP8 payload type in the offer and append fmtp constraints
+            sdp = sdp.replace(
+              /(a=rtpmap:(\d+) VP8\/\d+\r?\n)/,
+              (match, line, pt) => {
+                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=200;x-google-max-bitrate=800\r\n`;
+                return line + fmtp;
+              }
+            );
+            answer.sdp = sdp;
+          }
+
           await pc.setLocalDescription(answer);
 
           if (ws.readyState === ws.OPEN) {
@@ -122,6 +149,7 @@ export function createWebRTCServer({
     });
 
     ws.on('close', () => {
+      activePeers.delete(pc);
       if (verbose) console.error(`[webrtc] peer ws closed (${remoteAddr})`);
       pc.close();
     });
@@ -141,6 +169,38 @@ export function createWebRTCServer({
   });
 
   return {
+    /**
+     * Force an immediate VP8 keyframe (IDR) on all active peer connections.
+     *
+     * Why this fixes post-load lag:
+     *   After c64_loadCartridge() the frame loop resumes but the VP8 encoder
+     *   only emits an IDR at its normal interval (~2-3 seconds). The browser
+     *   cannot decode any frame until it receives an IDR — so it shows a
+     *   frozen/blank screen for up to 2-3 seconds after the load completes,
+     *   even though the server is pushing live frames.
+     *
+     *   Calling sender.replaceTrack(sameTrack) on the video sender triggers
+     *   libwebrtc to immediately emit an IDR on the next encoded frame.
+     *   The browser decoder gets a complete reference frame within one frame
+     *   period (≤20ms @ 50fps) and resumes rendering immediately.
+     *
+     * @param {MediaStreamTrack} videoTrack  The current video track.
+     */
+    forceKeyframe(videoTrack) {
+      if (!videoTrack) return;
+      let count = 0;
+      for (const pc of activePeers) {
+        try {
+          for (const sender of pc.getSenders()) {
+            if (sender.track && sender.track.kind === 'video') {
+              sender.replaceTrack(videoTrack).catch(() => {});
+              count++;
+            }
+          }
+        } catch (_) {}
+      }
+      if (verbose) console.error(`[webrtc] forceKeyframe: triggered on ${count} sender(s)`);
+    },
     close: () =>
       new Promise((resolve) => {
         wss.close(() => httpServer.close(() => resolve()));
@@ -155,326 +215,472 @@ function buildBrowserHtml(inputPort) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>C64 Live — WebRTC</title>
+  <title>C64 Live</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #111;
+      background: #0d0d0d;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      font-family: monospace;
+      font-family: 'Courier New', monospace;
       color: #aaa;
-      gap: 8px;
+      gap: 10px;
+      padding: 16px;
+    }
+
+    h1 { font-size: 13px; letter-spacing: 0.2em; color: #555; text-transform: uppercase; }
+
+    /* ── Screen ── */
+    #screen-wrap {
+      position: relative;
+      width: 768px; height: 544px;
+      flex-shrink: 0;
     }
     #screen {
-      width: 768px;
-      height: 544px;
+      width: 100%; height: 100%;
       image-rendering: pixelated;
       background: #000;
-      border: 2px solid #333;
+      border: 2px solid #2a2a2a;
       display: block;
+      cursor: pointer;
     }
-    .status-row { display: flex; gap: 16px; font-size: 12px; letter-spacing: 0.05em; }
-    .badge { padding: 2px 8px; border-radius: 3px; background: #222; }
-    .badge.ok     { color: #4f4; }
-    .badge.warn   { color: #fa0; }
-    .badge.err    { color: #f44; }
-    .badge.dim    { color: #555; }
-    #input-btn {
-      padding: 4px 14px; border-radius: 3px; border: 1px solid #444;
-      background: #222; color: #aaa; font-family: monospace; font-size: 12px;
-      cursor: pointer; letter-spacing: 0.05em;
+    #screen-wrap.drag-over #screen { border-color: #55f; box-shadow: 0 0 0 2px #338; }
+
+    #mute-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: #ccc; letter-spacing: 0.1em;
+      pointer-events: none;
+      transition: opacity 0.3s;
     }
-    #input-btn:hover { background: #2a2a2a; border-color: #666; }
-    #input-btn:disabled { opacity: 0.4; cursor: default; }
-    #input-btn.hidden { display: none; }
-    #mode-btn {
-      padding: 4px 14px; border-radius: 3px; border: 1px solid #446;
-      background: #1a1a2a; color: #88f; font-family: monospace; font-size: 12px;
-      cursor: pointer; letter-spacing: 0.05em;
+    #mute-overlay.hidden { opacity: 0; }
+
+    /* ── Status bar ── */
+    .status-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 11px; }
+    .badge {
+      padding: 2px 8px; border-radius: 3px; background: #1a1a1a;
+      border: 1px solid #2a2a2a; letter-spacing: 0.05em; white-space: nowrap;
     }
-    #mode-btn:hover { background: #222233; border-color: #66a; }
-    #mode-btn.joystick { background: #1a2a1a; color: #8f8; border-color: #464; }
-    #mode-btn.joystick:hover { background: #223322; }
+    .badge.ok   { color: #4f4; border-color: #262; }
+    .badge.warn { color: #fa0; border-color: #540; }
+    .badge.err  { color: #f44; border-color: #422; }
+    .badge.dim  { color: #444; }
+
+    /* ── Controls bar ── */
+    .controls-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button {
+      padding: 5px 12px; border-radius: 3px; border: 1px solid #333;
+      background: #1a1a1a; color: #aaa; font-family: inherit; font-size: 11px;
+      cursor: pointer; letter-spacing: 0.05em; transition: background 0.15s;
+    }
+    button:hover { background: #252525; border-color: #555; color: #ddd; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    button.hidden { display: none; }
+    button.active { background: #1a2a1a; color: #8f8; border-color: #464; }
+
+    /* ── CRT drop zone hint ── */
+    #drop-hint {
+      font-size: 11px; color: #333; letter-spacing: 0.08em;
+    }
+
+    /* ── Load progress ── */
+    #load-status { font-size: 11px; min-width: 120px; }
+
+    /* ── Separator ── */
+    .sep { color: #2a2a2a; user-select: none; }
+
+    input[type=file] { display: none; }
   </style>
 </head>
 <body>
-  <video id="screen" autoplay playsinline muted></video>
+  <h1>C64 Live</h1>
+
+  <div id="screen-wrap">
+    <video id="screen" autoplay playsinline muted></video>
+    <div id="mute-overlay">🔇 click to unmute</div>
+  </div>
+
   <div class="status-row">
-    <span id="video-status" class="badge">video: connecting…</span>
-    <span id="audio-status" class="badge dim">🔇 click screen for audio</span>
+    <span id="video-status" class="badge dim">video: connecting…</span>
+    <span id="audio-status" class="badge dim">audio: muted</span>
     <span id="input-status" class="badge dim">input: connecting…</span>
-    <button id="input-btn" class="hidden">reconnect input</button>
-    <button id="mode-btn" title="Toggle between keyboard and joystick input mode">⌨ keyboard</button>
+    <span id="game-status"  class="badge dim">no game</span>
+  </div>
+
+  <div class="controls-row">
+    <button id="load-btn"   title="Load a .crt cartridge file">📂 load .crt</button>
+    <button id="detach-btn" title="Eject cartridge → BASIC prompt" disabled>⏏ detach</button>
+    <button id="reset-btn"  title="Hard reset (BASIC prompt)" disabled>↺ reset</button>
+    <span class="sep">|</span>
+    <button id="sync-btn"   title="Flush video to live edge — use if display feels laggy">⟳ sync</button>
+    <span class="sep">|</span>
+    <button id="mode-btn"   title="Toggle input mode">🕹+⌨ mixed</button>
+    <span class="sep">|</span>
+    <span id="load-status" class="badge dim"></span>
+    <span id="drop-hint">or drop .crt onto screen</span>
+    <input type="file" id="file-input" accept=".crt">
   </div>
 
   <script>
-    const videoEl      = document.getElementById('screen');
-    const videoStatus  = document.getElementById('video-status');
-    const audioStatus  = document.getElementById('audio-status');
-    const inputStatus  = document.getElementById('input-status');
+    // ── Element refs ─────────────────────────────────────────────────────────
+    const videoEl     = document.getElementById('screen');
+    const screenWrap  = document.getElementById('screen-wrap');
+    const muteOverlay = document.getElementById('mute-overlay');
+    const videoBadge  = document.getElementById('video-status');
+    const audioBadge  = document.getElementById('audio-status');
+    const inputBadge  = document.getElementById('input-status');
+    const gameBadge   = document.getElementById('game-status');
+    const loadStatus  = document.getElementById('load-status');
+    const loadBtn     = document.getElementById('load-btn');
+    const detachBtn   = document.getElementById('detach-btn');
+    const resetBtn    = document.getElementById('reset-btn');
+    const syncBtn     = document.getElementById('sync-btn');
+    const modeBtn     = document.getElementById('mode-btn');
+    const fileInput   = document.getElementById('file-input');
 
-    function setVideo(text, cls) {
-      videoStatus.textContent = 'video: ' + text;
-      videoStatus.className = 'badge ' + (cls || '');
-    }
-    function setAudio(text, cls) {
-      audioStatus.textContent = text;
-      audioStatus.className = 'badge ' + (cls || 'dim');
-    }
-    function setInput(text, cls) {
-      inputStatus.textContent = 'input: ' + text;
-      inputStatus.className = 'badge ' + (cls || 'dim');
+    function setBadge(el, text, cls) {
+      el.textContent = text;
+      el.className = 'badge ' + (cls || 'dim');
     }
 
-    // ── Audio detection via AnalyserNode ──────────────────────────────────────
-    // Browsers autoplay muted video but require a user gesture to unmute.
-    // Once the user clicks, we:
-    //   1. Unmute the video element
-    //   2. Create an AudioContext and wire the stream's audio track to an
-    //      AnalyserNode that measures RMS signal level every 200 ms
-    //   3. When RMS > threshold (actual SID audio flowing), update the badge
-    // This gives a real confirmation that audio is working, not just that
-    // the element was unmuted.
-    let audioCtx       = null;
-    let analyserTimer  = null;
-    let audioConfirmed = false;
+    // ── Audio ─────────────────────────────────────────────────────────────────
+    let audioCtx = null, analyserTimer = null, audioConfirmed = false;
+    let remoteStream = null;
 
     function startAudioMonitor(stream) {
       if (audioCtx || audioConfirmed) return;
       try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source   = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-
-        const buf = new Float32Array(analyser.fftSize);
+        const src = audioCtx.createMediaStreamSource(stream);
+        const an  = audioCtx.createAnalyser();
+        an.fftSize = 256;
+        src.connect(an);
+        const buf = new Float32Array(an.fftSize);
         analyserTimer = setInterval(() => {
-          analyser.getFloatTimeDomainData(buf);
-          // RMS of the signal
+          an.getFloatTimeDomainData(buf);
           let sum = 0;
           for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-          const rms = Math.sqrt(sum / buf.length);
-          if (rms > 0.001) {
-            // Non-trivial signal detected — audio is live
+          if (Math.sqrt(sum / buf.length) > 0.001) {
             audioConfirmed = true;
-            clearInterval(analyserTimer);
-            analyserTimer = null;
-            setAudio('🔊 audio on', 'ok');
+            clearInterval(analyserTimer); analyserTimer = null;
+            setBadge(audioBadge, '🔊 audio on', 'ok');
           }
         }, 200);
-
-        // Timeout: if no signal after 8 s the SID may be silent (BASIC prompt)
-        // — show 'audio on (silent)' so the user knows it's unmuted but quiet.
         setTimeout(() => {
           if (!audioConfirmed && analyserTimer) {
-            clearInterval(analyserTimer);
-            analyserTimer = null;
+            clearInterval(analyserTimer); analyserTimer = null;
             audioConfirmed = true;
-            setAudio('🔊 audio on (silent)', 'ok');
+            setBadge(audioBadge, '🔊 on (silent)', 'ok');
           }
         }, 8000);
+      } catch (_) { setBadge(audioBadge, 'audio error', 'err'); }
+    }
 
-      } catch (err) {
-        setAudio('audio error', 'err');
+    videoEl.addEventListener('click', () => {
+      if (videoEl.muted) {
+        videoEl.muted = false;
+        muteOverlay.classList.add('hidden');
+        setBadge(audioBadge, 'starting…', 'warn');
+        if (remoteStream) startAudioMonitor(remoteStream);
+        else {
+          const t = setInterval(() => { if (remoteStream) { clearInterval(t); startAudioMonitor(remoteStream); } }, 300);
+        }
+      }
+    });
+
+    // ── WebRTC ────────────────────────────────────────────────────────────────
+    // pc and sigWs are module-level so reconnectWebRTC() can tear them down.
+    let pc = null;
+    let sigWs = null;
+    let driftTimer = null;
+
+    function applyMinLatency() {
+      if (!pc) return;
+      for (const r of pc.getReceivers()) {
+        if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
       }
     }
 
-    // ── WebRTC signalling ────────────────────────────────────────────────────
-    const sigWs = new WebSocket('ws://' + location.host);
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    function startDriftMonitor() {
+      stopDriftMonitor();
+      driftTimer = setInterval(() => {
+        if (!videoEl || !remoteStream || videoEl.paused || videoEl.readyState < 2) return;
+        const buf = videoEl.buffered;
+        if (!buf || buf.length === 0) return;
+        const bufEnd = buf.end(buf.length - 1);
+        const drift  = bufEnd - videoEl.currentTime;
+        if (drift > 0.3) {
+          console.warn('[WebRTC] drift ' + (drift*1000).toFixed(0) + 'ms — skipping to live edge');
+          videoEl.currentTime = bufEnd;
+        }
+      }, 200);
+    }
 
-    let remoteStream = null;
+    function stopDriftMonitor() {
+      if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
+    }
 
-    pc.ontrack = (e) => {
-      if (e.streams && e.streams[0]) {
-        remoteStream = e.streams[0];
-        videoEl.srcObject = remoteStream;
-        setVideo('live', 'ok');
+    function flushToLiveEdge() {
+      applyMinLatency();
+      if (!videoEl || !remoteStream) return;
+      const buf = videoEl.buffered;
+      if (buf && buf.length > 0) {
+        const bufEnd = buf.end(buf.length - 1);
+        const drift  = bufEnd - videoEl.currentTime;
+        console.log('[WebRTC] flushToLiveEdge: drift=' + (drift*1000).toFixed(0) + 'ms → skip to live edge');
+        videoEl.currentTime = bufEnd;
       }
-    };
+      videoEl.play().catch(() => {});
+    }
 
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate && sigWs.readyState === WebSocket.OPEN) {
-        sigWs.send(JSON.stringify({ type: 'candidate', candidate }));
+    function connectWebRTC() {
+      // Tear down any existing connection cleanly first.
+      stopDriftMonitor();
+      if (pc) { try { pc.close(); } catch (_) {} pc = null; }
+      if (sigWs && sigWs.readyState !== WebSocket.CLOSED) {
+        // Remove onclose so it doesn't update the badge during our intentional teardown
+        sigWs.onclose = null;
+        try { sigWs.close(); } catch (_) {}
+        sigWs = null;
       }
-    };
+      remoteStream = null;
+      videoEl.srcObject = null;
 
-    pc.oniceconnectionstatechange = () => {
-      const s = pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') setVideo('live', 'ok');
-      if (s === 'failed' || s === 'disconnected')  setVideo('reconnecting…', 'warn');
-      if (s === 'closed')                          setVideo('disconnected', 'err');
-    };
+      setBadge(videoBadge, 'video: connecting…', 'dim');
 
-    sigWs.onopen = async () => {
-      setVideo('negotiating…');
-      const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
-      await pc.setLocalDescription(offer);
-      sigWs.send(JSON.stringify(pc.localDescription));
-    };
+      sigWs = new WebSocket('ws://' + location.host);
+      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
-    sigWs.onmessage = async ({ data }) => {
-      const msg = JSON.parse(data);
-      if (msg.type === 'answer')         await pc.setRemoteDescription(msg);
-      else if (msg.type === 'candidate') await pc.addIceCandidate(msg.candidate).catch(() => {});
-    };
+      pc.ontrack = (e) => {
+        if (e.streams && e.streams[0]) {
+          remoteStream = e.streams[0];
+          videoEl.srcObject = remoteStream;
+          setBadge(videoBadge, 'video: live', 'ok');
+          applyMinLatency();
+          startDriftMonitor();
+        }
+      };
 
-    sigWs.onerror = () => setVideo('signalling error', 'err');
-    sigWs.onclose = () => setVideo('signalling closed', 'err');
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate && sigWs && sigWs.readyState === WebSocket.OPEN)
+          sigWs.send(JSON.stringify({ type: 'candidate', candidate }));
+      };
 
-    // ── Input forwarding ─────────────────────────────────────────────────────
-    // Auto-connects on page load. The input server is always running in WebRTC
-    // mode (the entrypoint starts it unconditionally alongside --webrtc).
-    // On disconnect: exponential backoff reconnect (1s → 2s → … → 30s cap).
-    // The "reconnect input" button appears after the first failure so the user
-    // can force an immediate retry without waiting for the backoff timer.
-    const INPUT_PORT   = ${inputPort};
-    const inputBtn     = document.getElementById('input-btn');
-    let inputWs        = null;
-    let inputBackoff   = 1000;
-    let inputConnected = false;
-    let backoffTimer   = null;
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        if (s === 'connected' || s === 'completed') setBadge(videoBadge, 'video: live', 'ok');
+        if (s === 'failed' || s === 'disconnected')  setBadge(videoBadge, 'video: reconnecting…', 'warn');
+        if (s === 'closed')                          setBadge(videoBadge, 'video: closed', 'err');
+      };
+
+      sigWs.onopen = async () => {
+        setBadge(videoBadge, 'video: negotiating…', 'warn');
+        let transceiver = null;
+        try {
+          transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+        } catch (_) {}
+        try {
+          if (transceiver && typeof transceiver.setCodecPreferences === 'function') {
+            const caps = RTCRtpReceiver.getCapabilities('video');
+            if (caps) {
+              const vp8 = caps.codecs.filter(c => c.mimeType === 'video/VP8');
+              const rest = caps.codecs.filter(c => c.mimeType !== 'video/VP8');
+              if (vp8.length) transceiver.setCodecPreferences([...vp8, ...rest]);
+            }
+          }
+        } catch (_) {}
+        const offer = await pc.createOffer();
+        if (offer.sdp) {
+          offer.sdp = offer.sdp.replace(
+            /(a=rtpmap:(\\d+) VP8\\/\\d+\\r?\\n)/,
+            function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=200;x-google-max-bitrate=800\\r\\n'; }
+          );
+        }
+        await pc.setLocalDescription(offer);
+        sigWs.send(JSON.stringify(pc.localDescription));
+      };
+
+      sigWs.onmessage = async ({ data }) => {
+        const msg = JSON.parse(data);
+        if (msg.type === 'answer') {
+          await pc.setRemoteDescription(msg);
+          applyMinLatency();
+        } else if (msg.type === 'candidate') {
+          await pc.addIceCandidate(msg.candidate).catch(() => {});
+        }
+      };
+
+      sigWs.onerror = () => setBadge(videoBadge, 'video: sig error', 'err');
+      sigWs.onclose = () => setBadge(videoBadge, 'video: sig closed', 'err');
+    }
+
+    // Initial connection
+    connectWebRTC();
+
+    // ── Input server ──────────────────────────────────────────────────────────
+    const INPUT_PORT = ${inputPort};
+    let inputWs = null, inputBackoff = 1000, backoffTimer = null;
 
     function connectInput() {
       if (backoffTimer) { clearTimeout(backoffTimer); backoffTimer = null; }
-      inputBtn.classList.add('hidden');
-      setInput('connecting…', 'warn');
-
+      setBadge(inputBadge, 'input: connecting…', 'warn');
       inputWs = new WebSocket('ws://' + location.hostname + ':' + INPUT_PORT);
 
       inputWs.onopen = () => {
-        inputConnected = true;
-        inputBackoff   = 1000;
-        inputBtn.classList.add('hidden');
-        setInput('connected', 'ok');
+        inputBackoff = 1000;
+        setBadge(inputBadge, 'input: connected', 'ok');
+        // Claim host role immediately
+        inputWs.send(JSON.stringify({ type: 'host', username: 'player' }));
       };
 
+      inputWs.onmessage = ({ data }) => {
+        try {
+          const msg = JSON.parse(data);
+          // Cart lifecycle
+          if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
+            blurAll();
+            const cartName = msg.filename ? msg.filename.replace(/\\.crt$/i,'').replace(/[-_]/g,' ') : '';
+            if (msg.type === 'cart-loaded')   { setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');  setLoadStatus('loaded', 'ok');  detachBtn.disabled = false; resetBtn.disabled = false; }
+            if (msg.type === 'cart-detached') { setBadge(gameBadge, 'no game', 'dim'); setLoadStatus('', '');    detachBtn.disabled = true; }
+            if (msg.type === 'machine-reset') { setLoadStatus('reset', 'warn'); }
+            // Reconnect the RTCPeerConnection entirely — this is the only
+            // reliable way to clear the jitter buffer and decoder state that
+            // accumulates during the ~1600ms cart-load gap.  Anything less
+            // (currentTime seek, srcObject null, jitterBufferTarget) leaves
+            // stale decoded frames in the pipeline.  A fresh pc + renegotiate
+            // is equivalent to a browser refresh but without losing input WS.
+            // Preserve mute state so the user doesn't lose audio they unmuted.
+            const wasMuted = videoEl.muted;
+            connectWebRTC();
+            // Re-apply mute state after the new video element srcObject is set
+            // (ontrack fires asynchronously, so check after a short delay)
+            if (!wasMuted) {
+              const t = setInterval(() => {
+                if (remoteStream) {
+                  videoEl.muted = false;
+                  muteOverlay.classList.add('hidden');
+                  clearInterval(t);
+                }
+              }, 100);
+            }
+          }
+          if (msg.type === 'cart-loading')    setLoadStatus('loading…', 'warn');
+          if (msg.type === 'cart-load-error') setLoadStatus('error: ' + (msg.reason || '?'), 'err');
+          if (msg.type === 'host-confirmed')  setBadge(inputBadge, 'input: host', 'ok');
+        } catch (_) {}
+      };
       inputWs.onclose = () => {
-        inputConnected = false;
-        setInput('disconnected — retrying in ' + (inputBackoff / 1000).toFixed(0) + 's…', 'warn');
-        inputBtn.classList.remove('hidden');
-        backoffTimer = setTimeout(() => {
-          inputBackoff = Math.min(inputBackoff * 2, 30000);
-          connectInput();
-        }, inputBackoff);
+        setBadge(inputBadge, 'input: retrying ' + (inputBackoff/1000).toFixed(0) + 's…', 'warn');
+        backoffTimer = setTimeout(() => { inputBackoff = Math.min(inputBackoff * 2, 30000); connectInput(); }, inputBackoff);
       };
-
-      inputWs.onerror = () => {
-        // Browser logs one red network error here — unavoidable, but it only
-        // fires once per attempt (not in a tight loop) because onclose schedules
-        // the next attempt with a backoff delay.
-        setInput('unavailable', 'err');
-      };
+      inputWs.onerror = () => setBadge(inputBadge, 'input: unavailable', 'err');
     }
-
-    inputBtn.addEventListener('click', () => {
-      inputBackoff = 1000; // reset backoff on manual retry
-      connectInput();
-    });
-
-    // Auto-connect immediately on page load
-    connectInput();
-
     function sendInput(msg) {
-      if (inputWs && inputWs.readyState === WebSocket.OPEN) {
-        inputWs.send(JSON.stringify(msg));
+      if (inputWs && inputWs.readyState === WebSocket.OPEN) inputWs.send(JSON.stringify(msg));
+    }
+    // Blur any focused UI element so keyboard events go to the emulator,
+    // not to whichever button was last clicked.
+    function blurAll() {
+      if (document.activeElement && document.activeElement !== document.body)
+        document.activeElement.blur();
+    }
+    connectInput();
+    function setLoadStatus(text, cls) {
+      loadStatus.textContent = text;
+      loadStatus.className = 'badge ' + (cls || 'dim');
+    }
+    // ── CRT loading ───────────────────────────────────────────────────────────
+    async function loadCrt(file) {
+      if (!file) return;
+      setLoadStatus('reading…', 'warn');
+      try {
+        const b64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload  = () => { const r = reader.result; resolve(r.slice(r.indexOf(',') + 1)); };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        setLoadStatus('sending…', 'warn');
+        sendInput({ type: 'load-crt', filename: file.name, data: b64 });
+      } catch (e) {
+        setLoadStatus('read error', 'err');
       }
     }
-
-    // ── Input mode toggle ─────────────────────────────────────────────────────
-    // KEYBOARD mode: every key is translated to a C64 matrix key event.
-    // JOYSTICK mode: arrow keys + Z (fire) + X (fire alt) → joystick port 2
-    //                events; all other keys still pass through as C64 keys.
-    //
-    // Joystick bitmask (matches input-server.mjs protocol):
-    //   up=0x1  down=0x2  left=0x4  right=0x8  fire=0x10
-    const modeBtn = document.getElementById('mode-btn');
-    let joystickMode = false;
-
-    // Keys that drive the joystick in joystick mode
-    const JOY_MAP = {
-      ArrowUp:    { direction: 'up' },
-      ArrowDown:  { direction: 'down' },
-      ArrowLeft:  { direction: 'left' },
-      ArrowRight: { direction: 'right' },
-      z:          { fire: true },
-      Z:          { fire: true },
-      x:          { fire: true },   // alternative fire
-      X:          { fire: true },
-    };
-
-    modeBtn.addEventListener('click', () => {
-      joystickMode = !joystickMode;
-      if (joystickMode) {
-        modeBtn.textContent = '🕹 joystick';
-        modeBtn.classList.add('joystick');
-      } else {
-        modeBtn.textContent = '⌨ keyboard';
-        modeBtn.classList.remove('joystick');
-      }
+    loadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => { const f = e.target?.files?.[0]; if (f) loadCrt(f); fileInput.value = ''; blurAll(); });
+    screenWrap.addEventListener('dragover',  (e) => { e.preventDefault(); screenWrap.classList.add('drag-over'); });
+    screenWrap.addEventListener('dragleave', ()  => screenWrap.classList.remove('drag-over'));
+    screenWrap.addEventListener('drop', (e) => {
+      e.preventDefault();
+      screenWrap.classList.remove('drag-over');
+      const f = e.dataTransfer?.files?.[0];
+      if (f) loadCrt(f);
     });
-
-    // Keyboard → emulator
-    // In keyboard mode: send e.key string + shiftKey so the server can
-    //   translate via c64-key-map.mjs (which maps to C64 matrix indices).
-    // In joystick mode: arrow keys / Z → joystick port 2 events;
-    //   all other keys still fall through as keyboard events.
-    const PREVENT_DEFAULT_KEYS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Tab']);
-
+    detachBtn.addEventListener('click', () => { sendInput({ type: 'detach-crt' }); setLoadStatus('detaching…', 'warn'); blurAll(); });
+    resetBtn.addEventListener('click',  () => { sendInput({ type: 'hard-reset' });  setLoadStatus('resetting…', 'warn'); blurAll(); });
+    syncBtn.addEventListener('click', () => {
+      const wasMuted = videoEl.muted;
+      connectWebRTC();
+      if (!wasMuted) {
+        const t = setInterval(() => { if (remoteStream) { videoEl.muted = false; muteOverlay.classList.add('hidden'); clearInterval(t); } }, 100);
+      }
+      syncBtn.textContent = '✓ synced';
+      setTimeout(() => { syncBtn.textContent = '⟳ sync'; }, 1500);
+      blurAll();
+    });
+    // ── Input mode ────────────────────────────────────────────────────────────
+    const MODES = ['mixed', 'joy', 'kb'];
+    const MODE_LABELS = { mixed: '🕹+⌨ mixed', joy: '🕹 joystick', kb: '⌨ keyboard' };
+    let modeIdx = 0;
+    modeBtn.addEventListener('click', () => {
+      modeIdx = (modeIdx + 1) % MODES.length;
+      modeBtn.textContent = MODE_LABELS[MODES[modeIdx]];
+      modeBtn.classList.toggle('active', MODES[modeIdx] === 'joy');
+    });
+    function getMode() { return MODES[modeIdx]; }
+    const JOY_MAP = {
+      ArrowUp: { direction: 'up' }, ArrowDown: { direction: 'down' },
+      ArrowLeft: { direction: 'left' }, ArrowRight: { direction: 'right' },
+      z: { fire: true }, Z: { fire: true }, x: { fire: true }, X: { fire: true },
+    };
+    const MIXED_JOY_KEYS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','z','Z','x','X']);
+    const PREVENT_DEFAULTS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Tab']);
     document.addEventListener('keydown', (e) => {
-      if (PREVENT_DEFAULT_KEYS.has(e.key)) e.preventDefault();
+      if (PREVENT_DEFAULTS.has(e.key)) e.preventDefault();
       if (e.repeat) return;
-
-      if (joystickMode && JOY_MAP[e.key]) {
-        const j = JOY_MAP[e.key];
-        sendInput({ type: 'joystick', joystickPort: 2, action: 'push',
-                    direction: j.direction ?? undefined, fire: j.fire ?? false });
+      const tag = e.target instanceof Element ? e.target.tagName : '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const mode = getMode();
+      const j = JOY_MAP[e.key];
+      if (mode === 'joy') {
+        if (j) sendInput({ type: 'joystick', joystickPort: 2, action: 'push', direction: j.direction, fire: j.fire ?? false });
+      } else if (mode === 'mixed') {
+        if (j) sendInput({ type: 'joystick', joystickPort: 2, action: 'push', direction: j.direction, fire: j.fire ?? false });
+        if (!MIXED_JOY_KEYS.has(e.key)) sendInput({ type: 'key', key: e.key, shiftKey: e.shiftKey, action: 'down' });
       } else {
         sendInput({ type: 'key', key: e.key, shiftKey: e.shiftKey, action: 'down' });
       }
     });
-
     document.addEventListener('keyup', (e) => {
-      if (joystickMode && JOY_MAP[e.key]) {
-        const j = JOY_MAP[e.key];
-        sendInput({ type: 'joystick', joystickPort: 2, action: 'release',
-                    direction: j.direction ?? undefined, fire: j.fire ?? false });
+      const tag = e.target instanceof Element ? e.target.tagName : '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const mode = getMode();
+      const j = JOY_MAP[e.key];
+      if (mode === 'joy') {
+        if (j) sendInput({ type: 'joystick', joystickPort: 2, action: 'release', direction: j.direction, fire: j.fire ?? false });
+      } else if (mode === 'mixed') {
+        if (j) sendInput({ type: 'joystick', joystickPort: 2, action: 'release', direction: j.direction, fire: j.fire ?? false });
+        if (!MIXED_JOY_KEYS.has(e.key)) sendInput({ type: 'key', key: e.key, shiftKey: e.shiftKey, action: 'up' });
       } else {
         sendInput({ type: 'key', key: e.key, shiftKey: e.shiftKey, action: 'up' });
-      }
-    });
-
-    // Click video to unmute audio (browser autoplay policy requires a user gesture)
-    // After unmuting, wire an AudioContext analyser to detect actual signal and
-    // update the audio badge from 'click for audio' → 'starting…' → '🔊 audio on'.
-    videoEl.addEventListener('click', () => {
-      if (videoEl.muted) {
-        videoEl.muted = false;
-        setAudio('starting…', 'warn');
-        // AudioContext must be created/resumed inside a user gesture
-        if (remoteStream) {
-          startAudioMonitor(remoteStream);
-        } else {
-          // Stream not arrived yet — monitor will start on next click or when
-          // stream arrives; watch for it.
-          const waitForStream = setInterval(() => {
-            if (remoteStream) {
-              clearInterval(waitForStream);
-              startAudioMonitor(remoteStream);
-            }
-          }, 500);
-        }
       }
     });
   </script>
 </body>
 </html>`;
 }
-

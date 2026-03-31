@@ -50,7 +50,7 @@ if [ -n "${DURATION}" ]; then
   ARGS="$ARGS --duration $DURATION"
 fi
 
-if [ -n "${VERBOSE}" ]; then
+if [ "${VERBOSE}" = "1" ] || [ "${VERBOSE}" = "true" ]; then
   ARGS="$ARGS --verbose"
 fi
 

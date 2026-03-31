@@ -182,10 +182,10 @@ export async function runHeadless(options = {}) {
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
         exports.c64_loadCartridge(ptr, gameData.length);
-        exports.free(ptr);
-        exports.c64_reset();
-        exports.debugger_set_speed(100);
-        exports.debugger_play();
+        // free(ptr), c64_reset, debugger_set_speed, debugger_play intentionally
+        // omitted: c64_loadCartridge already resets and resumes the machine
+        // internally. Calling them re-triggers the ROM boot sequence — the same
+        // root cause of post-load input lag fixed for the load-crt command path.
       } catch (e) {
         out.push(`Failed to load game: ${String(e)}`);
       }
@@ -230,7 +230,12 @@ export async function runHeadless(options = {}) {
        *  The WASM SID resets its internal write cursor on c64_reset(), so any
        *  samples still in the JS ring are from the old game and must be discarded.
        *  sidSampleAccum is also zeroed so the next pull aligns with the freshly
-       *  restarted SID write cursor rather than inheriting stale offset. */
+       *  restarted SID write cursor rather than inheriting stale offset.
+       *  Note: we do NOT call primeSidRing() here — that would run 186ms of
+       *  synchronous debugger_update inside the load-crt setImmediate callback
+       *  and add unwanted post-load blockage. The ring re-fills naturally within
+       *  ~5 frames; those frames output silence which is inaudible during the
+       *  game's own startup sound sequence. */
       function resetSidRing() {
         sidSampleAccum = 0;
         sidRingWrite   = 0;
@@ -246,8 +251,7 @@ export async function runHeadless(options = {}) {
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         onCommand: (cmd) => {
           if (!exports) return;
-          try {
-            if (cmd.type === 'load-crt') {
+          if (cmd.type === 'load-crt') {
               // Decode base64 → Uint8Array immediately and release the large
               // base64 string from the cmd object as soon as possible so GC
               // can reclaim it during the subsequent async gap.
@@ -267,23 +271,36 @@ export async function runHeadless(options = {}) {
               return new Promise((resolve, reject) => {
                 setImmediate(() => {
                   try {
-                    // c64_loadCartridge parses the cart and resets the machine
-                    // internally — the explicit c64_reset() after it is redundant
-                    // and costs another ~1250ms of event-loop blockage for nothing
-                    // (verified: PC is identical with or without the second reset).
-                    // removeCartridge first ensures no stale cart state during parse.
+                    const gapStart = Date.now();
                     exports.c64_removeCartridge();
+                    exports.c64_reset();           // clean slate before loading new cart
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
                     exports.c64_loadCartridge(ptr, byteLen);
-                    // free(ptr), debugger_set_speed and debugger_play are
-                    // intentionally omitted: c64_loadCartridge internally resets
-                    // and resumes the machine. Calling them again re-triggers the
-                    // ROM boot sequence and was the root cause of post-load input lag.
+                    // free(ptr), debugger_set_speed and debugger_play intentionally
+                    // omitted: c64_loadCartridge internally resets and resumes.
+                    const gapMs = Date.now() - gapStart;
+                    //
+                    // ── Audio RTP re-sync after blocking gap ─────────────────────
+                    // c64_loadCartridge blocks the event loop for ~1300ms. During
+                    // this time the frame loop is frozen so no audio is pushed to
+                    // RTCAudioSource. The video RTP clock (driven by @roamhq/wrtc
+                    // internally via wall-clock) keeps ticking, but the audio RTP
+                    // clock only advances when onData() is called — so audio falls
+                    // ~1300ms behind video. The browser's AV sync logic then holds
+                    // video playback until audio catches up, manifesting as input lag.
+                    //
+                    // Fix: push silence frames totalling the measured gap duration so
+                    // the audio RTP clock jumps forward by the same amount the video
+                    // RTP clock advanced during the blockage.
                     resetSidRing();
-                    if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
-                    if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
+                    if (webrtcEncoder) {
+                      webrtcEncoder.pushSilenceForGap(gapMs);
+                      if (verbose) console.error(`[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`);
+                    }
+                    if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
+                    if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes, gap=${gapMs}ms)`);
                     resolve();
                   } catch (err) {
                     if (verbose) console.error('[headless] cart load (deferred) error:', err);
@@ -292,17 +309,16 @@ export async function runHeadless(options = {}) {
                 });
               });
             } else if (cmd.type === 'detach-crt') {
-              // Instant detach: same pattern as hard-reset.
-              // removeCartridge (~0ms) + c64_reset no-cart (~110ms) — fast enough
-              // to run inline without setImmediate deferral.
-              // Return a Promise so input-server still awaits before broadcasting
-              // cart-detached (keeps the protocol consistent with load-crt).
+              const gapStart = Date.now();
               exports.c64_removeCartridge();
-              // c64_reset, debugger_set_speed and debugger_play are intentionally
-              // omitted: calling them after removeCartridge re-triggers the ROM boot
-              // sequence and was the root cause of post-detach input lag.
+              exports.c64_reset();               // return to clean BASIC prompt
+              const gapMs = Date.now() - gapStart;
               resetSidRing();
-              if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
+              if (webrtcEncoder) {
+                webrtcEncoder.pushSilenceForGap(gapMs);
+                if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after detach`);
+              }
+              if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
               // Instant hard reset: detach cart and soft-reset the machine.
@@ -311,53 +327,44 @@ export async function runHeadless(options = {}) {
               // since there is no loadCartridge call to block the event loop.
               // The game is intentionally NOT reloaded: hard reset returns to
               // the BASIC prompt / blank screen, matching real C64 behaviour.
+              const gapStart = Date.now();
               exports.c64_removeCartridge();
               exports.c64_reset();
+              const gapMs = Date.now() - gapStart;
               resetSidRing();
-              if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
+              if (webrtcEncoder) {
+                webrtcEncoder.pushSilenceForGap(gapMs);
+                if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after hard reset`);
+              }
+              if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
               if (verbose) console.error('[headless] hard reset');
             }
-          } catch (err) {
-            if (verbose) console.error('[headless] command error:', err);
-          }
         },
         onInput: (event) => {
           if (!exports) return;
-          try {
-            if (event.type === 'joystick') {
-              const port = ((event.joystickPort ?? 2) - 1);  // 1-based → 0-based
-              const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
-              const fire = (event.fire || event.fire1) ? 0x10 : 0;
-
-              if (event.action === 'release') {
-                if (dir) exports.c64_joystick_release(port, dir);
-                if (fire) exports.c64_joystick_release(port, fire);
-              } else {
-                // Default to push for backwards compat (action missing)
-                if (dir) exports.c64_joystick_push(port, dir);
-                if (fire) exports.c64_joystick_push(port, fire);
-              }
-            } else if (event.type === 'key') {
-              // event.key is a DOM key string ('a', 'ArrowUp', 'Enter', …)
-              // Translate to one or more C64 matrix key actions, including
-              // shift side-effects for cursor keys, F-key pairs, etc.
-              const domKey   = String(event.key ?? '');
-              const shiftKey = !!event.shiftKey;
-              const evType   = event.action === 'up' ? 'keyup' : 'keydown';
-              const c64acts  = domKeyToC64Actions(domKey, shiftKey, evType);
-              for (const act of c64acts) {
-                if (act.action === 'press') {
-                  exports.keyboard_keyPressed(act.key);
-                } else {
-                  exports.keyboard_keyReleased(act.key);
-                }
-              }
-              if (verbose && c64acts.length > 0) {
-                console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
-              }
+          if (event.type === 'joystick') {
+            const port = ((event.joystickPort ?? 2) - 1);  // 1-based → 0-based
+            const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
+            const fire = (event.fire || event.fire1) ? 0x10 : 0;
+            if (event.action === 'release') {
+              if (dir)  exports.c64_joystick_release(port, dir);
+              if (fire) exports.c64_joystick_release(port, fire);
+            } else {
+              if (dir)  exports.c64_joystick_push(port, dir);
+              if (fire) exports.c64_joystick_push(port, fire);
             }
-          } catch (err) {
-            if (verbose) console.error('[headless] input dispatch error:', err);
+          } else if (event.type === 'key') {
+            const domKey   = String(event.key ?? '');
+            const shiftKey = !!event.shiftKey;
+            const evType   = event.action === 'up' ? 'keyup' : 'keydown';
+            const c64acts  = domKeyToC64Actions(domKey, shiftKey, evType);
+            for (const act of c64acts) {
+              if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+              else                        exports.keyboard_keyReleased(act.key);
+            }
+            if (verbose && c64acts.length > 0) {
+              console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
+            }
           }
         },
       });
@@ -400,6 +407,25 @@ export async function runHeadless(options = {}) {
         },
         onPeerConnected(pc) {
           if (verbose) console.error('[webrtc] peer ICE connected');
+          // Reduce video sender bitrate after connection to minimise encode
+          // latency. A tight ceiling keeps frame sizes small and predictable,
+          // reducing the encoder's internal queue and decode buffer on the
+          // receiving end. 800 kbps is well above lossless for 384×272 @ 50fps.
+          try {
+            const senders = pc.getSenders();
+            for (const sender of senders) {
+              if (sender.track && sender.track.kind === 'video') {
+                const params = sender.getParameters();
+                if (params.encodings && params.encodings.length > 0) {
+                  params.encodings[0].maxBitrate = 800_000;
+                } else {
+                  params.encodings = [{ maxBitrate: 800_000 }];
+                }
+                sender.setParameters(params).catch(() => {});
+                break;
+              }
+            }
+          } catch (_) {}
         },
       });
 
@@ -466,6 +492,21 @@ export async function runHeadless(options = {}) {
       sidRingWrite = (sidRingWrite + SID_BUFFER_SIZE) % SID_RING_SIZE;
       sidRingCount = Math.min(sidRingCount + SID_BUFFER_SIZE, SID_RING_SIZE);
     } catch (_) {}
+  }
+
+  /**
+   * Re-prime the JS SID ring with 2 full WASM buffer pulls (~8192 samples).
+   * Must be called after any emulator reset/cart-change once the WASM SID's
+   * own write cursor has been restarted — i.e. AFTER resetSidRing() zeros
+   * the JS ring state.  Runs ~186ms of emulated pre-roll (not captured).
+   */
+  function primeSidRing() {
+    if (!exports || typeof exports.debugger_update !== 'function') return;
+    const primeMs = Math.ceil(SID_BUFFER_SIZE / (audioSampleRate / 1000)); // ~93ms
+    for (let p = 0; p < 2; p++) {
+      exports.debugger_update(primeMs);
+      pullSidBuffer();
+    }
   }
 
   /** Dequeue up to n samples from the JS ring into sidFrameBuf. Returns true if enough data. */
@@ -535,6 +576,24 @@ export async function runHeadless(options = {}) {
     }
   }
 
+  // ── SID ring pre-prime ───────────────────────────────────────────────────
+  // Without pre-priming, the ring starts empty and the first ~4 frames are
+  // silent (sidSampleAccum hasn't crossed SID_BUFFER_SIZE yet).  Worse, the
+  // ring drains to zero every ~4.65 frames (882 × 4 = 3528 < 4096) so the
+  // 5th frame after each pull would also be silent in steady state.
+  //
+  // Fix: run 2× SID_BUFFER_SIZE worth of emulation (~186ms) before the frame
+  // loop and pull both 4096-sample chunks into the JS ring.  The ring then
+  // starts at 8192 samples — a comfortable ~9.3 frames of headroom — and
+  // never runs dry because subsequent pulls always arrive before it reaches 0.
+  //
+  // This emulation is "throwaway" pre-roll: the pixel buffer is not captured
+  // and the CPU state matches what a real C64 would be doing at startup.
+  if (audio || (webrtc && webrtcEncoder)) {
+    primeSidRing();
+    if (verbose) console.error(`[headless] SID ring primed: ${sidRingCount} samples ready`);
+  }
+
   // runStartTime is set AFTER ffmpeg starts so --duration counts from when
   // recording actually begins (after any RTMP probe/stabilisation delay).
   const runStartTime = Date.now();
@@ -550,20 +609,22 @@ export async function runHeadless(options = {}) {
     try {
       if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
 
-      // Run one full frame of emulation.
-      const frameMs = Math.round(1000 / targetFps);
-      exports.debugger_update(frameMs);
-
-      // Capture time after emulation work — sleepMs is then always measured
-      // from when this frame actually finished, never stale from before a
-      // loadCartridge blockage.
+      // Capture frame start time BEFORE emulation so sleepMs accounts for
+      // ALL work in this iteration (emulation + audio + video push + ffmpeg).
       const iterStart = Date.now();
+      const frameMs   = Math.round(1000 / targetFps);
+
+      // Run a single full-frame emulation step.
+      // debugger_update() returns truthy when the emulator has completed a full
+      // video frame (VSync). c64.js gates its redraw on both this return value
+      // AND debugger_isRunning() — we mirror that here so we never push a stale
+      // or repeated pixel buffer into WebRTC during boot/reset sequences.
+      const frameReady = !!exports.debugger_update(frameMs);
+      const isRunning  = !!exports.debugger_isRunning();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
-      // Accumulate emulated samples; when we cross a SID_BUFFER_SIZE boundary
-      // pull one 4096-sample chunk from the WASM into the JS ring (safe call
-      // rate — never resets the SID counter mid-stream).
-      // Then dequeue exactly samplesPerFrame into sidFrameBuf for this frame.
+      // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
+      // audio clock stays continuous — gaps cause desync, not silence.
       if (audio || (webrtc && webrtcEncoder)) {
         sidSampleAccum += samplesPerFrame;
         while (sidSampleAccum >= SID_BUFFER_SIZE) {
@@ -574,25 +635,16 @@ export async function runHeadless(options = {}) {
       }
 
       // ── WebRTC: push video + audio into the live track ─────────────────
-      // This is independent of ffmpeg recording; both can run simultaneously.
       if (webrtc && webrtcEncoder) {
-        try {
+        // Only push a video frame when the emulator confirms one is ready and
+        // is actively running — mirrors c64.js: if (update && !!debugger_isRunning())
+        if (frameReady && isRunning) {
           const ptr  = exports.c64_getPixelBuffer();
           const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
           webrtcEncoder.pushVideoFrame(rgba);
-        } catch (e) {
-          if (verbose) console.error('[headless] webrtc video push error:', e && e.message);
         }
 
-        // WebRTC audio — send exactly samplesPerFrame samples every frame
-        // using the sidFrameBuf already dequeued from the JS ring above.
-        if (audio || sidRingCount >= 0) {
-          try {
-            webrtcEncoder.pushAudioFrame(sidFrameBuf);
-          } catch (e) {
-            if (verbose) console.error('[headless] webrtc audio push error:', e && e.message);
-          }
-        }
+        webrtcEncoder.pushAudioFrame(sidFrameBuf);
       }
 
       // Capture video frame and audio chunk, then write both atomically.
@@ -634,31 +686,32 @@ export async function runHeadless(options = {}) {
             break;
           }
         }
-        try {
+        if (frameReady && isRunning) {
           const ptr = exports.c64_getPixelBuffer();
           const videoFrame = heap.heapU8.subarray(ptr, ptr + frameSize);
-          // Audio: use the per-frame slice dequeued from the JS ring above —
-          // samplesPerFrame samples per frame, every frame (silence until primed).
-          // This ensures ffmpeg receives audio at a constant rate perfectly
-          // aligned with video, eliminating A/V sync drift.
           const audioChunk = audio ? sidFrameBuf : null;
           await ffmpegRunner.writeFrame(videoFrame, audioChunk);
-        } catch (e) {
-          const errMsg = `ffmpeg write error after ${frameCount} frames: ${e && e.message ? e.message : String(e)}`;
-          out.push(errMsg);
-          console.error(`[headless] ${errMsg}`);
-          // For URL outputs, don't give up immediately — ffmpeg may have just died,
-          // the isAlive() check at the top of next iteration will handle the retry.
-          if (!isRtmpOutput) {
-            ffmpegDied = true;
-            record = false;
-            break;
-          }
         }
       }
-      // Throttle to target FPS: sleep for the remainder of the frame interval.
+      // Throttle to target FPS, then yield so input events are committed
+      // to WASM before the next debugger_update.
+      //
+      // Ordering matters for input latency:
+      //   1. setTimeout(sleepMs)  — event loop sleeps; WebSocket 'message'
+      //      I/O callbacks fire during this window and call onInput() which
+      //      writes directly to WASM exports (keyboard_keyPressed, etc.)
+      //   2. setImmediate yield   — runs after all pending I/O callbacks,
+      //      guaranteeing any message that arrived right at the end of the
+      //      sleep is also committed before we continue.
+      //   3. top of next iteration: debugger_update() reads the now-current
+      //      WASM input state.
+      //
+      // Worst-case input latency = one full frame (20ms @ 50fps): a keydown
+      // that lands just AFTER step 2 waits until the following frame.
+      // Average latency = half a frame (~10ms).
       const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
-      await new Promise((r) => setTimeout(r, sleepMs));
+      if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
+      await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
     } catch (_) {
     }
     frameCount++;
