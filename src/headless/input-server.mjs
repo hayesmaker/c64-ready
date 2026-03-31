@@ -29,7 +29,7 @@ export function createInputServer(opts = {}) {
   const onCommand         = opts.onCommand         ?? (() => {});
   const verbose           = opts.verbose           ?? false;
   const logEvents         = opts.logEvents         ?? false;
-  const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 5 * 60 * 1000;
+  const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 10 * 60 * 1000;
   const validateKickToken = opts.validateKickToken ?? (() => null);
 
   /** Emit a structured event log line — only when --log-events is active.
@@ -120,10 +120,10 @@ export function createInputServer(opts = {}) {
     graceTimer          = null;
     const leaving       = pendingHostUsername;
     pendingHostUsername = null;
-    if (verbose) console.error(`[input-server] host grace expired for ${leaving} — promoting P2`);
+    if (verbose) console.error(`[input-server] host grace expired for ${leaving}`);
     logEv('host-grace-expired', { username: leaving });
     broadcastAll({ type: 'host-left', username: leaving, reason: 'disconnect' });
-    promoteP2ToHost();
+    broadcastAll({ type: 'p2-slot-status', open: false });
   }
 
   // Called on host WS close — starts grace period, notifies clients.
@@ -153,40 +153,9 @@ export function createInputServer(opts = {}) {
     clearGrace();
     // Broadcast host-left with reason so clients can show a contextual notice
     broadcastAll({ type: 'host-left', username: leaving, reason: 'timeout' });
-    // Auto-promote P2 if present
-    promoteP2ToHost();
+    broadcastAll({ type: 'p2-slot-status', open: false });
   }
 
-  // ── P2 → host promotion ───────────────────────────────────────────────────
-  // Called whenever the host slot becomes vacant and P2 is connected.
-  // Keeps P2's joystick port (1) — just elevates their permissions.
-  function promoteP2ToHost() {
-    if (!p2Client || p2Client.readyState !== p2Client.OPEN || !p2Username) return;
-    hostClient   = p2Client;
-    hostUsername = p2Username;
-    p2Client     = null;
-    p2Username   = null;
-    inviteToken  = null;
-    clearP2Timeout(); // P2 is now host — their own timer stops, host timer starts below
-    if (verbose) console.error(`[input-server] P2 ${hostUsername} promoted to host (joy port unchanged)`);
-    logEv('p2-promoted-to-host', { username: hostUsername, joystickPort: 1 });
-    // Tell the promoted client
-    hostClient.send(JSON.stringify({
-      type:         'host-promoted',
-      username:     hostUsername,
-      joystickPort: 1,   // keep their existing port
-    }));
-    // Tell everyone else
-    broadcastExcept(hostClient, {
-      type:         'host-promoted',
-      username:     hostUsername,
-      joystickPort: 1,
-    });
-    // Slot is now open again — promoted player was P2, now they're host
-    broadcastAll({ type: 'p2-slot-status', open: true });
-    // Start inactivity timer for the new host
-    resetHostTimeout();
-  }
 
   function broadcastExcept(excludeWs, msg) {
     const raw = JSON.stringify(msg);
@@ -311,7 +280,7 @@ export function createInputServer(opts = {}) {
           logEv('host-left', { username: leaving, reason: 'voluntary' });
           ws.send(JSON.stringify({ type: 'host-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'host-left', username: leaving, voluntary: true });
-          promoteP2ToHost();
+          broadcastAll({ type: 'p2-slot-status', open: false });
         }
         return;
       }
@@ -428,7 +397,7 @@ export function createInputServer(opts = {}) {
           hostUsername  = null;
           inviteToken   = null;
           broadcastAll({ type: 'host-left', username: leaving, reason: 'admin-kick' });
-          promoteP2ToHost();
+          broadcastAll({ type: 'p2-slot-status', open: false });
         } else if (target === 'p2' && p2Client) {
           if (verbose) console.error(`[input-server] admin kicked player2 ${p2Username}`);
           logEv('p2-kicked', { username: p2Username, by: 'admin' });
