@@ -6,6 +6,28 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v0.7.0-rc.2 - 2026-03-31
+
+### Critical fixes
+
+- **fix(webrtc): WS ping/pong keepalive to prevent idle TCP timeout** (`031610d`)
+  Root cause of the ~60 s stream freeze observed in production: after ICE negotiation
+  completes the signalling WebSocket carries no further traffic. Cloud NAT, Docker bridge
+  networking, and OS TCP stacks silently drop idle connections after ~60 s — exactly
+  matching log evidence (`ws-closed` firing ~60 s after `webrtc-ice-connected` with no
+  prior ICE disconnect event).
+  Two-layer fix:
+  - **Server** (`webrtc-server.mjs`): `setInterval` every 30 s sends `ws.ping()` to all
+    connected signalling clients; tracks liveness via `ws._sigAlive` (reset on each pong).
+    A client that misses a full ping interval (60 s total) is terminated and logged as
+    `webrtc-sig-timeout` under `--log-events`. `clearInterval` called in `close()` to
+    prevent timer leak.
+  - **Browser** (embedded HTML): `sigPingTimer` sends `{type:'ping'}` every 30 s on the
+    signalling WS; server replies with `{type:'pong'}` which the browser handles as a
+    no-op. Timer is cleared in `sigWs.onclose` and `connectWebRTC()` teardown. `pong`
+    message type handled in `sigWs.onmessage` to prevent JSON parse errors from
+    unrecognised message types.
+
 ## v0.7.0-rc.1 - 2026-03-31
 
 ### Critical fixes
