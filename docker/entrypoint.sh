@@ -54,6 +54,10 @@ if [ "${VERBOSE}" = "1" ] || [ "${VERBOSE}" = "true" ]; then
   ARGS="$ARGS --verbose"
 fi
 
+if [ "${LOG_EVENTS}" = "1" ] || [ "${LOG_EVENTS}" = "true" ]; then
+  ARGS="$ARGS --log-events"
+fi
+
 echo "[entrypoint] node bin/headless.mjs $ARGS"
 # shellcheck disable=SC2086
 exec node bin/headless.mjs $ARGS
