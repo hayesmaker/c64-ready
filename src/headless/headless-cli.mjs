@@ -412,6 +412,7 @@ export async function runHeadless(options = {}) {
       webrtcServer = createWebRTCServer({
         port: webrtcPort,
         verbose,
+        logEvents,
         inputPort: wsPort,
         // onOffer fires BEFORE createAnswer() — the right place to addTrack()
         onOffer(pc) {

@@ -41,10 +41,18 @@ const { RTCPeerConnection } = wrtc;
 export function createWebRTCServer({
   port = 9002,
   verbose = false,
+  logEvents = false,
   inputPort = 9001,
   onOffer,
   onPeerConnected,
 } = {}) {
+  /** Emit a structured [event] line — same format as input-server.mjs. */
+  function logEv(tag, fields = {}) {
+    if (!logEvents) return;
+    const ts = new Date().toISOString();
+    const pairs = Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(' ');
+    console.error(`[event] ${ts} ${tag}${pairs ? ' ' + pairs : ''}`);
+  }
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
 
@@ -66,11 +74,36 @@ export function createWebRTCServer({
 
   wss.on('connection', (ws, req) => {
     const remoteAddr = req.socket.remoteAddress;
-    if (verbose) console.error(`[webrtc] peer connected from ${remoteAddr}`);
+    console.error(`[webrtc] peer connected from ${remoteAddr}`);
+    logEv('webrtc-peer-connected', { addr: remoteAddr });
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     });
+
+    // Grace timer: if ICE goes 'disconnected' we wait up to 6s for self-
+    // recovery before treating it as fatal. Many transient causes (brief
+    // packet loss, NAT keepalive gap, Node GC pause) resolve within 1-2s.
+    // Closing immediately on 'disconnected' was the root cause of the
+    // periodic video freeze observed in production.
+    let disconnectTimer = null;
+
+    function clearDisconnectTimer() {
+      if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+    }
+
+    function closePeer(reason) {
+      clearDisconnectTimer();
+      activePeers.delete(pc);
+      console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
+      logEv('webrtc-peer-closed', { addr: remoteAddr, reason });
+      // Tell the browser the stream died so it can reconnect immediately
+      // rather than sitting on a frozen frame.
+      if (ws.readyState === ws.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'peer-closed', reason })); } catch (_) {}
+      }
+      pc.close();
+    }
 
     // ── Trickle ICE: forward server-side candidates to the browser ───────
     pc.onicecandidate = ({ candidate }) => {
@@ -80,16 +113,34 @@ export function createWebRTCServer({
     };
 
     pc.oniceconnectionstatechange = () => {
-      if (verbose) console.error(`[webrtc] ICE state → ${pc.iceConnectionState} (${remoteAddr})`);
       const s = pc.iceConnectionState;
+      // Always log ICE state changes — they are infrequent and critical for
+      // diagnosing stream freezes. This fires regardless of --verbose.
+      console.error(`[webrtc] ICE state → ${s} (${remoteAddr})`);
+
       if (s === 'connected' || s === 'completed') {
+        // Recovered from disconnected — cancel any pending close timer.
+        clearDisconnectTimer();
         activePeers.add(pc);
+        logEv('webrtc-ice-connected', { addr: remoteAddr, state: s });
         onPeerConnected?.(pc);
-      }
-      if (s === 'failed' || s === 'closed' || s === 'disconnected') {
+      } else if (s === 'disconnected') {
+        // Transient — remove from active peers so we stop pushing frames to
+        // a peer that may not be receiving them, but do NOT close yet.
+        // Give ICE 6 seconds to self-recover before treating it as fatal.
         activePeers.delete(pc);
-        if (verbose) console.error(`[webrtc] closing peer (${remoteAddr}): ICE ${s}`);
-        pc.close();
+        logEv('webrtc-ice-disconnected', { addr: remoteAddr, grace: 6000 });
+        disconnectTimer = setTimeout(() => {
+          console.error(`[webrtc] ICE 'disconnected' grace expired (${remoteAddr}) — closing`);
+          logEv('webrtc-ice-grace-expired', { addr: remoteAddr });
+          closePeer('disconnected-timeout');
+        }, 6000);
+      } else if (s === 'failed' || s === 'closed') {
+        logEv('webrtc-ice-terminal', { addr: remoteAddr, state: s });
+        closePeer(s);
+      } else {
+        // checking / new — log but no action needed
+        logEv('webrtc-ice-state', { addr: remoteAddr, state: s });
       }
     };
 
@@ -149,9 +200,8 @@ export function createWebRTCServer({
     });
 
     ws.on('close', () => {
-      activePeers.delete(pc);
       if (verbose) console.error(`[webrtc] peer ws closed (${remoteAddr})`);
-      pc.close();
+      closePeer('ws-closed');
     });
 
     ws.on('error', (err) => {
@@ -397,6 +447,16 @@ function buildBrowserHtml(inputPort) {
     let pc = null;
     let sigWs = null;
     let driftTimer = null;
+    let rtcReconnectTimer = null;
+
+    function scheduleRtcReconnect(delayMs) {
+      if (rtcReconnectTimer) return; // already scheduled
+      setBadge(videoBadge, 'video: reconnecting…', 'warn');
+      rtcReconnectTimer = setTimeout(() => {
+        rtcReconnectTimer = null;
+        connectWebRTC();
+      }, delayMs);
+    }
 
     function applyMinLatency() {
       if (!pc) return;
@@ -438,6 +498,8 @@ function buildBrowserHtml(inputPort) {
     }
 
     function connectWebRTC() {
+      // Cancel any pending auto-reconnect so we don't double-connect.
+      if (rtcReconnectTimer) { clearTimeout(rtcReconnectTimer); rtcReconnectTimer = null; }
       // Tear down any existing connection cleanly first.
       stopDriftMonitor();
       if (pc) { try { pc.close(); } catch (_) {} pc = null; }
@@ -472,9 +534,18 @@ function buildBrowserHtml(inputPort) {
 
       pc.oniceconnectionstatechange = () => {
         const s = pc.iceConnectionState;
-        if (s === 'connected' || s === 'completed') setBadge(videoBadge, 'video: live', 'ok');
-        if (s === 'failed' || s === 'disconnected')  setBadge(videoBadge, 'video: reconnecting…', 'warn');
-        if (s === 'closed')                          setBadge(videoBadge, 'video: closed', 'err');
+        if (s === 'connected' || s === 'completed') {
+          setBadge(videoBadge, 'video: live', 'ok');
+        } else if (s === 'disconnected') {
+          // Transient — server gives 6s grace, show warning but wait.
+          setBadge(videoBadge, 'video: unstable…', 'warn');
+        } else if (s === 'failed') {
+          // ICE has fully given up — reconnect after a short delay.
+          setBadge(videoBadge, 'video: reconnecting…', 'warn');
+          scheduleRtcReconnect(1000);
+        } else if (s === 'closed') {
+          setBadge(videoBadge, 'video: closed', 'err');
+        }
       };
 
       sigWs.onopen = async () => {
@@ -512,11 +583,21 @@ function buildBrowserHtml(inputPort) {
           applyMinLatency();
         } else if (msg.type === 'candidate') {
           await pc.addIceCandidate(msg.candidate).catch(() => {});
+        } else if (msg.type === 'peer-closed') {
+          // Server closed the peer (e.g. after disconnect grace expired).
+          // Reconnect immediately — this is the expected recovery path.
+          console.warn('[WebRTC] server closed peer (' + (msg.reason || '?') + ') — reconnecting');
+          scheduleRtcReconnect(500);
         }
       };
 
       sigWs.onerror = () => setBadge(videoBadge, 'video: sig error', 'err');
-      sigWs.onclose = () => setBadge(videoBadge, 'video: sig closed', 'err');
+      sigWs.onclose = () => {
+        // Signalling WS closed — could be server restart or network blip.
+        // Reconnect after 2s so we don't spin.
+        setBadge(videoBadge, 'video: reconnecting…', 'warn');
+        scheduleRtcReconnect(2000);
+      };
     }
 
     // Initial connection
