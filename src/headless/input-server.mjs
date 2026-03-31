@@ -32,6 +32,7 @@ export function createInputServer(opts = {}) {
   const validateKickToken = opts.validateKickToken ?? (() => null);
 
   const wss = new WebSocketServer({ port });
+  const HOST_RECONNECT_GRACE = opts.hostReconnectGraceMs ?? 8_000;
 
   // ── Room state ────────────────────────────────────────────────────────────
   let hostClient    = null;
@@ -43,6 +44,12 @@ export function createInputServer(opts = {}) {
 
   // Joystick port swap — when true, host uses port 1, P2 uses port 2
   let portsSwapped  = false;
+
+  // ── Host reconnect grace period ───────────────────────────────────────────
+  // When the host disconnects we hold off on promoting P2 for up to
+  // HOST_RECONNECT_GRACE ms, giving the host a chance to refresh and reclaim.
+  let graceTimer          = null;
+  let pendingHostUsername = null;  // username of the disconnected host
   // Currently loaded cartridge filename (for hello message to late joiners).
   // Seeded from opts.initialCartFilename when a default game is pre-loaded.
   let currentCartFilename = opts.initialCartFilename ?? null;
@@ -63,6 +70,32 @@ export function createInputServer(opts = {}) {
     if (hostTimeoutTimer) { clearTimeout(hostTimeoutTimer); hostTimeoutTimer = null; }
   }
 
+  // ── Host reconnect grace period helpers ───────────────────────────────────
+  function clearGrace() {
+    if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+    pendingHostUsername = null;
+  }
+
+  // Called when grace expires without the host reconnecting.
+  function expireGrace() {
+    graceTimer          = null;
+    const leaving       = pendingHostUsername;
+    pendingHostUsername = null;
+    if (verbose) console.error(`[input-server] host grace expired for ${leaving} — promoting P2`);
+    broadcastAll({ type: 'host-left', username: leaving, reason: 'disconnect' });
+    promoteP2ToHost();
+  }
+
+  // Called on host WS close — starts grace period, notifies clients.
+  function onHostDisconnect(leaving) {
+    clearGrace();
+    pendingHostUsername = leaving;
+    if (verbose) console.error(`[input-server] host ${leaving} disconnected — grace ${HOST_RECONNECT_GRACE}ms`);
+    // Tell everyone the host is temporarily gone; P2 should wait before acting.
+    broadcastAll({ type: 'host-disconnected', username: leaving, graceMs: HOST_RECONNECT_GRACE });
+    graceTimer = setTimeout(expireGrace, HOST_RECONNECT_GRACE);
+  }
+
   function kickHostForInactivity() {
     if (!hostClient) return;
     if (verbose) console.error(`[input-server] host ${hostUsername} timed out due to inactivity`);
@@ -75,6 +108,7 @@ export function createInputServer(opts = {}) {
     hostUsername  = null;
     inviteToken   = null;
     clearHostTimeout();
+    clearGrace();
     // Broadcast host-left with reason so clients can show a contextual notice
     broadcastAll({ type: 'host-left', username: leaving, reason: 'timeout' });
     // Auto-promote P2 if present
@@ -164,14 +198,20 @@ export function createInputServer(opts = {}) {
           ws.send(JSON.stringify({ type: 'host-taken' }));
           return;
         }
+        const isRejoin = graceTimer && pendingHostUsername === (msg.username ?? 'player');
+        if (graceTimer) clearGrace(); // cancel grace regardless of who's claiming
         hostClient   = ws;
         hostUsername = msg.username ?? 'player';
         ws.send(JSON.stringify({
           type: 'host-confirmed', username: hostUsername, joystickPort: hostPort(),
           player2: p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
         }));
-        broadcastExcept(ws, { type: 'host-joined', username: hostUsername, joystickPort: hostPort() });
-        if (verbose) console.error(`[input-server] host claimed by ${hostUsername}`);
+        if (isRejoin) {
+          broadcastExcept(ws, { type: 'host-rejoined', username: hostUsername, joystickPort: hostPort() });
+        } else {
+          broadcastExcept(ws, { type: 'host-joined', username: hostUsername, joystickPort: hostPort() });
+        }
+        if (verbose) console.error(`[input-server] host ${isRejoin ? 're' : ''}claimed by ${hostUsername}`);
         resetHostTimeout();
         // P2 slot just opened (host present, no P2)
         broadcastExcept(ws, { type: 'p2-slot-status', open: isP2SlotOpen() });
@@ -209,6 +249,7 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'host-leave') {
         if (ws === hostClient) {
           clearHostTimeout();
+          clearGrace();
           hostClient        = null;
           const leaving     = hostUsername;
           hostUsername      = null;
@@ -316,6 +357,7 @@ export function createInputServer(opts = {}) {
         if (target === 'host' && hostClient) {
           if (verbose) console.error(`[input-server] admin kicked host ${hostUsername}`);
           clearHostTimeout();
+          clearGrace();
           if (hostClient.readyState === hostClient.OPEN) {
             hostClient.send(JSON.stringify({ type: 'host-kicked', reason: 'admin' }));
           }
@@ -421,9 +463,8 @@ export function createInputServer(opts = {}) {
         hostUsername  = null;
         inviteToken   = null;
         portsSwapped  = false;
-        if (verbose) console.error(`[input-server] host ${leaving} disconnected`);
-        broadcastExcept(ws, { type: 'host-left', username: leaving });
-        promoteP2ToHost();
+        // Start grace period — P2 promotion is deferred until it expires
+        onHostDisconnect(leaving);
       }
 
       if (ws === p2Client) {
@@ -446,7 +487,10 @@ export function createInputServer(opts = {}) {
       type:        'hello',
       protocol:    'c64-input',
       version:     1,
-      hostTaken:   hostActive,
+      // During grace period: treat slot as free so the original host can reclaim it.
+      // hostPendingRejoin tells P2 (and spectators) to hold off.
+      hostTaken:           hostActive,
+      hostPendingRejoin:   !hostActive && !!graceTimer ? { username: pendingHostUsername, graceMs: HOST_RECONNECT_GRACE } : null,
       host:        hostActive ? { username: hostUsername, joystickPort: hostPort() } : null,
       player2:     p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
       p2SlotOpen:  isP2SlotOpen(),
@@ -461,6 +505,7 @@ export function createInputServer(opts = {}) {
 
   const close = () => new Promise((resolve) => {
     clearHostTimeout();
+    clearGrace();
     wss.close(() => resolve());
   });
 
