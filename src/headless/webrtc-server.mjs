@@ -483,6 +483,7 @@ function buildBrowserHtml(inputPort) {
           const msg = JSON.parse(data);
           // Cart lifecycle → flush video to live edge
           if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
+            blurAll();
             flushToLiveEdge();
             const cartName = msg.filename ? msg.filename.replace(/\\.crt$/i,'').replace(/[-_]/g,' ') : '';
             if (msg.type === 'cart-loaded')   { setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');  setLoadStatus('loaded', 'ok');  detachBtn.disabled = false; resetBtn.disabled = false; }
@@ -502,6 +503,12 @@ function buildBrowserHtml(inputPort) {
     }
     function sendInput(msg) {
       if (inputWs && inputWs.readyState === WebSocket.OPEN) inputWs.send(JSON.stringify(msg));
+    }
+    // Blur any focused UI element so keyboard events go to the emulator,
+    // not to whichever button was last clicked.
+    function blurAll() {
+      if (document.activeElement && document.activeElement !== document.body)
+        document.activeElement.blur();
     }
     connectInput();
     function setLoadStatus(text, cls) {
@@ -526,7 +533,7 @@ function buildBrowserHtml(inputPort) {
       }
     }
     loadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => { const f = e.target?.files?.[0]; if (f) loadCrt(f); fileInput.value = ''; });
+    fileInput.addEventListener('change', (e) => { const f = e.target?.files?.[0]; if (f) loadCrt(f); fileInput.value = ''; blurAll(); });
     screenWrap.addEventListener('dragover',  (e) => { e.preventDefault(); screenWrap.classList.add('drag-over'); });
     screenWrap.addEventListener('dragleave', ()  => screenWrap.classList.remove('drag-over'));
     screenWrap.addEventListener('drop', (e) => {
@@ -535,8 +542,8 @@ function buildBrowserHtml(inputPort) {
       const f = e.dataTransfer?.files?.[0];
       if (f) loadCrt(f);
     });
-    detachBtn.addEventListener('click', () => { sendInput({ type: 'detach-crt' }); setLoadStatus('detaching…', 'warn'); });
-    resetBtn.addEventListener('click',  () => { sendInput({ type: 'hard-reset' });  setLoadStatus('resetting…', 'warn'); });
+    detachBtn.addEventListener('click', () => { sendInput({ type: 'detach-crt' }); setLoadStatus('detaching…', 'warn'); blurAll(); });
+    resetBtn.addEventListener('click',  () => { sendInput({ type: 'hard-reset' });  setLoadStatus('resetting…', 'warn'); blurAll(); });
     // ── Input mode ────────────────────────────────────────────────────────────
     const MODES = ['mixed', 'joy', 'kb'];
     const MODE_LABELS = { mixed: '🕹+⌨ mixed', joy: '🕹 joystick', kb: '⌨ keyboard' };
