@@ -393,7 +393,9 @@ function buildBrowserHtml(inputPort) {
     });
 
     // ── WebRTC ────────────────────────────────────────────────────────────────
+    // pc and sigWs are module-level so reconnectWebRTC() can tear them down.
     let pc = null;
+    let sigWs = null;
     let driftTimer = null;
 
     function applyMinLatency() {
@@ -435,73 +437,90 @@ function buildBrowserHtml(inputPort) {
       videoEl.play().catch(() => {});
     }
 
-    const sigWs = new WebSocket('ws://' + location.host);
-
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
-    pc.ontrack = (e) => {
-      if (e.streams && e.streams[0]) {
-        remoteStream = e.streams[0];
-        videoEl.srcObject = remoteStream;
-        setBadge(videoBadge, 'video: live', 'ok');
-        applyMinLatency();
-        startDriftMonitor();
+    function connectWebRTC() {
+      // Tear down any existing connection cleanly first.
+      stopDriftMonitor();
+      if (pc) { try { pc.close(); } catch (_) {} pc = null; }
+      if (sigWs && sigWs.readyState !== WebSocket.CLOSED) {
+        // Remove onclose so it doesn't update the badge during our intentional teardown
+        sigWs.onclose = null;
+        try { sigWs.close(); } catch (_) {}
+        sigWs = null;
       }
-    };
+      remoteStream = null;
+      videoEl.srcObject = null;
 
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate && sigWs.readyState === WebSocket.OPEN)
-        sigWs.send(JSON.stringify({ type: 'candidate', candidate }));
-    };
+      setBadge(videoBadge, 'video: connecting…', 'dim');
 
-    pc.oniceconnectionstatechange = () => {
-      const s = pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') setBadge(videoBadge, 'video: live', 'ok');
-      if (s === 'failed' || s === 'disconnected')  setBadge(videoBadge, 'video: reconnecting…', 'warn');
-      if (s === 'closed')                          setBadge(videoBadge, 'video: closed', 'err');
-    };
+      sigWs = new WebSocket('ws://' + location.host);
+      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
-    sigWs.onopen = async () => {
-      setBadge(videoBadge, 'video: negotiating…', 'warn');
-      // Use addTransceiver so we can call setCodecPreferences (Chrome 96+)
-      let transceiver = null;
-      try {
-        transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
-        pc.addTransceiver('audio', { direction: 'recvonly' });
-      } catch (_) {}
-      try {
-        if (transceiver && typeof transceiver.setCodecPreferences === 'function') {
-          const caps = RTCRtpReceiver.getCapabilities('video');
-          if (caps) {
-            const vp8 = caps.codecs.filter(c => c.mimeType === 'video/VP8');
-            const rest = caps.codecs.filter(c => c.mimeType !== 'video/VP8');
-            if (vp8.length) transceiver.setCodecPreferences([...vp8, ...rest]);
-          }
+      pc.ontrack = (e) => {
+        if (e.streams && e.streams[0]) {
+          remoteStream = e.streams[0];
+          videoEl.srcObject = remoteStream;
+          setBadge(videoBadge, 'video: live', 'ok');
+          applyMinLatency();
+          startDriftMonitor();
         }
-      } catch (_) {}
-      const offer = await pc.createOffer();
-      if (offer.sdp) {
-        offer.sdp = offer.sdp.replace(
-          /(a=rtpmap:(\\d+) VP8\\/\\d+\\r?\\n)/,
-          function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=200;x-google-max-bitrate=800\\r\\n'; }
-        );
-      }
-      await pc.setLocalDescription(offer);
-      sigWs.send(JSON.stringify(pc.localDescription));
-    };
+      };
 
-    sigWs.onmessage = async ({ data }) => {
-      const msg = JSON.parse(data);
-      if (msg.type === 'answer') {
-        await pc.setRemoteDescription(msg);
-        applyMinLatency();
-      } else if (msg.type === 'candidate') {
-        await pc.addIceCandidate(msg.candidate).catch(() => {});
-      }
-    };
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate && sigWs && sigWs.readyState === WebSocket.OPEN)
+          sigWs.send(JSON.stringify({ type: 'candidate', candidate }));
+      };
 
-    sigWs.onerror = () => setBadge(videoBadge, 'video: sig error', 'err');
-    sigWs.onclose = () => setBadge(videoBadge, 'video: sig closed', 'err');
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        if (s === 'connected' || s === 'completed') setBadge(videoBadge, 'video: live', 'ok');
+        if (s === 'failed' || s === 'disconnected')  setBadge(videoBadge, 'video: reconnecting…', 'warn');
+        if (s === 'closed')                          setBadge(videoBadge, 'video: closed', 'err');
+      };
+
+      sigWs.onopen = async () => {
+        setBadge(videoBadge, 'video: negotiating…', 'warn');
+        let transceiver = null;
+        try {
+          transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+        } catch (_) {}
+        try {
+          if (transceiver && typeof transceiver.setCodecPreferences === 'function') {
+            const caps = RTCRtpReceiver.getCapabilities('video');
+            if (caps) {
+              const vp8 = caps.codecs.filter(c => c.mimeType === 'video/VP8');
+              const rest = caps.codecs.filter(c => c.mimeType !== 'video/VP8');
+              if (vp8.length) transceiver.setCodecPreferences([...vp8, ...rest]);
+            }
+          }
+        } catch (_) {}
+        const offer = await pc.createOffer();
+        if (offer.sdp) {
+          offer.sdp = offer.sdp.replace(
+            /(a=rtpmap:(\\d+) VP8\\/\\d+\\r?\\n)/,
+            function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=200;x-google-max-bitrate=800\\r\\n'; }
+          );
+        }
+        await pc.setLocalDescription(offer);
+        sigWs.send(JSON.stringify(pc.localDescription));
+      };
+
+      sigWs.onmessage = async ({ data }) => {
+        const msg = JSON.parse(data);
+        if (msg.type === 'answer') {
+          await pc.setRemoteDescription(msg);
+          applyMinLatency();
+        } else if (msg.type === 'candidate') {
+          await pc.addIceCandidate(msg.candidate).catch(() => {});
+        }
+      };
+
+      sigWs.onerror = () => setBadge(videoBadge, 'video: sig error', 'err');
+      sigWs.onclose = () => setBadge(videoBadge, 'video: sig closed', 'err');
+    }
+
+    // Initial connection
+    connectWebRTC();
 
     // ── Input server ──────────────────────────────────────────────────────────
     const INPUT_PORT = ${inputPort};
@@ -522,14 +541,33 @@ function buildBrowserHtml(inputPort) {
       inputWs.onmessage = ({ data }) => {
         try {
           const msg = JSON.parse(data);
-          // Cart lifecycle → flush video to live edge
+          // Cart lifecycle
           if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
             blurAll();
-            flushToLiveEdge();
             const cartName = msg.filename ? msg.filename.replace(/\\.crt$/i,'').replace(/[-_]/g,' ') : '';
             if (msg.type === 'cart-loaded')   { setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');  setLoadStatus('loaded', 'ok');  detachBtn.disabled = false; resetBtn.disabled = false; }
-            if (msg.type === 'cart-detached') { setBadge(gameBadge, 'no game', 'dim'); setLoadStatus('', '');    detachBtn.disabled = true; /* resetBtn stays enabled */ }
+            if (msg.type === 'cart-detached') { setBadge(gameBadge, 'no game', 'dim'); setLoadStatus('', '');    detachBtn.disabled = true; }
             if (msg.type === 'machine-reset') { setLoadStatus('reset', 'warn'); }
+            // Reconnect the RTCPeerConnection entirely — this is the only
+            // reliable way to clear the jitter buffer and decoder state that
+            // accumulates during the ~1600ms cart-load gap.  Anything less
+            // (currentTime seek, srcObject null, jitterBufferTarget) leaves
+            // stale decoded frames in the pipeline.  A fresh pc + renegotiate
+            // is equivalent to a browser refresh but without losing input WS.
+            // Preserve mute state so the user doesn't lose audio they unmuted.
+            const wasMuted = videoEl.muted;
+            connectWebRTC();
+            // Re-apply mute state after the new video element srcObject is set
+            // (ontrack fires asynchronously, so check after a short delay)
+            if (!wasMuted) {
+              const t = setInterval(() => {
+                if (remoteStream) {
+                  videoEl.muted = false;
+                  muteOverlay.classList.add('hidden');
+                  clearInterval(t);
+                }
+              }, 100);
+            }
           }
           if (msg.type === 'cart-loading')    setLoadStatus('loading…', 'warn');
           if (msg.type === 'cart-load-error') setLoadStatus('error: ' + (msg.reason || '?'), 'err');
@@ -586,7 +624,11 @@ function buildBrowserHtml(inputPort) {
     detachBtn.addEventListener('click', () => { sendInput({ type: 'detach-crt' }); setLoadStatus('detaching…', 'warn'); blurAll(); });
     resetBtn.addEventListener('click',  () => { sendInput({ type: 'hard-reset' });  setLoadStatus('resetting…', 'warn'); blurAll(); });
     syncBtn.addEventListener('click', () => {
-      flushToLiveEdge();
+      const wasMuted = videoEl.muted;
+      connectWebRTC();
+      if (!wasMuted) {
+        const t = setInterval(() => { if (remoteStream) { videoEl.muted = false; muteOverlay.classList.add('hidden'); clearInterval(t); } }, 100);
+      }
       syncBtn.textContent = '✓ synced';
       setTimeout(() => { syncBtn.textContent = '⟳ sync'; }, 1500);
       blurAll();
