@@ -6,7 +6,101 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
-## v0.7.0-rc.2 - 2026-03-31
+## v0.7.0 - 2026-03-31
+
+### Critical fixes
+
+- **fix(webrtc): signalling WebSocket ping/pong keepalive prevents idle TCP timeout** (`031610d`)
+  Root cause of the ~60 s stream freeze confirmed by production logs: after ICE negotiation
+  the signalling WebSocket (port 9002) carries no further traffic. Cloud NAT, Docker bridge
+  networking, and OS TCP stacks silently drop idle connections after ~60 s — exactly matching
+  `ws-closed` firing ~60 s after `webrtc-ice-connected` with no prior ICE disconnect event.
+  Two-layer fix:
+  - **Server** (`webrtc-server.mjs`): `setInterval` every 30 s sends `ws.ping()` to all
+    signalling clients; tracks liveness via `ws._sigAlive` (reset on pong). A client that
+    misses a full interval (60 s) is terminated and logged as `webrtc-sig-timeout` under
+    `--log-events`. `clearInterval` in `close()` prevents timer leak.
+  - **Browser** (embedded HTML): `sigPingTimer` sends `{type:'ping'}` every 30 s; server
+    replies with `{type:'pong'}`. Timer cleared in `sigWs.onclose` and `connectWebRTC()`
+    teardown. `pong` handled in `sigWs.onmessage` to prevent unrecognised-message errors.
+
+- **fix(webrtc): ICE `disconnected` no longer kills the stream** (`cc80281`)
+  The server called `pc.close()` immediately on `iceConnectionState === 'disconnected'` — a
+  transient state the ICE agent self-recovers from. Any brief packet loss or NAT keepalive gap
+  permanently killed what would have been a recoverable connection, leaving browsers on a frozen
+  frame. Fix: 6-second grace timer; only `failed`/`closed` close immediately.
+
+- **fix(webrtc): browser auto-reconnects instead of showing a dead badge** (`cc80281`)
+  - ICE `failed` → reconnect after 1 s
+  - Signalling WS close → reconnect after 2 s (was a permanent error badge)
+  - `peer-closed` from server → reconnect after 500 ms
+  - ICE `disconnected` → show `video: unstable…` badge, wait for server grace
+
+### New features
+
+- **feat(headless): `--log-events` flag for structured production logging** (`0e7f24c`, `cc80281`, `a674b0c`)
+  New CLI flag, completely independent of `--verbose`, that emits `[event] <ISO-timestamp> <tag> key=value …`
+  lines to stderr for every meaningful state change. Safe for always-on production use — never fires per frame.
+  Covers player lifecycle, emulator commands, WebRTC peer lifecycle, and FPS drift warnings.
+
+- **feat(input-server): per-player P2 inactivity timer** (`a674b0c`)
+  Previously only the host had an inactivity timeout. P2 now has an identical timer using the
+  same duration. Resets on every input event; cleared on all leave/kick/disconnect paths.
+
+- **feat(input-server): host reconnect grace period before session change** (`8436d5b`)
+  When the host WebSocket closes unexpectedly, an 8-second grace period fires before any
+  session change. Clients receive `host-disconnected` with `graceMs`; the original host can
+  silently reclaim the slot within that window.
+
+### Session management fixes
+
+- **fix(input-server): remove P2 → host auto-promotion** (`4965158`)
+  P2 was automatically promoted to host whenever the host left. This was unexpected behaviour —
+  P2 had no indication they would take over. P2 now stays as P2; the host slot becomes open for
+  a new player to claim voluntarily.
+
+- **fix(input-server): `p2-slot-status` broadcast on all host-exit paths** (`4965158`)
+  Without the removed promotion call, voluntary host-leave, timeout kick, admin kick, and grace
+  expiry were not broadcasting a `p2-slot-status` update. All four paths now broadcast
+  `{type:'p2-slot-status', open: false}` so every client's Join button updates immediately.
+
+- **fix(input-server): host-left no longer shows host prompt to P2 clients** (`4965158`)
+  Previously all non-host clients received `hostPromptVisible = true` on `host-left`, causing
+  P2 to unexpectedly see the host-claim prompt. P2 now receives a notice toast only.
+
+- **fix(input-server): inactivity timeout increased from 5 → 10 minutes** (`4965158`)
+  Applies to both host and P2 timers. Reduces accidental kicks during normal play pauses.
+
+### WebRTC fixes
+
+- **fix(webrtc): full RTCPeerConnection reconnect on cart-load/reset/detach** (`c64cade`)
+  Accumulation of jitter-buffer and decoder state during the ~1600 ms WASM block caused
+  post-load video corruption. A fresh `RTCPeerConnection` is the only reliable fix.
+
+- **fix(webrtc): force VP8 IDR keyframe after cart load/reset** (`e62a278`)
+  `forceKeyframe()` calls `sender.replaceTrack(sameTrack)` on all active peers, triggering
+  an IDR within one frame period (≤20 ms @ 50 fps) instead of waiting ~2–3 s.
+
+- **fix(webrtc): re-sync audio RTP clock after blocking WASM gaps** (`03b5e82`)
+  `pushSilenceForGap(gapMs)` immediately compensates for the ~1300 ms audio clock freeze
+  during cart load, re-aligning video and audio RTP clocks before the frame loop resumes.
+
+### Docker / infra fixes
+
+- **fix(docker): `VERBOSE=0` now correctly disables verbose mode** (`be0d0b9`)
+  `if [ -n "${VERBOSE}" ]` treated any non-empty string as truthy (including `VERBOSE=0`).
+  Now checks for `1` or `true` only.
+
+- **chore(docker): remove NMS service — WebRTC-only setup** (`258e0c9`)
+  `docker-compose.yml` and `.env.example` simplified; `WEBRTC_ENABLED=1` and `AUDIO=1` default.
+
+### Tests
+
+- `test(webrtc)`: new `webrtc-encoder.test.ts` and `webrtc-server.test.ts` covering
+  `pushSilenceForGap`, audio ring drain, `forceKeyframe`, `connectWebRTC` teardown,
+  mute-state preservation, and cart-load reconnect behaviour (`31f33ac`)
+
+
 
 ### Critical fixes
 
@@ -27,86 +121,6 @@ No unreleased changes.
     no-op. Timer is cleared in `sigWs.onclose` and `connectWebRTC()` teardown. `pong`
     message type handled in `sigWs.onmessage` to prevent JSON parse errors from
     unrecognised message types.
-
-## v0.7.0-rc.1 - 2026-03-31
-
-### Critical fixes
-
-- **fix(webrtc): ICE `disconnected` no longer kills the stream** (`cc80281`)
-  The server was calling `pc.close()` immediately on `iceConnectionState === 'disconnected'`,
-  which is a transient state the ICE agent is supposed to self-recover from within a few seconds.
-  Any brief packet loss, NAT keepalive gap or Node GC pause triggered it, permanently killing
-  what would have been a recoverable connection and leaving the browser on a frozen frame.
-  Fix: give ICE a 6-second grace period before closing. If it recovers to `connected/completed`
-  the timer is cancelled and streaming resumes silently. Only `failed` / `closed` close immediately.
-
-- **fix(webrtc): browser auto-reconnects instead of showing a dead badge** (`cc80281`)
-  - On ICE `failed`: reconnect after 1 s
-  - On signalling WS close: reconnect after 2 s (was a permanent error badge)
-  - On `peer-closed` message from server: reconnect after 500 ms
-  - On ICE `disconnected`: show `video: unstable…` badge and wait for server grace
-
-### New features
-
-- **feat(headless): `--log-events` flag for structured production logging** (`0e7f24c`, `cc80281`, `a674b0c`)
-  A new CLI flag (completely independent of `--verbose`) that emits `[event] <ISO-timestamp> <tag> key=value …`
-  lines to stderr for every meaningful state change — safe for always-on use in deployed instances.
-  Never fires per frame. Covers:
-  - Player lifecycle: `client-connected/disconnected`, `host-joined/rejoined/left/disconnected`,
-    `host-grace-expired`, `host-timeout`, `host-kicked`, `p2-joined/left/disconnected/kicked`,
-    `p2-promoted-to-host`, `p2-timeout`, `ports-swapped`
-  - Emulator commands: `cmd-load-crt`, `cmd-detach-crt`, `cmd-hard-reset`
-  - Outcomes: `cart-loaded`, `cart-detached`, `hard-reset` (each with gap ms)
-  - WebRTC peer lifecycle: `webrtc-peer-connected/closed`, `webrtc-ice-connected/disconnected/terminal/grace-expired`
-  - Drift warning when actual FPS deviates >10% from target
-  - All errors: `bad-message`, `ws-error`, `server-error`, load/detach/reset failures
-  - Input events include `role=host|p2` for attribution
-
-- **feat(input-server): per-player inactivity timer for P2** (`a674b0c`)
-  Previously only the host had a 5-minute inactivity timeout. P2 could hold the slot indefinitely.
-  P2 now has an independent timer (same 5-minute duration) that resets on every joystick/key input
-  and on join. Fires `p2-timeout-kick` to the P2 client and broadcasts `player2-left reason=timeout`.
-
-- **feat(input-server): host reconnect grace period before P2 promotion** (`8436d5b`)
-  When the host's WebSocket closes unexpectedly (e.g. browser refresh), P2 promotion is deferred
-  for 8 seconds so the host can silently reclaim their slot. Clients receive `host-disconnected`
-  with `graceMs` during the window. If the original host reconnects, `host-rejoined` is broadcast
-  and the grace timer is cancelled. If nobody claims within 8 s, `host-left` + P2 promotion fires
-  as before. Voluntary leave, inactivity kick and admin kick all bypass grace.
-
-### Post-cart-load pipeline fixes (since v0.6.2)
-
-- **fix(webrtc): reconnect `RTCPeerConnection` on cart-load to clear decoder state** (`c1301f0`)
-  The browser VP8 decoder and jitter buffer accumulate stale state during the ~1600ms cart-load
-  gap. A full `RTCPeerConnection` teardown + renegotiate (equivalent to a page refresh, but without
-  dropping the input WebSocket) is the only reliable fix. Called on `cart-loaded`, `machine-reset`
-  and `cart-detached`. Mute state preserved across reconnect.
-
-- **fix(webrtc): force VP8 IDR keyframe after cart load/reset** (`e62a278`)
-  After `c64_loadCartridge()` the VP8 encoder only emits a keyframe at its natural interval
-  (~2–3 s). `forceKeyframe()` calls `sender.replaceTrack(sameTrack)` on all active peers,
-  triggering an IDR within one frame period (≤20 ms @ 50 fps).
-
-- **fix(webrtc): re-sync audio RTP clock after blocking WASM gaps** (`03b5e82`)
-  `RTCAudioSource` is a push-source; its RTP clock freezes during the ~1300 ms cart-load blockage
-  while the video RTP clock keeps ticking. `pushSilenceForGap(gapMs)` immediately compensates
-  by pushing the equivalent silence chunks, re-aligning both clocks before the frame loop resumes.
-
-- **fix(docker): `VERBOSE=0` now correctly disables verbose mode** (`be0d0b9`)
-  `if [ -n "${VERBOSE}" ]` treated any non-empty string as truthy — including `VERBOSE=0`.
-  Now checks for `1` or `true` only, consistent with `WEBRTC_ENABLED` and `AUDIO`.
-
-- **fix(webrtc): blur UI elements on game load/reset/detach to prevent swallowed keypresses** (`94d8641`)
-
-- **chore(docker): remove NMS service — WebRTC-only setup** (`258e0c9`)
-  `docker-compose.yml` and `.env.example` simplified; `WEBRTC_ENABLED=1` and `AUDIO=1` are now
-  the defaults.
-
-### Tests
-
-- `test(webrtc)`: new `webrtc-encoder.test.ts` and `webrtc-server.test.ts` covering
-  `pushSilenceForGap`, audio ring drain, `forceKeyframe`, `connectWebRTC` teardown,
-  mute-state preservation, and cart-load reconnect behaviour (`31f33ac`)
 
 ## v0.6.2 - 2026-03-27T20:43:20+00:00
 
