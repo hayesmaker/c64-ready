@@ -271,6 +271,7 @@ export async function runHeadless(options = {}) {
               return new Promise((resolve, reject) => {
                 setImmediate(() => {
                   try {
+                    const gapStart = Date.now();
                     exports.c64_removeCartridge();
                     exports.c64_reset();           // clean slate before loading new cart
                     const ptr = c64wasm.allocAndWrite(arr);
@@ -279,42 +280,26 @@ export async function runHeadless(options = {}) {
                     exports.c64_loadCartridge(ptr, byteLen);
                     // free(ptr), debugger_set_speed and debugger_play intentionally
                     // omitted: c64_loadCartridge internally resets and resumes.
+                    const gapMs = Date.now() - gapStart;
                     //
-                    // ── KNOWN ISSUE: post-load input lag (unresolved) ──────────────
-                    // After loading a new cartridge the player experiences ~1 second
-                    // of input lag that persists for 20–30 seconds before
-                    // resolving on its own. The pattern:
-                    //   1. Initial game load — lag-free.
-                    //   2. First load-crt command — ~1s lag onset, clears after ~25s.
-                    //   3. Subsequent loads — lag-free for a while, then periodically
-                    //      returns and recovers.
+                    // ── Audio RTP re-sync after blocking gap ─────────────────────
+                    // c64_loadCartridge blocks the event loop for ~1300ms. During
+                    // this time the frame loop is frozen so no audio is pushed to
+                    // RTCAudioSource. The video RTP clock (driven by @roamhq/wrtc
+                    // internally via wall-clock) keeps ticking, but the audio RTP
+                    // clock only advances when onData() is called — so audio falls
+                    // ~1300ms behind video. The browser's AV sync logic then holds
+                    // video playback until audio catches up, manifesting as input lag.
                     //
-                    // Investigation so far:
-                    //   - The emulator itself responds within one frame (≤20ms);
-                    //     actual WASM keypress latency is not the cause.
-                    //   - The lag is perceptual — the browser is displaying stale
-                    //     buffered WebRTC video while live input lands on the server.
-                    //   - flushToLiveEdge() (srcObject=null + restore) is called on
-                    //     cart-loaded in webrtc-server.mjs, but doesn't solve the lag.
-                    //   - c64_loadCartridge() + c64_reset() together block the event
-                    //     loop for ~1300ms inside this setImmediate. During that window
-                    //     no video frames are pushed to WebRTC, leaving the browser
-                    //     jitter buffer ahead of real-time when frames resume?
-                    //   - The periodic recovery/relapse on subsequent loads suggests
-                    //     a slow buffer-drain race: the browser catches up, then the
-                    //     next load re-accumulates a smaller debt that clears faster.
-                    //
-                    // Candidates not yet ruled out:
-                    //   - primeSidRing() calls debugger_update × 2 after every
-                    //     resetSidRing(), adding ~186ms of extra emulated time on top
-                    //     of the ~1300ms blockage — may deepen the video debt.
-                    //   - The browser's RTCPeerConnection jitter buffer target is 0
-                    //     but the implementation may not honour it under load.
-                    //   - VP8 encoder bitrate cap (800 kbps) may cause queued frames
-                    //     to be held longer than expected after the burst resumes.
+                    // Fix: push silence frames totalling the measured gap duration so
+                    // the audio RTP clock jumps forward by the same amount the video
+                    // RTP clock advanced during the blockage.
                     resetSidRing();
-                    if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
-                    if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
+                    if (webrtcEncoder) {
+                      webrtcEncoder.pushSilenceForGap(gapMs);
+                      if (verbose) console.error(`[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`);
+                    }
+                    if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes, gap=${gapMs}ms)`);
                     resolve();
                   } catch (err) {
                     if (verbose) console.error('[headless] cart load (deferred) error:', err);
@@ -323,10 +308,15 @@ export async function runHeadless(options = {}) {
                 });
               });
             } else if (cmd.type === 'detach-crt') {
+              const gapStart = Date.now();
               exports.c64_removeCartridge();
               exports.c64_reset();               // return to clean BASIC prompt
+              const gapMs = Date.now() - gapStart;
               resetSidRing();
-              if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
+              if (webrtcEncoder) {
+                webrtcEncoder.pushSilenceForGap(gapMs);
+                if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after detach`);
+              }
               if (verbose) console.error('[headless] cart detached');
             } else if (cmd.type === 'hard-reset') {
               // Instant hard reset: detach cart and soft-reset the machine.
@@ -335,10 +325,15 @@ export async function runHeadless(options = {}) {
               // since there is no loadCartridge call to block the event loop.
               // The game is intentionally NOT reloaded: hard reset returns to
               // the BASIC prompt / blank screen, matching real C64 behaviour.
+              const gapStart = Date.now();
               exports.c64_removeCartridge();
               exports.c64_reset();
+              const gapMs = Date.now() - gapStart;
               resetSidRing();
-              if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
+              if (webrtcEncoder) {
+                webrtcEncoder.pushSilenceForGap(gapMs);
+                if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after hard reset`);
+              }
               if (verbose) console.error('[headless] hard reset');
             }
         },

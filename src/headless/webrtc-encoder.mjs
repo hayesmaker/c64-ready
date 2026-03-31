@@ -31,13 +31,20 @@ export class WebRTCEncoder {
   _height = 272;
   _sampleRate = 44100;
 
-  // Monotonic video frame counter — used to compute an explicit timestamp
-  // for each frame passed to videoSource.onFrame().  Driving the timestamp
-  // from the frame count rather than Date.now() means the ~1300ms wall-clock
-  // blockage during loadCartridge() is invisible to the WebRTC receiver:
-  // frames resume at the next sequential timestamp with no perceived gap.
-  _videoFrameCount = 0;
-  _videoFrameDurationUs = 0; // microseconds per frame, set in init()
+  // Wall-clock origin for video timestamps (µs since Unix epoch at init()).
+  // Video timestamps are driven by (Date.now() - _videoOriginMs) * 1000 µs so
+  // that after any gap (e.g. the ~1300ms c64_loadCartridge() blockage) the
+  // next frame's timestamp automatically jumps forward by the real elapsed
+  // time.  This keeps the video RTP clock aligned with the audio RTP clock,
+  // which advances at the real-time rate even when no audio is pushed.
+  //
+  // Previous approach (frame-counter × frame-duration) was intended to hide
+  // the gap from the receiver, but it caused the video RTP timestamps to fall
+  // ~1300ms *behind* the audio clock after every cart load.  The browser's
+  // AV sync logic then delayed video rendering until the audio clock "caught
+  // up", creating the observed ~1–30s of perceived input lag.
+  _videoOriginMs = 0;   // set in init() to Date.now()
+  _videoFrameDurationUs = 0; // microseconds per frame, set in setFps() (kept for compatibility)
 
   // RTCAudioSource.onData() requires exactly (sampleRate / 100) samples per call —
   // that is one 10 ms WebRTC audio processing frame.  At 44100 Hz that is 441 samples.
@@ -75,8 +82,8 @@ export class WebRTCEncoder {
     this._audioRingWrite = 0;
     this._audioRingRead  = 0;
     this._audioRingCount = 0;
-    this._audioInt16     = new Int16Array(this._audioChunkSize);
-    this._videoFrameCount = 0;
+    this._audioInt16  = new Int16Array(this._audioChunkSize);
+    this._videoOriginMs = Date.now();
 
     // Staging buffers with exact byte sizes that rgbaToI420 expects
     this._rgbaBuf = new Uint8ClampedArray(width * height * 4);
@@ -94,20 +101,58 @@ export class WebRTCEncoder {
   }
 
   /**
-   * Previously reset the video frame counter to 0 on each cart load.
-   * This caused the browser WebRTC receiver to see a backwards timestamp
-   * jump (e.g. 50 000 000 µs → 0 µs), forcing a 20-25 s re-buffer window
-   * that manifested as apparent input lag after every game switch.
-   *
-   * The counter must be monotonically increasing across cart loads — the
-   * ~1300 ms loadCartridge blockage is already invisible to the receiver
-   * because no frames are sent during it; timestamps simply resume from
-   * where they left off with no discontinuity.
-   *
-   * Kept as a no-op for call-site compatibility.
+   * No-op retained for call-site compatibility.
    */
   resetVideoTimestamp() {
-    // intentional no-op — do NOT reset _videoFrameCount
+    // intentional no-op
+  }
+
+  /**
+   * Push enough silence audio frames to cover a wall-clock gap.
+   *
+   * Root cause of post-load input lag
+   * ──────────────────────────────────
+   * RTCAudioSource is a *push* source: its RTP clock advances only when
+   * onData() is called.  During the ~1300ms blockage of c64_loadCartridge()
+   * (and the shorter ~110ms blockage of c64_reset()/detach), the frame loop
+   * is frozen so no audio is pushed.  The video track's RTP clock, however,
+   * is driven internally by @roamhq/wrtc using the wall clock and keeps
+   * ticking throughout the gap.
+   *
+   * Result: video RTP is 1300ms ahead of audio RTP when frames resume.
+   * The browser's AV sync logic holds video playback until the audio clock
+   * catches up — which is experienced as ~1–30s of input lag (the perceived
+   * lag is the browser waiting for audio to "fill" the 1300ms debt at the
+   * real-time audio rate of 441 samples / 10ms = 130 push calls to drain).
+   *
+   * Fix: immediately after any blocking WASM call, push silence audio frames
+   * totalling the measured wall-clock gap.  This advances the audio RTP
+   * clock by the same amount the video RTP clock advanced during the gap,
+   * so both clocks re-align and the browser can render video without delay.
+   *
+   * @param {number} gapMs  Wall-clock duration of the gap in milliseconds.
+   */
+  pushSilenceForGap(gapMs) {
+    if (!this.audioSource || gapMs <= 0) return;
+    const chunkSize  = this._audioChunkSize;   // 441 @ 44100 Hz
+    const sampleRate = this._sampleRate;
+    // Number of silence samples needed to cover the gap
+    const totalSamples = Math.round((gapMs / 1000) * sampleRate);
+    // Reuse _audioInt16 (already allocated, zero-filled on first use).
+    // It may still contain data from the last pushAudioFrame call, so zero it.
+    this._audioInt16.fill(0);
+    const int16 = this._audioInt16;
+    let pushed = 0;
+    while (pushed + chunkSize <= totalSamples) {
+      this.audioSource.onData({
+        samples:        int16,
+        sampleRate:     sampleRate,
+        bitsPerSample:  16,
+        channelCount:   1,
+        numberOfFrames: chunkSize,
+      });
+      pushed += chunkSize;
+    }
   }
 
   /**
@@ -138,11 +183,12 @@ export class WebRTCEncoder {
       { width, height, data: this._i420Buf },
     );
 
-    // Drive timestamp from frame count × frame duration (microseconds).
-    // This makes the video timeline independent of wall-clock gaps caused by
-    // blocking WASM calls (loadCartridge, etc.).
-    const timestamp = this._videoFrameCount * this._videoFrameDurationUs;
-    this._videoFrameCount++;
+    // Drive timestamp from wall clock (microseconds elapsed since init()).
+    // After any gap (e.g. the ~1300ms c64_loadCartridge blockage) the timestamp
+    // automatically jumps forward by the real elapsed time, keeping the video
+    // RTP clock aligned with the audio RTP clock which advances at real-time
+    // rate regardless of whether audio frames are pushed.
+    const timestamp = (Date.now() - this._videoOriginMs) * 1000;
 
     this.videoSource.onFrame({ width, height, data: this._i420Buf, timestamp });
   }
