@@ -81,6 +81,34 @@ export function createInputServer(opts = {}) {
     if (hostTimeoutTimer) { clearTimeout(hostTimeoutTimer); hostTimeoutTimer = null; }
   }
 
+  // ── P2 inactivity timeout ─────────────────────────────────────────────────
+  let p2TimeoutTimer = null;
+
+  function resetP2Timeout() {
+    if (!p2Client) return;
+    if (p2TimeoutTimer) clearTimeout(p2TimeoutTimer);
+    p2TimeoutTimer = setTimeout(() => kickP2ForInactivity(), HOST_TIMEOUT);
+  }
+
+  function clearP2Timeout() {
+    if (p2TimeoutTimer) { clearTimeout(p2TimeoutTimer); p2TimeoutTimer = null; }
+  }
+
+  function kickP2ForInactivity() {
+    if (!p2Client) return;
+    if (verbose) console.error(`[input-server] p2 ${p2Username} timed out due to inactivity`);
+    logEv('p2-timeout', { username: p2Username });
+    if (p2Client.readyState === p2Client.OPEN) {
+      p2Client.send(JSON.stringify({ type: 'p2-timeout-kick', username: p2Username }));
+    }
+    const leaving = p2Username;
+    p2Client      = null;
+    p2Username    = null;
+    clearP2Timeout();
+    broadcastAll({ type: 'player2-left', username: leaving, reason: 'timeout' });
+    broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+  }
+
   // ── Host reconnect grace period helpers ───────────────────────────────────
   function clearGrace() {
     if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
@@ -139,6 +167,7 @@ export function createInputServer(opts = {}) {
     p2Client     = null;
     p2Username   = null;
     inviteToken  = null;
+    clearP2Timeout(); // P2 is now host — their own timer stops, host timer starts below
     if (verbose) console.error(`[input-server] P2 ${hostUsername} promoted to host (joy port unchanged)`);
     logEv('p2-promoted-to-host', { username: hostUsername, joystickPort: 1 });
     // Tell the promoted client
@@ -255,6 +284,7 @@ export function createInputServer(opts = {}) {
       // ── Voluntary player 2 leave ──────────────────────────────────────────
       if (msg.type === 'p2-leave') {
         if (ws === p2Client) {
+          clearP2Timeout();
           p2Client       = null;
           const leaving  = p2Username;
           p2Username     = null;
@@ -328,6 +358,7 @@ export function createInputServer(opts = {}) {
         broadcastAll({ type: 'p2-slot-status', open: false });
         if (verbose) console.error(`[input-server] player2 open-joined: ${p2Username}`);
         logEv('p2-joined', { username: p2Username, joystickPort: p2Port(), method: 'open' });
+        resetP2Timeout();
         return;
       }
 
@@ -352,6 +383,7 @@ export function createInputServer(opts = {}) {
         broadcastAll({ type: 'p2-slot-status', open: false });
         if (verbose) console.error(`[input-server] player2 joined: ${p2Username}`);
         logEv('p2-joined', { username: p2Username, joystickPort: p2Port(), method: 'token' });
+        resetP2Timeout();
         return;
       }
 
@@ -363,6 +395,7 @@ export function createInputServer(opts = {}) {
           p2Client.send(JSON.stringify({ type: 'kicked' }));
         }
         const leaving = p2Username;
+        clearP2Timeout();
         p2Client      = null;
         p2Username    = null;
         if (leaving) broadcastAll({ type: 'player2-left', username: leaving });
@@ -403,6 +436,7 @@ export function createInputServer(opts = {}) {
             p2Client.send(JSON.stringify({ type: 'kicked', reason: 'admin' }));
           }
           const leaving = p2Username;
+          clearP2Timeout();
           p2Client      = null;
           p2Username    = null;
           broadcastAll({ type: 'player2-left', username: leaving });
@@ -471,6 +505,7 @@ export function createInputServer(opts = {}) {
       if (msg.type === 'joystick' || msg.type === 'key') {
         if (ws !== hostClient && ws !== p2Client) return;
         if (ws === hostClient) resetHostTimeout();
+        if (ws === p2Client)   resetP2Timeout();
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
         msg._role = ws === hostClient ? 'host' : 'p2';
@@ -495,6 +530,7 @@ export function createInputServer(opts = {}) {
       }
 
       if (ws === p2Client) {
+        clearP2Timeout();
         p2Client     = null;
         const leaving = p2Username;
         p2Username    = null;
@@ -535,6 +571,7 @@ export function createInputServer(opts = {}) {
 
   const close = () => new Promise((resolve) => {
     clearHostTimeout();
+    clearP2Timeout();
     clearGrace();
     wss.close(() => resolve());
   });
