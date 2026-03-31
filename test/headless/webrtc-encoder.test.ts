@@ -13,7 +13,7 @@
  * environment (including CI without a GPU).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // ── Minimal stubs for @roamhq/wrtc nonstandard API ──────────────────────────
 function makeAudioSource() {
