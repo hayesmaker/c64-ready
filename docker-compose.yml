@@ -2,46 +2,18 @@
 # c64-ready — Docker Compose
 #
 # Services:
-#   nms       — Node Media Server (RTMP ingest + HTTP-FLV / HLS playback)
-#   headless  — Headless C64 emulator (pushes RGBA frames → ffmpeg → RTMP,
-#               or serves a WebRTC player page directly on port 9002)
+#   headless  — Headless C64 emulator (WebRTC player page on port 9002)
 #
-# Quick start (RTMP / legacy):
+# Quick start:
 #   cp docker/.env.example docker/.env   # edit to taste
 #   docker compose up --build
-#
-# Quick start (WebRTC — low latency, no NMS needed):
-#   Set WEBRTC_ENABLED=1 in docker/.env, then:
-#     docker compose up --build headless
 #   Open http://localhost:9002 in a browser
 #
-# Watch the RTMP stream (legacy mode):
-#   HTTP-FLV  → http://localhost:8000/live/c64.flv
-#   HLS       → http://localhost:8000/live/c64/index.m3u8
-#   RTMP      → rtmp://localhost:1935/live/c64  (VLC / OBS / ffplay)
-#
-# Stop everything:
+# Stop:
 #   docker compose down
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
-
-  # ── Node Media Server ───────────────────────────────────────────────────────
-  nms:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.nms
-    container_name: c64-nms
-    restart: unless-stopped
-    ports:
-      - "${NMS_RTMP_HOST_PORT:-1935}:1935"   # RTMP ingest
-      - "${NMS_HTTP_HOST_PORT:-8000}:8000"    # HTTP-FLV / HLS playback
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:8000', r => process.exit(r.statusCode < 500 ? 0 : 1))\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
   # ── Headless C64 player ─────────────────────────────────────────────────────
   headless:
@@ -50,21 +22,9 @@ services:
       dockerfile: docker/Dockerfile.headless
     container_name: c64-headless
     restart: unless-stopped
-    # NMS dependency: only blocks on NMS health when running in RTMP mode.
-    # In WebRTC mode (WEBRTC_ENABLED=1) NMS is not needed so we use
-    # service_started (non-blocking) instead of service_healthy.
-    # Note: depends_on is evaluated at compose startup — if you only run
-    # `docker compose up headless`, NMS is not started at all and this
-    # dependency is effectively ignored.
-    depends_on:
-      nms:
-        condition: service_started
     # ── Environment variables ─────────────────────────────────────────────────
     # All runtime config comes from docker/.env (copy from docker/.env.example).
     # Edit docker/.env to switch modes, set game path, fps, etc.
-    # There is no shell one-liner override — Docker Compose has no way to pass
-    # a shell variable into the container without also clobbering env_file values
-    # for unset variables. Use docker/.env as the single source of truth.
     env_file:
       - path: docker/.env
         required: false

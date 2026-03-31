@@ -44,7 +44,15 @@ export class WebRTCEncoder {
   // The SID buffer is 4096 samples, so we queue incoming audio and drain it in
   // 441-sample chunks.
   _audioChunkSize = 441;      // recalculated in init()
-  _audioQueue = new Float32Array(0);  // pending samples not yet dispatched
+  // Pre-allocated audio ring buffer — large enough to hold several SID pulls
+  // without allocation.  Using a ring avoids per-frame Float32Array allocs
+  // (which caused GC pauses and audio stuttering at 50fps).
+  _audioRing = null;          // Float32Array, allocated in init()
+  _audioRingSize = 0;
+  _audioRingWrite = 0;
+  _audioRingRead = 0;
+  _audioRingCount = 0;
+  _audioInt16 = null;         // Int16Array(chunkSize), allocated in init()
   // Pre-allocated staging buffers — reused every frame to avoid GC pressure.
   // rgbaToI420() validates data.byteLength === width*height*4, so we cannot
   // pass a subarray of the WASM heap (whose byteLength = full heap size).
@@ -60,7 +68,14 @@ export class WebRTCEncoder {
     this._height = height;
     this._sampleRate = sampleRate;
     this._audioChunkSize = Math.floor(sampleRate / 100); // 441 @ 44100, 480 @ 48000
-    this._audioQueue = new Float32Array(0);
+    // Audio ring: large enough for 8× the SID pull size (8×4096 = 32768 samples)
+    // so even bursts after a cart load never overflow.
+    this._audioRingSize  = 4096 * 8;
+    this._audioRing      = new Float32Array(this._audioRingSize);
+    this._audioRingWrite = 0;
+    this._audioRingRead  = 0;
+    this._audioRingCount = 0;
+    this._audioInt16     = new Int16Array(this._audioChunkSize);
     this._videoFrameCount = 0;
 
     // Staging buffers with exact byte sizes that rgbaToI420 expects
@@ -68,7 +83,10 @@ export class WebRTCEncoder {
     const i420Size = width * height + (width >> 1) * (height >> 1) * 2;
     this._i420Buf = new Uint8ClampedArray(i420Size);
 
-    this.videoSource = new RTCVideoSource();
+    // isScreencast: true — tells libwebrtc this is screen/game content, not a camera.
+    // Effect: disables temporal noise filtering, prefers crisp frames over smooth
+    // motion estimation, and reduces encoder buffering latency.
+    this.videoSource = new RTCVideoSource({ isScreencast: true });
     this.audioSource = new RTCAudioSource();
 
     this.videoTrack = this.videoSource.createTrack();
@@ -76,13 +94,20 @@ export class WebRTCEncoder {
   }
 
   /**
-   * Reset the video frame counter to 0.
-   * Call this after every cart load / reset so the timestamp sequence
-   * restarts cleanly and doesn't accumulate a growing offset from
-   * repeated ~1300ms blockages.
+   * Previously reset the video frame counter to 0 on each cart load.
+   * This caused the browser WebRTC receiver to see a backwards timestamp
+   * jump (e.g. 50 000 000 µs → 0 µs), forcing a 20-25 s re-buffer window
+   * that manifested as apparent input lag after every game switch.
+   *
+   * The counter must be monotonically increasing across cart loads — the
+   * ~1300 ms loadCartridge blockage is already invisible to the receiver
+   * because no frames are sent during it; timestamps simply resume from
+   * where they left off with no discontinuity.
+   *
+   * Kept as a no-op for call-site compatibility.
    */
   resetVideoTimestamp() {
-    this._videoFrameCount = 0;
+    // intentional no-op — do NOT reset _videoFrameCount
   }
 
   /**
@@ -127,28 +152,37 @@ export class WebRTCEncoder {
    *
    * RTCAudioSource.onData() requires exactly (sampleRate / 100) Int16 samples
    * per call (one 10 ms WebRTC audio frame — 441 @ 44100 Hz, 480 @ 48000 Hz).
-   * Incoming SID buffers are 4096 samples, so we queue and drain in exact chunks.
+   * Incoming SID buffers are 882 samples/frame at 50fps, so we queue into a
+   * pre-allocated ring and drain in exact 441-sample chunks.
+   * Zero heap allocations per call — no GC pressure, no audio stuttering.
    *
    * @param {Float32Array} f32samples - SID output, sampleRate Hz mono
    */
   pushAudioFrame(f32samples) {
-    const chunkSize = this._audioChunkSize;
+    const chunkSize  = this._audioChunkSize;
+    const ringSize   = this._audioRingSize;
+    const ring       = this._audioRing;
 
-    // Append incoming samples to the queue
-    const merged = new Float32Array(this._audioQueue.length + f32samples.length);
-    merged.set(this._audioQueue, 0);
-    merged.set(f32samples, this._audioQueue.length);
-    this._audioQueue = merged;
+    // Write incoming samples into the ring (wrap-around, drop on overflow)
+    for (let i = 0; i < f32samples.length; i++) {
+      if (this._audioRingCount < ringSize) {
+        ring[this._audioRingWrite] = f32samples[i];
+        this._audioRingWrite = (this._audioRingWrite + 1) % ringSize;
+        this._audioRingCount++;
+      }
+      // overflow: silently drop — should never happen with ring sized 8×SID_BUF
+    }
 
-    // Drain completed 10 ms chunks
-    let offset = 0;
-    while (offset + chunkSize <= this._audioQueue.length) {
-      const chunk = this._audioQueue.subarray(offset, offset + chunkSize);
-      const int16 = new Int16Array(chunkSize);
+    // Drain completed 10 ms chunks from the ring
+    const int16 = this._audioInt16;
+    while (this._audioRingCount >= chunkSize) {
       for (let i = 0; i < chunkSize; i++) {
-        const clamped = chunk[i] < -1 ? -1 : chunk[i] > 1 ? 1 : chunk[i];
+        const s = ring[this._audioRingRead];
+        this._audioRingRead = (this._audioRingRead + 1) % ringSize;
+        const clamped = s < -1 ? -1 : s > 1 ? 1 : s;
         int16[i] = clamped * 32767;
       }
+      this._audioRingCount -= chunkSize;
       this.audioSource.onData({
         samples: int16,
         sampleRate: this._sampleRate,
@@ -156,11 +190,7 @@ export class WebRTCEncoder {
         channelCount: 1,
         numberOfFrames: chunkSize,
       });
-      offset += chunkSize;
     }
-
-    // Keep any leftover samples for the next call
-    this._audioQueue = this._audioQueue.slice(offset);
   }
 
   get width() { return this._width; }

@@ -131,9 +131,9 @@ describe('headless CLI', () => {
     vi.restoreAllMocks();
   });
 
-  // ── SID ring: first frame produces silence when ring is empty ─────────────
+  // ── SID ring pre-prime: ring is filled before the frame loop starts ──────
 
-  it('produces silence for the first audio frame before the SID ring is primed', async () => {
+  it('pre-primes the SID ring before the frame loop so audio frames are never silent', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..');
     const wasmPath = path.join(repoRoot, 'virtual', 'fake.wasm');
 
@@ -147,8 +147,9 @@ describe('headless CLI', () => {
 
     // sid_getAudioBuffer returns a pointer; the WASM memory behind it is all
     // zeros (default), so any samples read back are 0.0 (silence).
-    // With only 1 frame the ring cannot yet hold a full 4096-sample chunk,
-    // so dequeueSidFrame() should pad with silence (all zeros).
+    // primeSidRing() calls debugger_update × 2 + sid_getAudioBuffer × 2 to
+    // fill the ring before the frame loop begins, so dequeueSidFrame()
+    // always has data on frame 0 (ring count = 8192 > samplesPerFrame).
     const PIXEL_SIZE = 384 * 272 * 4;
 
     // Intercept ffmpeg writeFrame to capture audio chunks without real ffmpeg.
