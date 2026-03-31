@@ -280,6 +280,40 @@ export async function runHeadless(options = {}) {
                     exports.c64_loadCartridge(ptr, byteLen);
                     // free(ptr), debugger_set_speed and debugger_play intentionally
                     // omitted: c64_loadCartridge internally resets and resumes.
+                    //
+                    // ── KNOWN ISSUE: post-load input lag (unresolved) ──────────────
+                    // After loading a new cartridge the player experiences ~1 second
+                    // of perceived input lag that persists for 20–30 seconds before
+                    // resolving on its own. The pattern:
+                    //   1. Initial game load — lag-free.
+                    //   2. First load-crt command — ~1s lag onset, clears after ~25s.
+                    //   3. Subsequent loads — lag-free for a while, then periodically
+                    //      returns and recovers, cycling unpredictably.
+                    //
+                    // Investigation so far:
+                    //   - The emulator itself responds within one frame (≤20ms);
+                    //     actual WASM keypress latency is not the cause.
+                    //   - The lag is perceptual — the browser is displaying stale
+                    //     buffered WebRTC video while live input lands on the server.
+                    //   - flushToLiveEdge() (srcObject=null + restore) is called on
+                    //     cart-loaded in webrtc-server.mjs, but the buffer appears to
+                    //     partially re-accumulate over the following 20–30 seconds.
+                    //   - c64_loadCartridge() + c64_reset() together block the event
+                    //     loop for ~1300ms inside this setImmediate. During that window
+                    //     no video frames are pushed to WebRTC, leaving the browser
+                    //     jitter buffer ahead of real-time when frames resume.
+                    //   - The periodic recovery/relapse on subsequent loads suggests
+                    //     a slow buffer-drain race: the browser catches up, then the
+                    //     next load re-accumulates a smaller debt that clears faster.
+                    //
+                    // Candidates not yet ruled out:
+                    //   - primeSidRing() calls debugger_update × 2 after every
+                    //     resetSidRing(), adding ~186ms of extra emulated time on top
+                    //     of the ~1300ms blockage — may deepen the video debt.
+                    //   - The browser's RTCPeerConnection jitter buffer target is 0
+                    //     but the implementation may not honour it under load.
+                    //   - VP8 encoder bitrate cap (800 kbps) may cause queued frames
+                    //     to be held longer than expected after the burst resumes.
                     resetSidRing();
                     if (webrtcEncoder) webrtcEncoder.resetVideoTimestamp();
                     if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes)`);
