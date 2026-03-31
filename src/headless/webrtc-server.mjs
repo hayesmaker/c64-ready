@@ -373,7 +373,13 @@ function buildBrowserHtml(inputPort) {
         if (!buf || buf.length === 0) return;
         const bufEnd = buf.end(buf.length - 1);
         const drift  = bufEnd - videoEl.currentTime;
-        if (drift > 0.3) {
+        if (drift > 1.0) {
+          // Large drift (>1s): hard buffer discard — srcObject reset is the
+          // only reliable way to drop all buffered frames and resync to the
+          // live incoming stream after a long freeze (e.g. cart load gap).
+          console.warn('[WebRTC] large drift ' + (drift*1000).toFixed(0) + 'ms — hard srcObject reset');
+          flushToLiveEdge();
+        } else if (drift > 0.3) {
           console.warn('[WebRTC] drift ' + (drift*1000).toFixed(0) + 'ms — skipping to live edge');
           videoEl.currentTime = bufEnd;
         }
@@ -385,16 +391,22 @@ function buildBrowserHtml(inputPort) {
     }
 
     function flushToLiveEdge() {
-      applyMinLatency();
+      // Hard buffer discard: set srcObject=null to drop all buffered frames,
+      // then restore on the next animation frame so the browser starts decoding
+      // from the very next incoming keyframe rather than seeking within stale
+      // buffered content. A currentTime seek is not sufficient — at the moment
+      // cart-loaded fires the server has just resumed pushing frames; the
+      // buffered range end is still the pre-load stale position, not the live
+      // edge. The null→restore pattern is the only reliable way to discard the
+      // entire accumulated buffer and re-sync to the current live stream.
       if (!videoEl || !remoteStream) return;
-      const buf = videoEl.buffered;
-      if (buf && buf.length > 0) {
-        const bufEnd = buf.end(buf.length - 1);
-        const drift  = bufEnd - videoEl.currentTime;
-        console.log('[WebRTC] flushToLiveEdge: drift=' + (drift*1000).toFixed(0) + 'ms → skip to ' + bufEnd.toFixed(3) + 's');
-        videoEl.currentTime = bufEnd;
-      }
-      videoEl.play().catch(() => {});
+      console.log('[WebRTC] flushToLiveEdge: hard srcObject reset to discard buffer');
+      videoEl.srcObject = null;
+      requestAnimationFrame(() => {
+        videoEl.srcObject = remoteStream;
+        videoEl.play().catch(() => {});
+        applyMinLatency();
+      });
     }
 
     const sigWs = new WebSocket('ws://' + location.host);
