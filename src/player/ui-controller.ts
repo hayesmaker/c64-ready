@@ -312,7 +312,7 @@ export default class UIController {
     const inputModeHints: Record<string, string> = {
       joystick: 'Arrows + Ctrl = joystick only',
       keyboard: 'All keys &rarr; C64 keyboard matrix',
-      mixed:    'Arrows + Z + Ctrl = joystick &amp; all other keys &rarr; C64 keyboard',
+      mixed: 'Arrows + Z + Ctrl = joystick &amp; all other keys &rarr; C64 keyboard',
     };
     const inputModeRadios = panel.querySelectorAll(
       'input[name="c64-input-mode"]',
