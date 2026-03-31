@@ -72,7 +72,33 @@ export function createWebRTCServer({
 
   const wss = new WebSocketServer({ server: httpServer });
 
+  // ── Signalling WS keepalive ───────────────────────────────────────────────
+  // After ICE negotiation the signalling WebSocket carries no traffic.
+  // Cloud load balancers, Docker bridge NAT, and OS TCP stacks typically
+  // drop idle TCP connections after 60–90 s — exactly the symptom observed
+  // in production (ws-closed firing ~60 s after ICE connected with no prior
+  // ICE disconnect event).
+  //
+  // Fix: ping every 30 s. The ws library handles pong automatically; we mark
+  // each client as alive on pong and terminate any that miss a full interval.
+  const PING_INTERVAL_MS = 30_000;
+  const pingInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws._sigAlive === false) {
+        // Missed previous pong — connection is dead, terminate it.
+        console.error('[webrtc] signalling ws: missed pong, terminating');
+        logEv('webrtc-sig-timeout', {});
+        ws.terminate();
+        return;
+      }
+      ws._sigAlive = false; // reset; set back to true on pong
+      ws.ping();
+    });
+  }, PING_INTERVAL_MS);
+
   wss.on('connection', (ws, req) => {
+    ws._sigAlive = true; // initialise alive flag
+    ws.on('pong', () => { ws._sigAlive = true; });
     const remoteAddr = req.socket.remoteAddress;
     console.error(`[webrtc] peer connected from ${remoteAddr}`);
     logEv('webrtc-peer-connected', { addr: remoteAddr });
@@ -193,6 +219,10 @@ export function createWebRTCServer({
 
         } else if (msg.type === 'candidate' && msg.candidate) {
           await pc.addIceCandidate(msg.candidate);
+        } else if (msg.type === 'ping') {
+          // Browser-side heartbeat — reply immediately so the browser knows
+          // the connection is alive and resets its own reconnect timer.
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pong' }));
         }
       } catch (err) {
         console.error('[webrtc] signalling error:', err.message);
@@ -253,6 +283,7 @@ export function createWebRTCServer({
     },
     close: () =>
       new Promise((resolve) => {
+        clearInterval(pingInterval);
         wss.close(() => httpServer.close(() => resolve()));
       }),
   };
@@ -448,6 +479,7 @@ function buildBrowserHtml(inputPort) {
     let sigWs = null;
     let driftTimer = null;
     let rtcReconnectTimer = null;
+    let sigPingTimer = null;  // keepalive ping on the signalling WS
 
     function scheduleRtcReconnect(delayMs) {
       if (rtcReconnectTimer) return; // already scheduled
@@ -500,6 +532,7 @@ function buildBrowserHtml(inputPort) {
     function connectWebRTC() {
       // Cancel any pending auto-reconnect so we don't double-connect.
       if (rtcReconnectTimer) { clearTimeout(rtcReconnectTimer); rtcReconnectTimer = null; }
+      if (sigPingTimer) { clearInterval(sigPingTimer); sigPingTimer = null; }
       // Tear down any existing connection cleanly first.
       stopDriftMonitor();
       if (pc) { try { pc.close(); } catch (_) {} pc = null; }
@@ -550,6 +583,13 @@ function buildBrowserHtml(inputPort) {
 
       sigWs.onopen = async () => {
         setBadge(videoBadge, 'video: negotiating…', 'warn');
+        // Start keepalive ping — prevents the idle TCP connection from being
+        // dropped by cloud NAT / load balancers (~60s timeout observed in prod).
+        sigPingTimer = setInterval(() => {
+          if (sigWs && sigWs.readyState === WebSocket.OPEN) {
+            sigWs.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
         let transceiver = null;
         try {
           transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
@@ -583,6 +623,8 @@ function buildBrowserHtml(inputPort) {
           applyMinLatency();
         } else if (msg.type === 'candidate') {
           await pc.addIceCandidate(msg.candidate).catch(() => {});
+        } else if (msg.type === 'pong') {
+          // Server acknowledged our keepalive ping — connection is healthy.
         } else if (msg.type === 'peer-closed') {
           // Server closed the peer (e.g. after disconnect grace expired).
           // Reconnect immediately — this is the expected recovery path.
@@ -593,6 +635,7 @@ function buildBrowserHtml(inputPort) {
 
       sigWs.onerror = () => setBadge(videoBadge, 'video: sig error', 'err');
       sigWs.onclose = () => {
+        if (sigPingTimer) { clearInterval(sigPingTimer); sigPingTimer = null; }
         // Signalling WS closed — could be server restart or network blip.
         // Reconnect after 2s so we don't spin.
         setBadge(videoBadge, 'video: reconnecting…', 'warn');
