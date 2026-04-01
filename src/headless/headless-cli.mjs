@@ -30,6 +30,7 @@ export async function runHeadless(options = {}) {
   let webrtc = false;
   let webrtcPort = 9002;
   let logEvents = false;
+  let maxSpectators = 5;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -49,6 +50,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
     else if (a === '--webrtc') webrtc = true;
     else if (a === '--webrtc-port') webrtcPort = Number(argv[++i]);
+    else if (a === '--max-spectators') maxSpectators = Number(argv[++i]);
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
@@ -414,6 +416,7 @@ export async function runHeadless(options = {}) {
         verbose,
         logEvents,
         inputPort: wsPort,
+        maxSpectators,
         // onOffer fires BEFORE createAnswer() — the right place to addTrack()
         onOffer(pc) {
           const stream = new MediaStream([videoTrack, audioTrack]);

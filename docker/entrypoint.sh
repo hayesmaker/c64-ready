@@ -26,6 +26,10 @@ if [ "${WEBRTC_ENABLED}" = "1" ] || [ "${WEBRTC_ENABLED}" = "true" ]; then
   # Input is always enabled in WebRTC mode — the browser page connects to it.
   ARGS="$ARGS --input"
   ARGS="$ARGS --ws-port ${WS_PORT:-9001}"
+  # Spectator cap: players are excluded from this count (2 player slots are always reserved).
+  if [ -n "${MAX_SPECTATORS}" ]; then
+    ARGS="$ARGS --max-spectators $MAX_SPECTATORS"
+  fi
 else
   echo "[entrypoint] MODE: RTMP    (output → ${RTMP_URL:-rtmp://nms:1935/live/c64})"
   ARGS="$ARGS --record"

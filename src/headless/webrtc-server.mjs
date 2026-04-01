@@ -31,6 +31,11 @@ const { RTCPeerConnection } = wrtc;
  * @param {boolean}  [opts.verbose=false]       Log state changes to stderr
  * @param {number}   [opts.inputPort=9001]      Port the input WebSocket listens on
  *                                               (embedded in the browser page)
+ * @param {number}   [opts.maxSpectators=5]     Maximum number of spectator connections
+ *                                               (not counting the 2 player slots).
+ *                                               When the limit is reached, new WebRTC
+ *                                               connections are rejected immediately with
+ *                                               a { type: 'capacity-full' } message.
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
  *   Called synchronously when an SDP offer arrives, BEFORE createAnswer().
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
@@ -43,6 +48,7 @@ export function createWebRTCServer({
   verbose = false,
   logEvents = false,
   inputPort = 9001,
+  maxSpectators = 5,
   onOffer,
   onPeerConnected,
 } = {}) {
@@ -55,6 +61,12 @@ export function createWebRTCServer({
   }
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
+
+  // Total capacity = 2 player slots + maxSpectators.
+  // We track all in-flight WS connections (including those not yet ICE-connected)
+  // so that a burst of simultaneous connects doesn't slip past the gate.
+  const MAX_CONNECTIONS = 2 + maxSpectators;
+  let pendingPeers = 0; // WS connections not yet ICE-connected or ICE-failed
 
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
@@ -100,6 +112,27 @@ export function createWebRTCServer({
     ws._sigAlive = true; // initialise alive flag
     ws.on('pong', () => { ws._sigAlive = true; });
     const remoteAddr = req.socket.remoteAddress;
+
+    // ── Capacity gate ─────────────────────────────────────────────────────────
+    // Count active ICE-connected peers + in-flight (pending) connections.
+    // Players take 2 of the MAX_CONNECTIONS slots; remaining slots are spectators.
+    const currentTotal = activePeers.size + pendingPeers;
+    if (currentTotal >= MAX_CONNECTIONS) {
+      console.error(`[webrtc] capacity full (${currentTotal}/${MAX_CONNECTIONS}) — rejecting ${remoteAddr}`);
+      logEv('webrtc-capacity-full', { addr: remoteAddr, current: currentTotal, max: MAX_CONNECTIONS });
+      try {
+        ws.send(JSON.stringify({
+          type: 'capacity-full',
+          current: currentTotal,
+          max: MAX_CONNECTIONS,
+          maxSpectators,
+        }));
+      } catch (_) {}
+      ws.close();
+      return;
+    }
+
+    pendingPeers++;
     console.error(`[webrtc] peer connected from ${remoteAddr}`);
     logEv('webrtc-peer-connected', { addr: remoteAddr });
 
@@ -118,9 +151,14 @@ export function createWebRTCServer({
       if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
     }
 
+    // Track whether this peer has ever reached ICE connected (to manage pendingPeers correctly).
+    let everConnected = false;
+
     function closePeer(reason) {
       clearDisconnectTimer();
-      activePeers.delete(pc);
+      const wasActive = activePeers.delete(pc);
+      // Decrement pendingPeers only if this peer never made it to ICE connected.
+      if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
       console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
       logEv('webrtc-peer-closed', { addr: remoteAddr, reason });
       // Tell the browser the stream died so it can reconnect immediately
@@ -147,6 +185,12 @@ export function createWebRTCServer({
       if (s === 'connected' || s === 'completed') {
         // Recovered from disconnected — cancel any pending close timer.
         clearDisconnectTimer();
+        // First time reaching connected: move out of pending and into active.
+        // On recovery from 'disconnected' grace: re-add to active (pendingPeers already at 0 for this peer).
+        if (!everConnected) {
+          if (pendingPeers > 0) pendingPeers--;
+          everConnected = true;
+        }
         activePeers.add(pc);
         logEv('webrtc-ice-connected', { addr: remoteAddr, state: s });
         onPeerConnected?.(pc);
@@ -630,6 +674,14 @@ function buildBrowserHtml(inputPort) {
           // Reconnect immediately — this is the expected recovery path.
           console.warn('[WebRTC] server closed peer (' + (msg.reason || '?') + ') — reconnecting');
           scheduleRtcReconnect(500);
+        } else if (msg.type === 'capacity-full') {
+          // Server is at capacity — do not auto-reconnect; show a message instead.
+          console.warn('[WebRTC] server at capacity (' + msg.current + '/' + msg.max + ' connections)');
+          setBadge(videoBadge, 'server full — try later', 'err');
+          setBadge(inputBadge, 'input: unavailable', 'err');
+          // Cancel any pending reconnect so we don't spam the server.
+          if (rtcReconnectTimer) { clearTimeout(rtcReconnectTimer); rtcReconnectTimer = null; }
+          stopDriftMonitor();
         }
       };
 

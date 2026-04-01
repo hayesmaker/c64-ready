@@ -54,8 +54,11 @@ Options:
   --output <path|url>  Output file path or rtmp:// stream URL
   --duration <secs>    Recording duration in seconds  (omit for endless streaming)
   --fps <n>            Target frame rate  (default: 50 for PAL)
-  --webrtc             Start a WebRTC streaming server (low-latency; replaces RTMP+flv.js)
+   --webrtc             Start a WebRTC streaming server (low-latency; replaces RTMP+flv.js)
   --webrtc-port <n>    WebRTC signalling + player HTTP port  (default: 9002)
+  --max-spectators <n> Max concurrent spectator WebRTC connections (default: 5)
+                       Players count separately (up to 2), so total WebRTC peers = n+2.
+                       New connections beyond this limit receive { type: 'capacity-full' }.
   --input              Start WebSocket input server for remote control
   --ws-port <n>        WebSocket server port  (default: 9001)
   --verbose            Print per-frame diagnostics to stderr
