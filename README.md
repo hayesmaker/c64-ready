@@ -59,53 +59,101 @@ npm run test:watch
 
 ## Headless streaming (Docker)
 
-The headless player can stream the C64 output over RTMP / HTTP-FLV using Docker Compose.
-Two containers are started:
-
-| Container | Role |
-|-----------|------|
-| `c64-nms` | [Node Media Server](https://github.com/illuspas/Node-Media-Server) — RTMP ingest on `:1935`, HTTP-FLV on `:8000` |
-| `c64-headless` | Headless C64 emulator — encodes frames with ffmpeg and pushes to NMS over RTMP |
+The headless player streams the C64 output over **WebRTC** — a single container serves
+a self-contained browser player page with sub-100ms latency and a built-in keyboard/
+joystick input channel. No separate media server is required.
 
 **Prerequisites:** Docker and Docker Compose v2.
 
 ### Quick start
 
+#### With NPM
+
+```bash
+npx c64-ready```
+```
+This starts a static server that serves the browser player on `http://localhost:5173/c64-ready/` by default.
+
+#### With Docker
+
 ```zsh
-# 1. Copy the env file (optional — defaults boot to BASIC, stream forever)
+# 1. Copy the env file and edit to taste (defaults: BASIC prompt, WebRTC on :9002)
 cp docker/.env.example docker/.env
 
-# 2. Build and start both services
+# 2. Build and start
 docker compose up --build
 
-# 3. Watch the stream
-ffplay rtmp://localhost:1935/live/c64
-# or open in VLC / OBS: http://localhost:8000/live/c64.flv
+# 3. Open the player in a browser
+open http://localhost:9002
 ```
+
+The player page is self-contained — video, audio, and keyboard/joystick input are all
+handled in the browser with no extra software needed.
 
 ### Load a cartridge
 
 Games are bind-mounted from `public/games/` — no rebuild needed:
 
 ```zsh
+# Set GAME_PATH in docker/.env, then restart
+docker compose restart headless
+
+# Or override inline for a one-off run
 GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
 ```
 
+You can also drag-and-drop a `.crt` file onto the player page at any time to load it
+without restarting the container.
+
 ### Environment variables
 
-All options can be set in `.env` or passed inline. See `docker/.env.example` for the full list.
+All options live in `docker/.env` (copy from `docker/.env.example`). See that file for
+the full annotated list.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WASM_PATH` | `/app/public/c64.wasm` | Path to the WASM binary inside the container |
-| `GAME_PATH` | *(empty)* | Cartridge/disk to load — leave blank to boot to BASIC |
-| `RTMP_URL` | `rtmp://nms:1935/live/c64` | Stream destination (RTMP URL or file path) |
-| `FPS` | `50` | Target frame rate (50 = PAL, 60 = NTSC) |
-| `AUDIO` | *(empty)* | Set to `1` to mux SID audio (AAC) into the stream/recording |
-| `DURATION` | *(empty = forever)* | Stop after this many seconds — omit to stream indefinitely |
-| `VERBOSE` | *(empty)* | Set to any non-empty value for per-frame diagnostics |
-| `NMS_RTMP_HOST_PORT` | `1935` | Host port mapped to the NMS RTMP ingest |
-| `NMS_HTTP_HOST_PORT` | `8000` | Host port mapped to the NMS HTTP-FLV endpoint |
+| `GAME_PATH` | *(empty)* | Cartridge to load on startup — leave blank to boot to BASIC |
+| `FPS` | `50` | Target frame rate (`50` = PAL, `60` = NTSC) |
+| `AUDIO` | `1` | Set to `1` to include SID audio in the WebRTC stream |
+| `DURATION` | *(empty = forever)* | Stop after this many seconds |
+| `VERBOSE` | *(empty)* | Set to `1` for per-frame diagnostics in container logs |
+| `LOG_EVENTS` | `1` | Log player joins/leaves, cart loads, input events |
+| `WEBRTC_ENABLED` | `1` | Must be `1` — WebRTC is the only supported streaming mode |
+| `WEBRTC_PORT` | `9002` | Port inside the container for the WebRTC server |
+| `WEBRTC_HOST_PORT` | `9002` | Host-side port mapping for the WebRTC server |
+| `MAX_SPECTATORS` | `5` | Max concurrent spectator connections (players are separate, see below) |
+| `WS_PORT` | `9001` | WebSocket input server port inside the container |
+| `WS_HOST_PORT` | `9001` | Host-side port mapping for the input WebSocket |
+
+#### Spectator limit
+
+Up to **2 player slots** (host + P2) are always reserved. `MAX_SPECTATORS` controls how
+many additional viewers can connect simultaneously. Total WebRTC peers = `MAX_SPECTATORS + 2`.
+Connections beyond the limit receive a `capacity-full` message and are rejected immediately.
+
+### FFmpeg recording / capture
+
+FFmpeg can be used alongside the WebRTC stream for local recording or debugging. Pass
+`--record` to the CLI to enable it — both modes run concurrently:
+
+```zsh
+# Record a 60-second session to a file (no Docker needed)
+node bin/headless.mjs --wasm public/c64.wasm --no-game \
+  --record --output out.mp4 --duration 60
+
+# WebRTC stream + simultaneous local recording
+node bin/headless.mjs --wasm public/c64.wasm --game public/games/cartridges/game.crt \
+  --webrtc --webrtc-port 9002 \
+  --record --output recording.mp4 \
+  --input --ws-port 9001 --fps 50
+
+# Push to an RTMP endpoint (e.g. for OBS / Twitch ingest)
+node bin/headless.mjs --wasm public/c64.wasm --no-game \
+  --record --output rtmp://localhost:1935/live/c64
+```
+
+`ffmpeg` must be on `PATH` for `--record` to work.
 
 ### Stop
 
@@ -470,6 +518,8 @@ On every push to `master`:
 - [x] Docker headless streaming (RTMP / HTTP-FLV via Node Media Server)
 - [ ] Gamepad support
 - [ ] Touch controls
+- [ ] Loading more game formats (e.g., .d64 disk images)
+- [ ] Performance optimizations (e.g., offscreen canvas, audio worklets)
 
 ## Changelog & Releases
 
