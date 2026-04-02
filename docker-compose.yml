@@ -20,6 +20,11 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.headless
+      args:
+        # Bake the current commit hash into the image so the headless server
+        # can report it in the WebSocket hello message.
+        # docker compose build resolves this shell substitution on the host.
+        GIT_HASH: ${GIT_HASH:-unknown}
     container_name: c64-headless
     restart: unless-stopped
     # ── Environment variables ─────────────────────────────────────────────────

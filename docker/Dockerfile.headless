@@ -38,6 +38,15 @@ COPY src/types/     ./src/types/
 # Copy them here as well so the image can run standalone without mounts.
 COPY public/        ./public/
 
+# ── Bake git hash into the image ──────────────────────────────────────────────
+# Pass the abbreviated commit hash at build time:
+#   docker compose build --build-arg GIT_HASH=$(git rev-parse --short HEAD)
+# docker-compose.yml passes this automatically via the args block.
+# The hash is written to /app/.git-hash so headless-cli.mjs can read it
+# at runtime without needing git or the .git directory in the container.
+ARG GIT_HASH=unknown
+RUN echo "$GIT_HASH" > /app/.git-hash
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY docker/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh

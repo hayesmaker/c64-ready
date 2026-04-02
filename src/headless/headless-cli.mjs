@@ -16,8 +16,20 @@ try {
   _serverVersion = pkg.version ?? null;
 } catch { /* non-fatal */ }
 try {
-  _serverGitHash = execSync('git rev-parse --short HEAD', { cwd: _repoRootForBuildInfo, stdio: ['ignore', 'pipe', 'ignore'] })
-    .toString().trim();
+  // Prefer the baked-in build-arg written by the Dockerfile (works in Docker
+  // where git is not installed and .git is not present).
+  // Fall back to execSync for local dev where the repo is available.
+  const hashFile = path.join(_repoRootForBuildInfo, '.git-hash');
+  if (process.env.GIT_HASH) {
+    _serverGitHash = process.env.GIT_HASH.trim() || null;
+  } else {
+    try {
+      _serverGitHash = readFileSync(hashFile, 'utf8').trim() || null;
+    } catch {
+      _serverGitHash = execSync('git rev-parse --short HEAD', { cwd: _repoRootForBuildInfo, stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().trim();
+    }
+  }
 } catch { /* non-fatal — git may not be available in some deploy environments */ }
 
 /**
