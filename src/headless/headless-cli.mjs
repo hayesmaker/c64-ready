@@ -1,8 +1,24 @@
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import path from 'path';
 import {fileURLToPath} from 'url';
+import { execSync } from 'child_process';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
+
+// ── Build info ────────────────────────────────────────────────────────────────
+// Read once at module load so every createInputServer call gets the same values.
+const _repoRootForBuildInfo = path.resolve(new URL('../../', import.meta.url).pathname);
+let _serverVersion = null;
+let _serverGitHash = null;
+try {
+  const pkg = JSON.parse(readFileSync(path.join(_repoRootForBuildInfo, 'package.json'), 'utf8'));
+  _serverVersion = pkg.version ?? null;
+} catch { /* non-fatal */ }
+try {
+  _serverGitHash = execSync('git rev-parse --short HEAD', { cwd: _repoRootForBuildInfo, stdio: ['ignore', 'pipe', 'ignore'] })
+    .toString().trim();
+} catch { /* non-fatal — git may not be available in some deploy environments */ }
 
 /**
  * Run headless emulator. Exported so tests can inject a fake WebAssembly.instantiate.
@@ -252,6 +268,8 @@ export async function runHeadless(options = {}) {
         logEvents,
         validateKickToken,
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
+        serverVersion: _serverVersion,
+        serverGitHash: _serverGitHash,
         onCommand: (cmd) => {
           if (!exports) return;
           if (cmd.type === 'load-crt') {
