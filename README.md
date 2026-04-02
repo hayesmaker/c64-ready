@@ -67,6 +67,15 @@ joystick input channel. No separate media server is required.
 
 ### Quick start
 
+#### With NPM
+
+```bash
+npx c64-ready```
+```
+This starts a static server that serves the browser player on `http://localhost:5173/c64-ready/` by default.
+
+#### With Docker
+
 ```zsh
 # 1. Copy the env file and edit to taste (defaults: BASIC prompt, WebRTC on :9002)
 cp docker/.env.example docker/.env
@@ -509,6 +518,8 @@ On every push to `master`:
 - [x] Docker headless streaming (RTMP / HTTP-FLV via Node Media Server)
 - [ ] Gamepad support
 - [ ] Touch controls
+- [ ] Loading more game formats (e.g., .d64 disk images)
+- [ ] Performance optimizations (e.g., offscreen canvas, audio worklets)
 
 ## Changelog & Releases
 
