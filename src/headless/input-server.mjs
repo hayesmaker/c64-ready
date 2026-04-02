@@ -19,7 +19,7 @@ import { randomBytes } from 'crypto';
  * @param {Function} [opts.onCommand]  Called with emulator commands from the host:
  *                                     { type: 'load-crt'|'detach-crt'|'hard-reset', ... }
  * @param {boolean}  [opts.verbose]
- * @param {number}   [opts.hostTimeoutMs=300000]
+ * @param {number}   [opts.hostTimeoutMs=86400000]  AFK timeout in ms for host+P2 (default 24 h)
  * @param {Function} [opts.validateKickToken]
  * @param {string}   [opts.serverVersion]   Package version string, e.g. '0.7.0'
  * @param {string}   [opts.serverGitHash]   Abbreviated git commit hash, e.g. '16e86cd'
@@ -31,7 +31,9 @@ export function createInputServer(opts = {}) {
   const onCommand         = opts.onCommand         ?? (() => {});
   const verbose           = opts.verbose           ?? false;
   const logEvents         = opts.logEvents         ?? false;
-  const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 10 * 60 * 1000;
+  // Default: 24 hours — effectively disabled for long hosting sessions.
+  // Can be reduced by passing opts.hostTimeoutMs (milliseconds).
+  const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 24 * 60 * 60 * 1000;
   const validateKickToken = opts.validateKickToken ?? (() => null);
   const serverVersion     = opts.serverVersion     ?? null;
   const serverGitHash     = opts.serverGitHash     ?? null;
