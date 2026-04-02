@@ -21,6 +21,8 @@ import { randomBytes } from 'crypto';
  * @param {boolean}  [opts.verbose]
  * @param {number}   [opts.hostTimeoutMs=300000]
  * @param {Function} [opts.validateKickToken]
+ * @param {string}   [opts.serverVersion]   Package version string, e.g. '0.7.0'
+ * @param {string}   [opts.serverGitHash]   Abbreviated git commit hash, e.g. '16e86cd'
  * @returns {{ wss: WebSocketServer, close: () => Promise<void> }}
  */
 export function createInputServer(opts = {}) {
@@ -31,6 +33,8 @@ export function createInputServer(opts = {}) {
   const logEvents         = opts.logEvents         ?? false;
   const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 10 * 60 * 1000;
   const validateKickToken = opts.validateKickToken ?? (() => null);
+  const serverVersion     = opts.serverVersion     ?? null;
+  const serverGitHash     = opts.serverGitHash     ?? null;
 
   /** Emit a structured event log line — only when --log-events is active.
    *  Format: [event] <tag> key=value ...
@@ -530,6 +534,8 @@ export function createInputServer(opts = {}) {
       p2SlotOpen:  isP2SlotOpen(),
       ...(currentCartFilename ? { cartFilename: currentCartFilename } : {}),
       joystickBitmask: { up: 0x1, down: 0x2, left: 0x4, right: 0x8, fire: 0x10 },
+      ...(serverVersion  ? { serverVersion }  : {}),
+      ...(serverGitHash  ? { serverGitHash }  : {}),
     }));
   });
 
