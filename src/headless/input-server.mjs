@@ -214,6 +214,12 @@ export function createInputServer(opts = {}) {
         }
       }
 
+      // ── Heartbeat: reset inactivity timer on any message from host or P2 ──
+      // resetHostTimeout/resetP2Timeout were previously only called on joystick/key
+      // events, causing the host to be kicked while watching the game without input.
+      if (ws === hostClient) resetHostTimeout();
+      if (ws === p2Client)   resetP2Timeout();
+
       // ── Host claim ────────────────────────────────────────────────────────
       if (msg.type === 'host') {
         if (hostClient && hostClient.readyState === hostClient.OPEN) {
@@ -477,16 +483,28 @@ export function createInputServer(opts = {}) {
       }
 
       // ── Input events ─────────────────────────────────────────────────────
+      if (msg.type === 'ping') {
+        // Keepalive from client — timeout already reset at top of handler.
+        return;
+      }
+
       if (msg.type === 'joystick' || msg.type === 'key') {
         if (ws !== hostClient && ws !== p2Client) return;
         if (ws === hostClient) resetHostTimeout();
         if (ws === p2Client)   resetP2Timeout();
+
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
         msg._role = ws === hostClient ? 'host' : 'p2';
         if (onInput) onInput(msg);
         return;
       }
+    });
+
+    // Reset inactivity timer on WebSocket-level pings (browser keepalive)
+    ws.on('ping', () => {
+      if (ws === hostClient) resetHostTimeout();
+      if (ws === p2Client)   resetP2Timeout();
     });
 
     ws.on('close', () => {
