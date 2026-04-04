@@ -131,6 +131,8 @@ export default class CanvasRenderer {
       lastTimestamp = timestamp;
 
       emulator.tick(dTime);
+
+
       this.animationFrameId = requestAnimationFrame(runFrame);
     };
 

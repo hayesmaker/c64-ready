@@ -186,9 +186,6 @@ export class C64Player {
   detachCartridge(): void {
     if (!this.emulator) return;
     try {
-      // removeCartridge() only detaches — we explicitly reset so the machine
-      // returns to the BASIC prompt, matching real C64 behaviour and the
-      // headless 'detach-crt' command path.
       this.emulator.removeCartridge();
       this.emulator.reset();
       this.emulator.start();
@@ -237,6 +234,5 @@ function isValidCRT(data: Uint8Array): boolean {
   // CRT files typically start with the ASCII header 'C64 CARTRIDGE' within the first 16 bytes
   if (!data || data.length < 16) return false;
   const header = String.fromCharCode(...Array.from(data.slice(0, 16)));
-  console.log('[c64-player]: header=', header);
   return header.includes('C64 CARTRIDGE') || header.includes('C64 CARTRIDGE');
 }
