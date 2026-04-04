@@ -232,7 +232,7 @@ describe('C64Emulator', () => {
 
   it('warns when CPU PC does not advance after load (stuck CPU / memory banking bug)', async () => {
     const { wasm, exports } = makeFakeWasm();
-    // PC always returns the same value — simulates stuck CPU
+    // PC always returns the same value across all 60 probe frames
     (exports.c64_getPC as ReturnType<typeof vi.fn>).mockReturnValue(0xa47f);
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -242,9 +242,32 @@ describe('C64Emulator', () => {
     const emulator = await C64Emulator.load();
     emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('CPU appears stuck'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('CPU stuck at'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('60 frames'));
     expect(events).toHaveLength(1);
     expect((events[0] as CustomEvent).detail.reason).toMatch(/memory banking/i);
+  });
+
+  it('does NOT warn when PC oscillates between two values (normal KERNAL wait-loop)', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    // PC alternates between two addresses — simulates Magic Desk / EasyFlash boot wait-loop
+    let _pcTick = 0;
+    (exports.c64_getPC as ReturnType<typeof vi.fn>).mockImplementation(
+      () => (_pcTick++ % 2 === 0 ? 0xe9e5 : 0xe9e6),
+    );
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const events: Event[] = [];
+    window.addEventListener('c64-cart-load-failed', (e) => events.push(e));
+
+    const emulator = await C64Emulator.load();
+    emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
+
+    // No stuck-CPU warning, no failure event
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('CPU stuck'));
+    expect(events).toHaveLength(0);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('load OK'));
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {

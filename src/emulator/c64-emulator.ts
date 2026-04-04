@@ -207,23 +207,32 @@ export class C64Emulator {
         );
         C64Emulator.dispatchCartLoadFailed(msg);
       } else {
-        // Third heuristic: run a few frames and verify the PC is actually moving.
-        // Some carts (plain 8K normal, EXROM=0 GAME=1) are recognised by the WASM
-        // loader and leave isRunning=1, but a WASM-internal memory banking bug sets
-        // the CPU I/O port to $F9 (LORAM=0, HIRAM=0) which banks out KERNAL+BASIC
-        // so the CPU spins at a fixed address executing garbage. The frozen screen
-        // looks like a crashed BASIC prompt with no text or cursor.
-        const pc0 = (x as unknown as { c64_getPC?: () => number }).c64_getPC?.() ?? -1;
-        x.debugger_update(20); // one frame
-        x.debugger_update(20);
-        x.debugger_update(20);
-        const pc1 = (x as unknown as { c64_getPC?: () => number }).c64_getPC?.() ?? -1;
-        if (pc0 !== -1 && pc0 === pc1) {
-          const msg =
-            'CPU appears stuck (PC did not advance after 3 frames) — ' +
-            'this cart type may have a memory banking incompatibility with this emulator build.';
-          console.warn('[C64 cart] WARNING: ' + msg);
-          C64Emulator.dispatchCartLoadFailed(msg);
+        // Third heuristic: run 60 frames and count how many distinct PC values
+        // appear.  A legitimately running machine (even one in a KERNAL wait-loop
+        // during cart boot) visits at least 2 addresses per frame.  A truly broken
+        // machine (e.g. plain 8K normal cart with KERNAL banked out) stays pinned
+        // at a single address for all 60 frames: uniquePCs === 1.
+        //
+        // 3-frame pc0===pc1 was too narrow and fired a false-positive on Magic Desk
+        // carts that sit in the KERNAL delay loop ($E9E5/$E9E6) for ~40 frames
+        // before jumping to the game.
+        const getPC = (x as unknown as { c64_getPC?: () => number }).c64_getPC;
+        if (getPC) {
+          const pcSet = new Set<number>();
+          for (let i = 0; i < 60; i++) {
+            x.debugger_update(20);
+            pcSet.add(getPC());
+          }
+          if (pcSet.size === 1) {
+            const stuckPc = '0x' + [...pcSet][0].toString(16).toUpperCase();
+            const msg =
+              `CPU stuck at ${stuckPc} for 60 frames — ` +
+              'this cart type may have a memory banking incompatibility with this emulator build.';
+            console.warn('[C64 cart] WARNING: ' + msg);
+            C64Emulator.dispatchCartLoadFailed(msg);
+          } else {
+            console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), ${pcSet.size} unique PCs over 60 frames`);
+          }
         } else {
           console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
         }
