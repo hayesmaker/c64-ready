@@ -76,6 +76,7 @@ Critical, project-specific patterns & gotchas
   - Drive the emulator by calling `debugger_update(frameMs)` once per loop iteration with the full frame duration.
   - Clamp large delta times (if using wall-clock) to avoid burst execution (see clamp to ~1000/targetFps in `HEADLESS_RUNNING.md` and `src/headless/headless-cli.mjs`).
   - After any `c64_reset()`, reset `lastTick = Date.now()` so the next frame's delta doesn't inherit the stale pre-reset timestamp.
+  - **`c64_loadCartridge()` does NOT internally call `debugger_play()`** — it resets CPU/memory but leaves the debugger running/paused flag exactly as it was before the call. Always call `debugger_play()` explicitly before (or immediately after) `c64_loadCartridge()` to guarantee the machine executes CPU cycles. Simple 8K normal carts (EXROM=0, GAME=1) are especially sensitive to this; multi-bank carts (Magic Desk, EasyFlash) happen to trigger play as a side effect of their bank-setup code. The correct pre-flight sequence is: `c64_removeCartridge → c64_reset → debugger_play → allocAndWrite → c64_loadCartridge`.
 
 - Audio rules:
   - Read SID audio buffer via `sid_getAudioBuffer()` and the heap F32 view — buffer is 4096 Float32 samples.
