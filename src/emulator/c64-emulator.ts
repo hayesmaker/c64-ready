@@ -139,7 +139,28 @@ export class C64Emulator {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
 
+    if (options.type === 'crt') {
+      // Mirror the headless cart-load sequence exactly:
+      //   removeCartridge → reset → allocAndWrite → loadCartridge
+      // This is safe on a fresh emulator (removeCartridge is a no-op when
+      // nothing is mounted) and correct for hot-swaps.
+      x.c64_removeCartridge();
+      x.c64_reset();
+      this.frameCount = 0;
+    }
+
     const ptr = this.wasm.allocAndWrite(options.data);
+
+    if (options.type === 'crt') {
+      // c64_loadCartridge resets and resumes the machine internally, so:
+      //   - free(ptr) is intentionally omitted — the WASM loader may retain
+      //     the pointer during bank parsing; freeing it immediately corrupts
+      //     the cartridge data (headless CLI has the same comment).
+      //   - No c64_reset() / debugger_play() after — loadCartridge handles it.
+      x.c64_loadCartridge(ptr, options.data.length);
+      return;
+    }
+
     try {
       switch (options.type) {
         case 'prg':
@@ -147,9 +168,6 @@ export class C64Emulator {
           break;
         case 'd64':
           x.c64_insertDisk(ptr, options.data.length);
-          break;
-        case 'crt':
-          x.c64_loadCartridge(ptr, options.data.length);
           break;
         case 'snapshot':
           x.c64_loadSnapshot(ptr, options.data.length);
@@ -161,10 +179,11 @@ export class C64Emulator {
   }
 
   removeCartridge(): void {
+    // Only detach — do NOT reset here. Callers that want a reset after detach
+    // (e.g. "Detach Cartridge" button) should call reset() explicitly via
+    // C64Player.detachCartridge(). Keeping detach and reset separate means
+    // loadGame()'s own pre-flight reset isn't duplicated on hot-swap loads.
     this.wasm.exports?.c64_removeCartridge();
-
-    this.wasm.exports?.c64_reset();
-    this.frameCount = 0;
   }
 
   // ---------------------------------------------------------------------------

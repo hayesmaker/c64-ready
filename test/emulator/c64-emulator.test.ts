@@ -22,6 +22,7 @@ describe('C64Emulator', () => {
     const exports = {
       c64_init: vi.fn(),
       c64_reset: vi.fn(),
+      c64_removeCartridge: vi.fn(),
       debugger_update: vi.fn(() => 1),
       c64_getPixelBuffer: vi.fn(() => 0),
       sid_getAudioBuffer: vi.fn(() => 0),
@@ -102,7 +103,7 @@ describe('C64Emulator', () => {
     expect(buf!.length).toBe(4096);
   });
 
-  it('always frees allocated memory after loadGame', async () => {
+  it('always frees allocated memory after loadGame for non-crt types', async () => {
     const { wasm, exports } = makeFakeWasm();
     (exports.c64_loadPRG as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error('bad prg');
@@ -115,6 +116,49 @@ describe('C64Emulator', () => {
       'bad prg',
     );
     expect((wasm as any).free).toHaveBeenCalledWith(16);
+  });
+
+  it('does NOT free the ptr after a successful crt load (WASM retains it during bank parsing)', async () => {
+    const { wasm } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
+
+    expect((wasm as any).free).not.toHaveBeenCalled();
+  });
+
+  it('calls removeCartridge then reset before loadCartridge (mirrors headless pre-flight)', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    const callOrder: string[] = [];
+    (exports.c64_removeCartridge as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      callOrder.push('removeCartridge'),
+    );
+    (exports.c64_reset as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      callOrder.push('reset'),
+    );
+    (exports.c64_loadCartridge as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      callOrder.push('loadCartridge'),
+    );
+
+    emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
+
+    expect(callOrder).toEqual(['removeCartridge', 'reset', 'loadCartridge']);
+  });
+
+  it('removeCartridge only calls c64_removeCartridge — no implicit reset', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.removeCartridge();
+
+    expect(exports.c64_removeCartridge).toHaveBeenCalledOnce();
+    // reset must NOT be called implicitly — callers decide if they want a reset
+    expect(exports.c64_reset).not.toHaveBeenCalled();
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {

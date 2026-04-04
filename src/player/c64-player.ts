@@ -183,7 +183,12 @@ export class C64Player {
   detachCartridge(): void {
     if (!this.emulator) return;
     try {
+      // removeCartridge() only detaches — we explicitly reset so the machine
+      // returns to the BASIC prompt, matching real C64 behaviour and the
+      // headless 'detach-crt' command path.
       this.emulator.removeCartridge();
+      this.emulator.reset();
+      this.emulator.start();
       window.dispatchEvent(new CustomEvent('c64-detach', { detail: {} }));
       window.dispatchEvent(new CustomEvent('c64-close-menu'));
     } catch (e) {
