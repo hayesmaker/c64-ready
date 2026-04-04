@@ -163,6 +163,25 @@ export class C64WASM {
   private stdoutBuf: number[] = [];
 
   /**
+   * Count of cart-matching stdout lines flushed since the last call to
+   * consumeCartLineCount(). Used by C64Emulator to heuristically detect
+   * whether c64_loadCartridge produced any diagnostic output — the C core
+   * always prints at least the cartridge type on a recognised CRT format.
+   * Zero after a load = the format was not recognised = silent failure.
+   */
+  private cartLineCount = 0;
+
+  /**
+   * Return and reset the cart-diagnostic line counter.
+   * Call this immediately after c64_loadCartridge() to detect silent failures.
+   */
+  consumeCartLineCount(): number {
+    const n = this.cartLineCount;
+    this.cartLineCount = 0;
+    return n;
+  }
+
+  /**
    * Patterns emitted by the C64 ROM/cartridge loader that we want to surface.
    * Examples seen in practice:
    *   "magic desk cartridge"
@@ -190,6 +209,7 @@ export class C64WASM {
     const isCartLine = C64WASM.CART_LOG_PATTERNS.some((re) => re.test(line));
     if (isCartLine) {
       console.log('[C64 cart]', line);
+      this.cartLineCount++;
     }
   }
 

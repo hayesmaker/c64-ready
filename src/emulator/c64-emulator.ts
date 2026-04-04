@@ -158,6 +158,45 @@ export class C64Emulator {
       //     the cartridge data (headless CLI has the same comment).
       //   - No c64_reset() / debugger_play() after — loadCartridge handles it.
       x.c64_loadCartridge(ptr, options.data.length);
+
+      // ── Silent-failure detection (two independent heuristics) ──────────────
+      //
+      // The WASM c64_loadCartridge() returns void with no error code.  When a
+      // CRT format is not recognised the loader exits silently without printing
+      // anything and without starting the machine.  We use two signals to detect
+      // this and surface a warning to the console:
+      //
+      // 1. Cart-line counter: the C core always emits at least one printf line
+      //    (e.g. "normal cartridge") when it successfully identifies the CRT
+      //    format.  C64WASM.consumeCartLineCount() returns the number of such
+      //    lines flushed during this call.  Zero = format not recognised.
+      //
+      // 2. debugger_isRunning(): a successful load leaves the machine running.
+      //    If the debugger is still paused after loadCartridge, nothing started.
+      //
+      // Both checks are heuristic — they can in theory fire on edge cases — but
+      // in practice they reliably distinguish a recognised load from a silent
+      // no-op.  Neither throws; the warning is purely diagnostic.
+      const cartLines = this.wasm.consumeCartLineCount();
+      const isRunning = (x as unknown as { debugger_isRunning?: () => number })
+        .debugger_isRunning?.() ?? 1; // default 1 (assume ok) if export absent
+
+      if (cartLines === 0) {
+        console.warn(
+          '[C64 cart] WARNING: no cartridge-type output from WASM during load — ' +
+          'the CRT format may not be recognised by this emulator build.',
+        );
+      }
+      if (!isRunning) {
+        console.warn(
+          '[C64 cart] WARNING: debugger_isRunning() returned 0 after c64_loadCartridge — ' +
+          'the cartridge may have failed to start.',
+        );
+      }
+      if (cartLines > 0 && isRunning) {
+        console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+      }
+
       return;
     }
 

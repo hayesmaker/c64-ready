@@ -24,6 +24,7 @@ describe('C64Emulator', () => {
       c64_reset: vi.fn(),
       c64_removeCartridge: vi.fn(),
       debugger_update: vi.fn(() => 1),
+      debugger_isRunning: vi.fn(() => 1), // default: running after load
       c64_getPixelBuffer: vi.fn(() => 0),
       sid_getAudioBuffer: vi.fn(() => 0),
       sid_dumpBuffer: vi.fn(() => 2),
@@ -49,6 +50,7 @@ describe('C64Emulator', () => {
       },
       allocAndWrite: vi.fn(() => 16),
       free: vi.fn(),
+      consumeCartLineCount: vi.fn(() => 1), // default: 1 line → recognised CRT
     } as unknown as C64WASM;
 
     return { wasm, exports, heapU8 };
@@ -159,6 +161,32 @@ describe('C64Emulator', () => {
     expect(exports.c64_removeCartridge).toHaveBeenCalledOnce();
     // reset must NOT be called implicitly — callers decide if they want a reset
     expect(exports.c64_reset).not.toHaveBeenCalled();
+  });
+
+  it('warns to console when crt load produces no diagnostic output (unrecognised format)', async () => {
+    const { wasm } = makeFakeWasm();
+    // Simulate: WASM printed nothing → format not recognised
+    (wasm as any).consumeCartLineCount = vi.fn(() => 0);
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const emulator = await C64Emulator.load();
+    emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('CRT format may not be recognised'));
+  });
+
+  it('warns to console when debugger_isRunning returns 0 after crt load (machine did not start)', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    // Cart lines OK but machine not running
+    (exports.debugger_isRunning as ReturnType<typeof vi.fn>).mockReturnValue(0);
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const emulator = await C64Emulator.load();
+    emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('debugger_isRunning() returned 0'));
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {
