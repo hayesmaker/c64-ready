@@ -6,6 +6,38 @@ import { execSync } from 'child_process';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
 
+// ── CRT header description (mirrors C64Emulator.describeCrt in c64-emulator.ts) ──
+function describeCrt(data) {
+  if (data.length < 64) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const magic = String.fromCharCode(...data.slice(0, 16)).trimEnd();
+  if (!magic.startsWith('C64 CARTRIDGE')) return null;
+  const hwType = view.getUint16(22, false);
+  const exrom  = data[24];
+  const game   = data[25];
+  const hwTypeNames = {
+    0: 'Normal', 1: 'Action Replay', 3: 'Final Cartridge III', 4: 'Simons BASIC',
+    5: 'Ocean type 1', 7: 'Fun Play', 8: 'Super Games', 15: 'Magic Desk',
+    17: 'Dinamic', 19: 'EasyFlash', 21: 'Comal-80', 32: 'Pagefox',
+  };
+  const memMapNames = {
+    '0,0': '16K (ROML+ROMH)', '0,1': '8K (ROML only)',
+    '1,0': 'MAX Machine (2K at $F800)', '1,1': 'Ultimax / disabled',
+  };
+  const hwName = hwTypeNames[hwType] ?? `Unknown(${hwType})`;
+  const memMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
+  const headerLen = view.getUint32(16, false);
+  let chipCount = 0, off = headerLen;
+  while (off + 16 <= data.length) {
+    const sig = String.fromCharCode(data[off], data[off+1], data[off+2], data[off+3]);
+    if (sig !== 'CHIP') break;
+    chipCount++;
+    off += view.getUint32(off + 4, false);
+    if (chipCount > 64) break;
+  }
+  return `hwType=${hwType}(${hwName}) | ${memMap} | ${chipCount} CHIP(s) | ${data.length} bytes`;
+}
+
 // ── Build info ────────────────────────────────────────────────────────────────
 // Read once at module load so every createInputServer call gets the same values.
 const _repoRootForBuildInfo = path.resolve(new URL('../../', import.meta.url).pathname);
@@ -210,6 +242,8 @@ export async function runHeadless(options = {}) {
     if (gamePath) {
       try {
         const gameData = await fs.readFile(gamePath);
+        const crtDesc = describeCrt(new Uint8Array(gameData));
+        if (crtDesc) console.error(`[C64 cart] loading: ${crtDesc}`);
         const ptr = c64wasm.allocAndWrite(new Uint8Array(gameData));
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
@@ -332,6 +366,8 @@ export async function runHeadless(options = {}) {
                 setImmediate(() => {
                   try {
                     const gapStart = Date.now();
+                    const crtDesc = describeCrt(arr);
+                    if (crtDesc) console.error(`[C64 cart] loading: ${crtDesc}`);
                     exports.c64_removeCartridge();
                     exports.c64_reset();           // clean slate before loading new cart
                     const ptr = c64wasm.allocAndWrite(arr);

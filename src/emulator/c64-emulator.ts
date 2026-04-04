@@ -145,11 +145,59 @@ export class C64Emulator {
   // Game loading
   // ---------------------------------------------------------------------------
 
+  /**
+   * Parse the CRT file header and return a human-readable one-line description
+   * matching the format used by tools/cart-diagnostics.mjs.
+   * Returns null if the data is too short to be a valid CRT.
+   */
+  private static describeCrt(data: Uint8Array): string | null {
+    if (data.length < 64) return null;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const magic = String.fromCharCode(...data.slice(0, 16)).trimEnd();
+    if (!magic.startsWith('C64 CARTRIDGE')) return null;
+
+    const hwType = view.getUint16(22, false);
+    const exrom  = data[24];
+    const game   = data[25];
+
+    const hwTypeNames: Record<number, string> = {
+      0: 'Normal', 1: 'Action Replay', 3: 'Final Cartridge III', 4: 'Simons BASIC',
+      5: 'Ocean type 1', 7: 'Fun Play', 8: 'Super Games', 15: 'Magic Desk',
+      17: 'Dinamic', 19: 'EasyFlash', 21: 'Comal-80', 32: 'Pagefox',
+    };
+    const memMapNames: Record<string, string> = {
+      '0,0': '16K (ROML+ROMH)',
+      '0,1': '8K (ROML only)',
+      '1,0': 'MAX Machine (2K at $F800)',
+      '1,1': 'Ultimax / disabled',
+    };
+    const hwName = hwTypeNames[hwType] ?? `Unknown(${hwType})`;
+    const memMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
+
+    // Count CHIP packets
+    const headerLen = view.getUint32(16, false);
+    let chipCount = 0;
+    let off = headerLen;
+    while (off + 16 <= data.length) {
+      const sig = String.fromCharCode(data[off], data[off+1], data[off+2], data[off+3]);
+      if (sig !== 'CHIP') break;
+      chipCount++;
+      off += view.getUint32(off + 4, false);
+      if (chipCount > 64) break;
+    }
+
+    return `hwType=${hwType}(${hwName}) | ${memMap} | ${chipCount} CHIP(s) | ${data.length} bytes`;
+  }
+
   loadGame(options: GameLoadOptions): void {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
 
     if (options.type === 'crt') {
+      // Log CRT header characteristics before anything touches WASM state
+      const crtDesc = C64Emulator.describeCrt(options.data);
+      if (crtDesc) console.log(`[C64 cart] loading: ${crtDesc}`);
+
       // Mirror the headless cart-load sequence exactly:
       //   removeCartridge → reset → allocAndWrite → loadCartridge
       // This is safe on a fresh emulator (removeCartridge is a no-op when
