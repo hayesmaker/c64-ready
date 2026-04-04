@@ -225,7 +225,7 @@ describe('C64Emulator', () => {
     expect(exports.c64_cpuWrite).toHaveBeenCalledWith(1, 0x37);
   });
 
-  it('reset() calls c64_reset, cpuWrite($37 to CPU port), then debugger_play so the machine resumes', async () => {
+  it('reset() calls c64_reset, cpuWrite($37 to CPU port), clears $0200-$02FF, then debugger_play so the machine resumes', async () => {
     const { wasm, exports } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const emulator = await C64Emulator.load();
@@ -233,12 +233,21 @@ describe('C64Emulator', () => {
     // Clear call counts from init
     (exports.c64_reset as ReturnType<typeof vi.fn>).mockClear();
     (exports.c64_cpuWrite as ReturnType<typeof vi.fn>).mockClear();
+    (exports.c64_ramWrite as ReturnType<typeof vi.fn>).mockClear();
     (exports.debugger_play as ReturnType<typeof vi.fn>).mockClear();
 
     emulator.reset();
 
     expect(exports.c64_reset).toHaveBeenCalledOnce();
     expect(exports.c64_cpuWrite).toHaveBeenCalledWith(1, 0x37);
+
+    // Must zero the KERNAL system-variable page ($0200-$02FF) to prevent
+    // stale CIA timer state from corrupting DDR during KERNAL cold-start boot.
+    const ramWrites = (exports.c64_ramWrite as ReturnType<typeof vi.fn>).mock.calls;
+    const page2Writes = ramWrites.filter(([addr]: [number, number]) => addr >= 0x0200 && addr <= 0x02FF);
+    expect(page2Writes.length).toBe(256);
+    page2Writes.forEach(([_addr, val]: [number, number]) => expect(val).toBe(0));
+
     expect(exports.debugger_play).toHaveBeenCalledOnce();
   });
 
