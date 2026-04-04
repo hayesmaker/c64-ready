@@ -448,6 +448,9 @@ export async function runHeadless(options = {}) {
               exports.c64_removeCartridge();
               exports.c64_reset();
               exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
+              // Zero KERNAL system-variable page to prevent stale cart CIA timer state from corrupting
+              // the CPU I/O DDR register during KERNAL cold-start boot (see c64-emulator.ts reset()).
+              for (let _a = 0x0200; _a <= 0x02FF; _a++) exports.c64_ramWrite(_a, 0);
               exports.debugger_play();        // c64_reset() preserves paused state — always resume
               exports.sid_getAudioBuffer();   // drain SID counter reset by c64_reset() to avoid burst
               const gapMs = Date.now() - gapStart;
@@ -465,6 +468,8 @@ export async function runHeadless(options = {}) {
               exports.c64_removeCartridge();
               exports.c64_reset();
               exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
+              // Zero KERNAL system-variable page — same fix as detach-crt (see c64-emulator.ts reset()).
+              for (let _a = 0x0200; _a <= 0x02FF; _a++) exports.c64_ramWrite(_a, 0);
               exports.debugger_play();        // c64_reset() preserves paused state — always resume
               exports.sid_getAudioBuffer();   // drain SID counter reset by c64_reset() to avoid burst
               const gapMs = Date.now() - gapStart;

@@ -100,27 +100,49 @@ export class C64Emulator {
   }
 
   reset(): void {
-    this.wasm.exports?.c64_reset();
+    const x = this.wasm.exports;
+    if (!x) return;
+
+    x.c64_reset();
+
     // Some cartridge types (EXROM=0, GAME=0 / EXROM=0, GAME=1) leave the CPU
     // I/O port ($01) in a state that banks out KERNAL and BASIC after c64_reset().
     // Writing $37 (LORAM=1, HIRAM=1, CHAREN=1) via c64_cpuWrite (not c64_ramWrite)
     // goes through the 6510 CPU port mechanism and updates the WASM's internal
     // banking registers — restoring KERNAL+BASIC visibility so the reset vector
     // at $FFFC/$FFFD reads the correct KERNAL address ($FCE2).
-    // c64_ramWrite(1, 0x37) only patches the RAM byte; it does NOT update the
-    // banked memory map, so $E000-$FFFF can remain unmapped (reads as $FF) even
-    // after the write — that's why 16K carts (EXROM=0, GAME=0) failed to detach.
-    this.wasm.exports?.c64_cpuWrite(1, 0x37);
+    x.c64_cpuWrite(1, 0x37);
+
+    // ── KERNAL cold-start RAM fixup ───────────────────────────────────────────
+    // Problem: certain cartridges (e.g. 8K Normal / 16K Normal) modify the
+    // KERNAL's system-variable page ($0200-$02FF) and the CIA1 timer during
+    // gameplay.  c64_reset() resets the CPU but does NOT clear RAM.  When the
+    // KERNAL cold start runs, a CIA1 timer interrupt fires very early (before
+    // the KERNAL can call SEI) because the stale cart timer interval is short.
+    // That early IRQ lands in a half-initialized KERNAL, corrupting the CPU I/O
+    // DDR register ($00) with a test pattern, which banks out KERNAL and causes
+    // the frozen-screen symptom seen after detaching such carts.
+    //
+    // Fix: zero the KERNAL system-variable page ($0200-$02FF) after reset.
+    // The KERNAL cold start re-initializes this page unconditionally anyway,
+    // and clearing it prevents the stale timing state from triggering the
+    // early-IRQ corruption.  User BASIC programs (from $0801+) are unaffected.
+    for (let addr = 0x0200; addr <= 0x02FF; addr++) {
+      x.c64_ramWrite(addr, 0);
+    }
+
     // c64_reset() resets CPU/memory but preserves the debugger's running/paused
     // state.  Explicitly call debugger_play() so the machine always resumes.
-    this.wasm.exports?.debugger_play();
+    x.debugger_play();
+
     // c64_reset() also resets the SID's internal write counter to 0.  If the
     // audio worklet calls getSidBuffer() → sid_getAudioBuffer() before the next
     // debugger_update(), the counter mismatch causes the first update to run a
     // burst of extra cycles to refill the 4096-sample buffer, blocking the
     // browser for ~100ms and corrupting the KERNAL boot sequence timing.
     // Drain once here so the SID write counter and JS-side reader are in sync.
-    this.wasm.exports?.sid_getAudioBuffer();
+    x.sid_getAudioBuffer();
+
     this.frameCount = 0;
   }
 
@@ -140,12 +162,6 @@ export class C64Emulator {
     const x = this.wasm.exports!;
 
     // Clamp dTime to one frame's worth of work (~20ms at 50fps).
-    // Without this, any synchronous blocking work that happens between two rAF
-    // calls (e.g. the post-load 60-frame PC probe, a cart reset, a detach) causes
-    // the next tick to receive an enormous dTime and the WASM runs hundreds of
-    // extra frames in a single call, producing a visible multi-second freeze.
-    // Clamping to 25ms (allowing slight tolerance above 50fps) keeps the emulator
-    // at real-time speed after any blocking gap.
     if (!dTime || dTime > 25) dTime = 20;
 
     const updated = x.debugger_update(dTime);
