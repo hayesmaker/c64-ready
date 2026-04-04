@@ -28,6 +28,26 @@ export class C64WASM {
 
   private wasmMemory: WebAssembly.Memory | null = null;
 
+  /**
+   * Counter incremented each time the WASM emits a non-empty line to stderr
+   * (fd=2).  The C core always prints at least one line (e.g. "normal cartridge")
+   * when it successfully identifies a CRT format.  consumeCartLineCount() reads
+   * and resets this counter so c64-emulator can detect silent-failure loads.
+   */
+  private _cartLineCount = 0;
+
+  /**
+   * Return the number of stderr lines the WASM has emitted since the last call
+   * to this method (or since instantiation), then reset the counter to zero.
+   * Used by C64Emulator to detect whether c64_loadCartridge() recognised the
+   * CRT format (≥1 line) or silently ignored it (0 lines).
+   */
+  consumeCartLineCount(): number {
+    const n = this._cartLineCount;
+    this._cartLineCount = 0;
+    return n;
+  }
+
   // ---------------------------------------------------------------------------
   // Bootstrap
   // ---------------------------------------------------------------------------
@@ -166,9 +186,12 @@ export class C64WASM {
           const len = view.getUint32(iovs + i * 8 + 4, true);
           // Only forward stderr (fd 2) to the console — stdout (fd 1) is
           // extremely noisy (SID dumps buffer length every frame).
-          if (fd === 2) {
+          if (fd === 2 && len > 0) {
             const text = new TextDecoder().decode(u8.subarray(ptr, ptr + len));
             console.error(text);
+            // Count non-whitespace lines so C64Emulator can detect whether
+            // c64_loadCartridge() recognised the CRT format.
+            if (text.trim().length > 0) this._cartLineCount++;
           }
           written += len;
         }
