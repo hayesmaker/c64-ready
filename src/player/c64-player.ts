@@ -10,7 +10,7 @@ export type ProgressCallback = (percent: number, label: string) => void;
 
 export interface C64PlayerOptions {
   wasmUrl: string;
-  gameUrl: string;
+  gameUrl?: string;
   gameType?: GameLoadOptions['type'];
   renderer: CanvasRenderer;
   onProgress?: ProgressCallback;
@@ -20,7 +20,7 @@ export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
   readonly audio = new AudioEngine();
-  private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
+  private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameType'>> &
     C64PlayerOptions;
 
   constructor(options: C64PlayerOptions) {
@@ -37,7 +37,10 @@ export class C64Player {
     this.inputHandler.attach();
     renderer.attachTo(this.emulator);
 
-    await this.loadGame(gameUrl, gameType, onProgress);
+    // Allow emulator to load clean BASIC prompt.
+    if (gameUrl) {
+      await this.loadGame(gameUrl, gameType, onProgress);
+    }
 
     this.emulator.start();
 

@@ -9,7 +9,8 @@ const base = import.meta.env.BASE_URL;
 // Create player and keep in outer scope so UI can trigger file loads
 const player = new C64Player({
   wasmUrl: `${base}c64.wasm`,
-  gameUrl: `${base}games/cartridges/legend-of-wilf.crt`,
+  // No gameUrl — boots to clean C64 BASIC prompt.
+  // Load a cartridge via the UI menu (drag & drop or file browser).
   renderer,
   onProgress: (pct, label) => renderer.setProgress(pct, label),
 });
