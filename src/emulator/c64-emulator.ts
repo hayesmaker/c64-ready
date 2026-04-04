@@ -70,10 +70,15 @@ export class C64Emulator {
     const x = this.wasm.exports;
     if (!x) throw new Error('WASM exports not available');
     x.c64_init();
-    // Reference config to avoid unused-private-field warnings in TS and
-    // ensure sample rate is applied on init. Guard calls in case the
-    // underlying WASM exports don't provide the SID helper (tests/fake
-    // instantiations may omit it).
+    // Mirror the headless init sequence exactly — both speed and play must be
+    // set explicitly.  c64_init() sets speed=100 and running=1 by default, but
+    // some cartridge types (plain 8K normal cart) rely on debugger_play() being
+    // called before their first debugger_update().  Without it, simple carts
+    // load silently but never execute a single CPU cycle (the debugger stays in
+    // its post-init "play" state on most carts but certain CBUG paths leave it
+    // paused).  Calling both unconditionally is safe and matches headless-cli.
+    x.debugger_set_speed(100);
+    x.debugger_play();
     if (this.config.sampleRate) {
       const fn = (this.wasm.exports as unknown as { sid_setSampleRate?: (rate: number) => unknown })
         .sid_setSampleRate;
@@ -96,6 +101,11 @@ export class C64Emulator {
 
   reset(): void {
     this.wasm.exports?.c64_reset();
+    // c64_reset() resets CPU/memory but preserves the debugger's running/paused
+    // state.  Explicitly call debugger_play() so the machine always resumes
+    // after a reset rather than sitting frozen — mirrors the headless hard-reset
+    // path (resetSidRing + debugger_play implied by the init sequence).
+    this.wasm.exports?.debugger_play();
     this.frameCount = 0;
   }
 
@@ -146,6 +156,11 @@ export class C64Emulator {
       // nothing is mounted) and correct for hot-swaps.
       x.c64_removeCartridge();
       x.c64_reset();
+      // Ensure the debugger is playing before the cart load — c64_reset()
+      // preserves the current paused/running state and c64_loadCartridge()
+      // does NOT internally call debugger_play().  Without this, simple 8K
+      // normal cartridges (EXROM=0, GAME=1) load but execute zero CPU cycles.
+      x.debugger_play();
       this.frameCount = 0;
     }
 
