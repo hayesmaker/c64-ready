@@ -114,6 +114,13 @@ export class C64Emulator {
     // c64_reset() resets CPU/memory but preserves the debugger's running/paused
     // state.  Explicitly call debugger_play() so the machine always resumes.
     this.wasm.exports?.debugger_play();
+    // c64_reset() also resets the SID's internal write counter to 0.  If the
+    // audio worklet calls getSidBuffer() → sid_getAudioBuffer() before the next
+    // debugger_update(), the counter mismatch causes the first update to run a
+    // burst of extra cycles to refill the 4096-sample buffer, blocking the
+    // browser for ~100ms and corrupting the KERNAL boot sequence timing.
+    // Drain once here so the SID write counter and JS-side reader are in sync.
+    this.wasm.exports?.sid_getAudioBuffer();
     this.frameCount = 0;
   }
 

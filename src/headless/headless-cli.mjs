@@ -380,6 +380,7 @@ export async function runHeadless(options = {}) {
                     exports.c64_removeCartridge();
                     exports.c64_reset();           // clean slate before loading new cart
                     exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
+                    exports.debugger_play();        // c64_reset() preserves paused state — always resume before load
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
@@ -447,6 +448,8 @@ export async function runHeadless(options = {}) {
               exports.c64_removeCartridge();
               exports.c64_reset();
               exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
+              exports.debugger_play();        // c64_reset() preserves paused state — always resume
+              exports.sid_getAudioBuffer();   // drain SID counter reset by c64_reset() to avoid burst
               const gapMs = Date.now() - gapStart;
               resetSidRing();
               if (webrtcEncoder) {
@@ -462,6 +465,8 @@ export async function runHeadless(options = {}) {
               exports.c64_removeCartridge();
               exports.c64_reset();
               exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
+              exports.debugger_play();        // c64_reset() preserves paused state — always resume
+              exports.sid_getAudioBuffer();   // drain SID counter reset by c64_reset() to avoid burst
               const gapMs = Date.now() - gapStart;
               resetSidRing();
               if (webrtcEncoder) {
