@@ -247,6 +247,9 @@ export class C64Emulator {
       //     the pointer during bank parsing; freeing it immediately corrupts
       //     the cartridge data (headless CLI has the same comment).
       //   - No c64_reset() / debugger_play() after — loadCartridge handles it.
+      // Flush any stdout noise accumulated during init/reset before loading,
+      // so consumeCartLineCount() after the call only counts cart-load output.
+      this.wasm.consumeCartLineCount();
       x.c64_loadCartridge(ptr, options.data.length);
 
       // ── Silent-failure detection (two independent heuristics) ──────────────
@@ -298,6 +301,13 @@ export class C64Emulator {
             x.debugger_update(20);
             pcSet.add(getPC());
           }
+          // The 60-frame probe loop accumulates ~54 000 SID samples (60 × 20 ms ×
+          // ~45 samples/ms at 44 100 Hz) without ever calling sid_getAudioBuffer().
+          // The SID's internal write counter wraps ~13× past the 4096-sample buffer
+          // boundary.  If left unserviced, the next call from the audio worklet
+          // supplies an out-of-bounds pointer → WASM trap.
+          // Drain once here to reset the write counter regardless of probe outcome.
+          x.sid_getAudioBuffer();
           if (pcSet.size === 1) {
             const stuckPc = '0x' + [...pcSet][0].toString(16).toUpperCase();
             const msg =
