@@ -28,20 +28,53 @@ Uncaught RuntimeError: memory access out of bounds
 
 ### Known cartridge incompatibilities
 
-#### Plain 8K normal cartridge (hwType=0, EXROM=0, GAME=1)
+All failures below are **WASM C core bugs** — they reproduce identically in the original `c64.js` Emscripten build using the same `.wasm` binary. They are not regressions introduced by c64-ready. The root fix in every case requires a patch to the C source and a recompile of the `.wasm` binary.
 
-**Status:** Loads silently but CPU is frozen — unusable.  
-**Affected examples:** `adventure1-the-mutant-spiders.crt`  
-**Also fails in:** The original `c64.js` Emscripten implementation using the same `.wasm` binary — confirming this is a **WASM C core bug**, not something introduced by c64-ready.
+Detection: c64-ready runs a 60-frame PC uniqueness probe after every `c64_loadCartridge()` call. A machine with exactly 1 unique PC across 60 frames is flagged as stuck and surfaced as an amber `CARTRIDGE UNSUPPORTED` UI prompt.
 
-**Technical diagnosis:**  
-The WASM `c64_loadCartridge()` correctly maps the 8KB ROM at `$8000–$9FFF` and prints `"normal cartridge"` to stdout, but its internal reset routine leaves the CPU I/O port register (`$01`) at `$F9` (LORAM=0, HIRAM=0, CHAREN=1). With both LORAM and HIRAM low, the KERNAL and BASIC ROMs are **both banked out** and replaced by RAM. The 6502 reset vector at `$FFFC/$FFFD` reads from RAM (zeros), so the CPU jumps to `$0000`, executes garbage, and ends up spinning in an infinite loop at `$A47F`. The emulator surface shows a blank/crashed BASIC screen with no text or cursor.
+Batch-tested against 83 known 8K cartridges: **58 OK, 25 STUCK, 0 crashes**.
 
-Calling `c64_reset()` afterwards does not help — the WASM reset handler reads back its own internal cart state and restores `$01` to `$F9` again.
+---
 
-**Detection:** c64-ready detects this via the stuck-CPU heuristic: after load, 3 frames of `debugger_update()` are run and the PC is checked before and after. If `PC₀ === PC₁`, a `c64-cart-load-failed` event is dispatched and the UI shows an amber `CARTRIDGE UNSUPPORTED` prompt.
+#### Type A — Plain 8K normal (hwType=0, EXROM=0, GAME=1) — CPU stuck in KERNAL range
 
-**Root fix required:** The WASM C core's `c64_reset()` / `c64_loadCartridge()` for plain 8K normal carts must restore the CPU I/O port to `$37` (LORAM=1, HIRAM=1, CHAREN=1) so the KERNAL autostart sequence can run. This requires a fix in the C source and a recompile of the `.wasm` binary.
+**Stuck address:** `$A47F` / `$A484` (KERNAL RAM area)  
+**Affected examples:** `Adventure 1 - Mutant Spiders.crt`, `Adventure 3 - Fourth Sarcophagus.crt`
+
+`c64_loadCartridge()` correctly maps the 8KB ROM at `$8000–$9FFF` and prints `"normal cartridge"`, but its internal reset leaves the CPU I/O port (`$01`) at `$F9` (LORAM=0, HIRAM=0, CHAREN=1). With KERNAL and BASIC both banked out, the 6502 reset vector at `$FFFC/$FFFD` reads from RAM (zeros), the CPU jumps to `$0000`, executes garbage, and settles into a spin loop in what should be KERNAL space. Hard reset does not recover — `c64_reset()` re-reads the WASM cart state and restores `$01` to `$F9`.
+
+**Root fix required:** The WASM cart loader for EXROM=0/GAME=1 must restore `$01` to `$37` (LORAM=1, HIRAM=1, CHAREN=1) before triggering its internal reset.
+
+---
+
+#### Type B — MAX Machine cartridge (hwType=0, EXROM=1, GAME=0) — CPU stuck at `$0105`
+
+**Stuck address:** `$0105` (zero page + 1, i.e. executing garbage RAM)  
+**Affected examples:** `Avenger.crt`, `Avenger (MAX).crt`, `Clowns (MAX - v01/v02).crt`, `Jupiter Lander.crt`, `Kickman.crt`, `LeMans.crt`, `Mole Attack.crt`, `Money Wars.crt`, `Omega Race (MAX).crt`, `Radar Rat Race (MAX).crt`, `Road Race.crt`, `Sea Wolf.crt`, `Speed Math & Bingo Math.crt`, `Super Alien.crt`, `Visible Solar System.crt`, `Wizard of Wor (MAX v01/v02).crt` (21 carts total)
+
+MAX Machine mode (EXROM=1, GAME=0) maps only the top 2KB of the 8K ROM at `$F800–$FFFF` as the reset/interrupt vector page, with RAM below. The WASM loader does not appear to implement this memory map correctly — the machine boots into RAM and spins at `$0105`.
+
+**Root fix required:** Correct MAX Machine memory mapping in the WASM C core (EXROM=1, GAME=0 = 2K at `$F800`, no ROML).
+
+---
+
+#### Type C — 16K normal (hwType=0, EXROM=0, GAME=0) — CPU stuck at `$FF09`
+
+**Stuck address:** `$FF09` (KERNAL ROM / RAM overlap area)  
+**Affected examples:** `Space Action.crt`, `Tenpins.crt`
+
+EXROM=0, GAME=0 maps 16K: ROML at `$8000` and ROMH at `$A000`. With a single 8K CHIP packet this results in ROMH (`$A000`) being unmapped or mirrored incorrectly, causing the KERNAL to jump into a bad address during the autostart sequence.
+
+**Root fix required:** The WASM loader must handle the EXROM=0/GAME=0 (16K mode) correctly when only one CHIP packet is present.
+
+---
+
+#### Type D — Plain 8K normal (hwType=0, EXROM=0, GAME=1) variant — CPU stuck at `$1FD`
+
+**Stuck address:** `$01FD` (stack area)  
+**Affected examples:** `Checkers.crt`
+
+Same hardware config as Type A but stuck at a different address, suggesting a different code path or a corrupted/unusual ROM layout.
 
 ---
 
