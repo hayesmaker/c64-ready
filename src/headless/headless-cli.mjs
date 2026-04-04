@@ -379,7 +379,7 @@ export async function runHeadless(options = {}) {
                     if (crtDesc) console.error(`[C64 cart] loading: ${crtDesc}`);
                     exports.c64_removeCartridge();
                     exports.c64_reset();           // clean slate before loading new cart
-                    exports.c64_ramWrite(1, 0x37); // restore KERNAL+BASIC after reset
+                    exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
@@ -446,7 +446,7 @@ export async function runHeadless(options = {}) {
               const gapStart = Date.now();
               exports.c64_removeCartridge();
               exports.c64_reset();
-              exports.c64_ramWrite(1, 0x37); // restore KERNAL+BASIC after reset
+              exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
               const gapMs = Date.now() - gapStart;
               resetSidRing();
               if (webrtcEncoder) {
@@ -461,7 +461,7 @@ export async function runHeadless(options = {}) {
               const gapStart = Date.now();
               exports.c64_removeCartridge();
               exports.c64_reset();
-              exports.c64_ramWrite(1, 0x37); // restore KERNAL+BASIC after reset
+              exports.c64_cpuWrite(1, 0x37); // restore KERNAL+BASIC via CPU port (updates banking registers)
               const gapMs = Date.now() - gapStart;
               resetSidRing();
               if (webrtcEncoder) {

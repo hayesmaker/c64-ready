@@ -102,12 +102,15 @@ export class C64Emulator {
   reset(): void {
     this.wasm.exports?.c64_reset();
     // Some cartridge types (EXROM=0, GAME=0 / EXROM=0, GAME=1) leave the CPU
-    // I/O port ($01) at $00 or $F9 after c64_reset(), which banks out KERNAL
-    // and BASIC.  The KERNAL boot sequence never runs so the screen stays blank.
-    // Writing $37 (LORAM=1, HIRAM=1, CHAREN=1) restores the default memory map;
-    // the KERNAL will overwrite it with $37 again during its own init anyway, so
-    // this is a safe no-op for carts that don't corrupt the port.
-    this.wasm.exports?.c64_ramWrite(1, 0x37);
+    // I/O port ($01) in a state that banks out KERNAL and BASIC after c64_reset().
+    // Writing $37 (LORAM=1, HIRAM=1, CHAREN=1) via c64_cpuWrite (not c64_ramWrite)
+    // goes through the 6510 CPU port mechanism and updates the WASM's internal
+    // banking registers — restoring KERNAL+BASIC visibility so the reset vector
+    // at $FFFC/$FFFD reads the correct KERNAL address ($FCE2).
+    // c64_ramWrite(1, 0x37) only patches the RAM byte; it does NOT update the
+    // banked memory map, so $E000-$FFFF can remain unmapped (reads as $FF) even
+    // after the write — that's why 16K carts (EXROM=0, GAME=0) failed to detach.
+    this.wasm.exports?.c64_cpuWrite(1, 0x37);
     // c64_reset() resets CPU/memory but preserves the debugger's running/paused
     // state.  Explicitly call debugger_play() so the machine always resumes.
     this.wasm.exports?.debugger_play();
@@ -229,8 +232,9 @@ export class C64Emulator {
       // nothing is mounted) and correct for hot-swaps.
       x.c64_removeCartridge();
       x.c64_reset();
-      // Restore default memory map — same fix as reset() above.
-      x.c64_ramWrite(1, 0x37);
+      // Use c64_cpuWrite (not c64_ramWrite) to go through the 6510 CPU port
+      // mechanism — this updates the WASM's internal banking registers.
+      x.c64_cpuWrite(1, 0x37);
       // Ensure the debugger is playing before the cart load.
       // preserves the current paused/running state and c64_loadCartridge()
       // does NOT internally call debugger_play().  Without this, simple 8K
