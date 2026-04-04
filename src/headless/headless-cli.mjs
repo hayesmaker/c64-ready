@@ -214,6 +214,19 @@ export async function runHeadless(options = {}) {
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
         exports.c64_loadCartridge(ptr, gameData.length);
+        // ── Silent-failure detection (mirrors C64Emulator.loadGame) ──────────
+        const cartLines = c64wasm.consumeCartLineCount();
+        const isRunning = typeof exports.debugger_isRunning === 'function'
+          ? exports.debugger_isRunning() : 1;
+        if (cartLines === 0) {
+          console.error('[C64 cart] WARNING: no cartridge-type output from WASM during load — ' +
+            'CRT format may not be recognised by this emulator build.');
+        } else if (!isRunning) {
+          console.error('[C64 cart] WARNING: debugger_isRunning() returned 0 after load — ' +
+            'the cartridge may have failed to start.');
+        } else {
+          console.error(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+        }
         // free(ptr), c64_reset, debugger_set_speed, debugger_play intentionally
         // omitted: c64_loadCartridge already resets and resumes the machine
         // internally. Calling them re-triggers the ROM boot sequence — the same
@@ -313,6 +326,20 @@ export async function runHeadless(options = {}) {
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
                     exports.c64_loadCartridge(ptr, byteLen);
+                    // ── Silent-failure detection ──────────────────────────────
+                    const cartLines = c64wasm.consumeCartLineCount();
+                    const isRunning = typeof exports.debugger_isRunning === 'function'
+                      ? exports.debugger_isRunning() : 1;
+                    if (cartLines === 0) {
+                      console.error('[C64 cart] WARNING: no cartridge-type output from WASM — ' +
+                        'CRT format may not be recognised by this emulator build.');
+                    } else if (!isRunning) {
+                      console.error('[C64 cart] WARNING: debugger_isRunning() returned 0 — ' +
+                        'the cartridge may have failed to start.');
+                    } else {
+                      console.error(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+                    }
+                    // ─────────────────────────────────────────────────────────
                     // free(ptr), debugger_set_speed and debugger_play intentionally
                     // omitted: c64_loadCartridge internally resets and resumes.
                     const gapMs = Date.now() - gapStart;

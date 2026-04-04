@@ -11,6 +11,43 @@ export class C64WASM {
   // Reuse a single TextDecoder — avoids creating a new object on every fd_write call.
   #textDecoder = new TextDecoder();
 
+  // ── Cartridge diagnostic line-buffering (mirrors c64-wasm.ts) ─────────────
+  // Characters from WASM stdout (fd 1) are accumulated per-line and flushed on
+  // newline/null.  Matching lines are logged; consumeCartLineCount() returns
+  // the count since the last call — used by headless-cli to detect silent
+  // cart-load failures.
+  #stdoutBuf = [];
+  #cartLineCount = 0;
+
+  static #CART_LOG_PATTERNS = [
+    /cartri?dge/i,
+    /bank\s*\d+/i,
+    /bank\s*count/i,
+    /read\s+magic/i,
+    /easy\s*flash/i,
+    /crt\b/i,
+  ];
+
+  /** Return and reset the cart-diagnostic line counter. */
+  consumeCartLineCount() {
+    const n = this.#cartLineCount;
+    this.#cartLineCount = 0;
+    return n;
+  }
+
+  #flushStdoutLine() {
+    if (this.#stdoutBuf.length === 0) return;
+    const line = this.#textDecoder.decode(new Uint8Array(this.#stdoutBuf)).trim();
+    this.#stdoutBuf = [];
+    if (!line) return;
+    const isCartLine = C64WASM.#CART_LOG_PATTERNS.some((re) => re.test(line));
+    if (isCartLine) {
+      console.error('[C64 cart]', line);
+      this.#cartLineCount++;
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   static DYNAMICTOP_PTR = 5583504;
   static DYNAMIC_BASE = 10826544;
   static INITIAL_PAGES = 256;
@@ -114,10 +151,24 @@ export class C64WASM {
         for (let i = 0; i < iovs_len; i++) {
           const ptr = view.getUint32(iovs + i * 8, true);
           const len = view.getUint32(iovs + i * 8 + 4, true);
-          if (fd === 2) {
+
+          if (fd === 1) {
+            // stdout — accumulate into line buffer, flush on newline/null.
+            // Surfaces cartridge loading diagnostics while suppressing the
+            // noisy per-frame SID/timing output.
+            for (let j = 0; j < len; j++) {
+              const ch = u8[ptr + j];
+              if (ch === 0 || ch === 10 /* '\n' */) {
+                this.#flushStdoutLine();
+              } else {
+                this.#stdoutBuf.push(ch);
+              }
+            }
+          } else if (fd === 2) {
             const text = this.#textDecoder.decode(u8.subarray(ptr, ptr + len));
             console.error(text);
           }
+
           written += len;
         }
         view.setUint32(nwritten, written, true);
