@@ -37,10 +37,13 @@ export class C64WASM {
   private _cartLineCount = 0;
 
   /**
-   * Return the number of stderr lines the WASM has emitted since the last call
-   * to this method (or since instantiation), then reset the counter to zero.
+   * Return the number of stdout/stderr lines the WASM has emitted since the
+   * last call to this method (or since instantiation), then reset the counter
+   * to zero.
    * Used by C64Emulator to detect whether c64_loadCartridge() recognised the
    * CRT format (≥1 line) or silently ignored it (0 lines).
+   * Call once immediately before c64_loadCartridge() to clear any noise from
+   * init/frame output, then call again after to get the cart-load count only.
    */
   consumeCartLineCount(): number {
     const n = this._cartLineCount;
@@ -186,12 +189,17 @@ export class C64WASM {
           const len = view.getUint32(iovs + i * 8 + 4, true);
           // Only forward stderr (fd 2) to the console — stdout (fd 1) is
           // extremely noisy (SID dumps buffer length every frame).
-          if (fd === 2 && len > 0) {
+          if (len > 0) {
             const text = new TextDecoder().decode(u8.subarray(ptr, ptr + len));
-            console.error(text);
-            // Count non-whitespace lines so C64Emulator can detect whether
-            // c64_loadCartridge() recognised the CRT format.
+            // Count non-whitespace output on any fd — the C core prints cart
+            // diagnostics to stdout (fd=1), not stderr.  We suppress stdout
+            // logging to avoid noise (SID dumps length every frame) but still
+            // need to track it for the cart-load heuristic.  Call
+            // consumeCartLineCount() once before c64_loadCartridge() to flush
+            // any pre-load noise, then again after to get the cart-only count.
             if (text.trim().length > 0) this._cartLineCount++;
+            // Only forward stderr (fd=2) to the console — stdout is very noisy.
+            if (fd === 2) console.error(text);
           }
           written += len;
         }

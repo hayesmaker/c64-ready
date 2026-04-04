@@ -247,6 +247,9 @@ export class C64Emulator {
       //     the pointer during bank parsing; freeing it immediately corrupts
       //     the cartridge data (headless CLI has the same comment).
       //   - No c64_reset() / debugger_play() after — loadCartridge handles it.
+      // Flush any stdout noise accumulated during init/reset before loading,
+      // so consumeCartLineCount() after the call only counts cart-load output.
+      this.wasm.consumeCartLineCount();
       x.c64_loadCartridge(ptr, options.data.length);
 
       // ── Silent-failure detection (two independent heuristics) ──────────────
