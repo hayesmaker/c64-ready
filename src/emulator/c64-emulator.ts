@@ -70,10 +70,15 @@ export class C64Emulator {
     const x = this.wasm.exports;
     if (!x) throw new Error('WASM exports not available');
     x.c64_init();
-    // Reference config to avoid unused-private-field warnings in TS and
-    // ensure sample rate is applied on init. Guard calls in case the
-    // underlying WASM exports don't provide the SID helper (tests/fake
-    // instantiations may omit it).
+    // Mirror the headless init sequence exactly — both speed and play must be
+    // set explicitly.  c64_init() sets speed=100 and running=1 by default, but
+    // some cartridge types (plain 8K normal cart) rely on debugger_play() being
+    // called before their first debugger_update().  Without it, simple carts
+    // load silently but never execute a single CPU cycle (the debugger stays in
+    // its post-init "play" state on most carts but certain CBUG paths leave it
+    // paused).  Calling both unconditionally is safe and matches headless-cli.
+    x.debugger_set_speed(100);
+    x.debugger_play();
     if (this.config.sampleRate) {
       const fn = (this.wasm.exports as unknown as { sid_setSampleRate?: (rate: number) => unknown })
         .sid_setSampleRate;
@@ -96,6 +101,16 @@ export class C64Emulator {
 
   reset(): void {
     this.wasm.exports?.c64_reset();
+    // Some cartridge types (EXROM=0, GAME=0 / EXROM=0, GAME=1) leave the CPU
+    // I/O port ($01) at $00 or $F9 after c64_reset(), which banks out KERNAL
+    // and BASIC.  The KERNAL boot sequence never runs so the screen stays blank.
+    // Writing $37 (LORAM=1, HIRAM=1, CHAREN=1) restores the default memory map;
+    // the KERNAL will overwrite it with $37 again during its own init anyway, so
+    // this is a safe no-op for carts that don't corrupt the port.
+    this.wasm.exports?.c64_ramWrite(1, 0x37);
+    // c64_reset() resets CPU/memory but preserves the debugger's running/paused
+    // state.  Explicitly call debugger_play() so the machine always resumes.
+    this.wasm.exports?.debugger_play();
     this.frameCount = 0;
   }
 
@@ -114,11 +129,14 @@ export class C64Emulator {
     if (!this.running) return;
     const x = this.wasm.exports!;
 
-    // Clamp dTime exactly like the original c64.js render loop:
-    // if dTime is 0 or > 100 ms, lock to ~60 fps to prevent runaway cycles.
-    // if (!dTime || dTime > 100) {
-    //   dTime = 1000 / 60;
-    // }
+    // Clamp dTime to one frame's worth of work (~20ms at 50fps).
+    // Without this, any synchronous blocking work that happens between two rAF
+    // calls (e.g. the post-load 60-frame PC probe, a cart reset, a detach) causes
+    // the next tick to receive an enormous dTime and the WASM runs hundreds of
+    // extra frames in a single call, producing a visible multi-second freeze.
+    // Clamping to 25ms (allowing slight tolerance above 50fps) keeps the emulator
+    // at real-time speed after any blocking gap.
+    if (!dTime || dTime > 25) dTime = 20;
 
     const updated = x.debugger_update(dTime);
     this.frameCount++;
@@ -135,11 +153,176 @@ export class C64Emulator {
   // Game loading
   // ---------------------------------------------------------------------------
 
+  /**
+   * Parse the CRT file header and return a human-readable one-line description
+   * matching the format used by tools/cart-diagnostics.mjs.
+   * Returns null if the data is too short to be a valid CRT.
+   */
+  private static describeCrt(data: Uint8Array): string | null {
+    if (data.length < 64) return null;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const magic = String.fromCharCode(...data.slice(0, 16)).trimEnd();
+    if (!magic.startsWith('C64 CARTRIDGE')) return null;
+
+    const hwType = view.getUint16(22, false);
+    const exrom  = data[24];
+    const game   = data[25];
+
+    const hwTypeNames: Record<number, string> = {
+      0: 'Normal', 1: 'Action Replay', 3: 'Final Cartridge III', 4: 'Simons BASIC',
+      5: 'Ocean type 1', 7: 'Fun Play', 8: 'Super Games', 15: 'Magic Desk',
+      17: 'Dinamic', 19: 'EasyFlash', 21: 'Comal-80', 32: 'Pagefox',
+    };
+    const memMapNames: Record<string, string> = {
+      '0,0': '16K (ROML+ROMH)',
+      '0,1': '8K (ROML only)',
+      '1,0': 'MAX Machine (2K at $F800)',
+      '1,1': 'Ultimax / disabled',
+    };
+    const hwName = hwTypeNames[hwType] ?? `Unknown(${hwType})`;
+    const flagMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
+
+    // Walk CHIP packets: collect load addresses to describe actual ROM coverage.
+    // The EXROM/GAME flags declare the *intended* memory map but don't reflect
+    // how many CHIP packets are actually present — e.g. many "16K" (EXROM=0,
+    // GAME=0) carts have only one 8K CHIP at $8000, leaving ROMH unmapped.
+    const headerLen = view.getUint32(16, false);
+    let chipCount = 0;
+    let off = headerLen;
+    const chipAddrs: string[] = [];
+    let totalRomBytes = 0;
+    while (off + 16 <= data.length) {
+      const sig = String.fromCharCode(data[off], data[off+1], data[off+2], data[off+3]);
+      if (sig !== 'CHIP') break;
+      const pktLen  = view.getUint32(off + 4, false);
+      const loadAddr = view.getUint16(off + 12, false);
+      const romSize  = view.getUint16(off + 14, false);
+      chipAddrs.push(`$${loadAddr.toString(16).toUpperCase()}+${romSize >> 10}K`);
+      totalRomBytes += romSize;
+      chipCount++;
+      off += pktLen;
+      if (chipCount > 64) break;
+    }
+
+    // If the actual ROM content differs from what EXROM/GAME flags imply, note it.
+    // e.g. "16K (ROML+ROMH) flags, actual: $8000+8K" makes the mismatch visible.
+    const actualDesc = chipAddrs.length > 0
+      ? `${totalRomBytes >> 10}K actual (${chipAddrs.join(', ')})`
+      : 'no CHIP data';
+    const mapDesc = `${flagMap} flags, ${actualDesc}`;
+
+    return `hwType=${hwType}(${hwName}) | ${mapDesc} | ${chipCount} CHIP(s) | ${data.length} bytes`;
+  }
+
   loadGame(options: GameLoadOptions): void {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
 
+    if (options.type === 'crt') {
+      // Log CRT header characteristics before anything touches WASM state
+      const crtDesc = C64Emulator.describeCrt(options.data);
+      if (crtDesc) console.log(`[C64 cart] loading: ${crtDesc}`);
+
+      // Mirror the headless cart-load sequence exactly:
+      //   removeCartridge → reset → allocAndWrite → loadCartridge
+      // This is safe on a fresh emulator (removeCartridge is a no-op when
+      // nothing is mounted) and correct for hot-swaps.
+      x.c64_removeCartridge();
+      x.c64_reset();
+      // Restore default memory map — same fix as reset() above.
+      x.c64_ramWrite(1, 0x37);
+      // Ensure the debugger is playing before the cart load.
+      // preserves the current paused/running state and c64_loadCartridge()
+      // does NOT internally call debugger_play().  Without this, simple 8K
+      // normal cartridges (EXROM=0, GAME=1) load but execute zero CPU cycles.
+      x.debugger_play();
+      this.frameCount = 0;
+    }
+
     const ptr = this.wasm.allocAndWrite(options.data);
+
+    if (options.type === 'crt') {
+      // c64_loadCartridge resets and resumes the machine internally, so:
+      //   - free(ptr) is intentionally omitted — the WASM loader may retain
+      //     the pointer during bank parsing; freeing it immediately corrupts
+      //     the cartridge data (headless CLI has the same comment).
+      //   - No c64_reset() / debugger_play() after — loadCartridge handles it.
+      x.c64_loadCartridge(ptr, options.data.length);
+
+      // ── Silent-failure detection (two independent heuristics) ──────────────
+      //
+      // The WASM c64_loadCartridge() returns void with no error code.  When a
+      // CRT format is not recognised the loader exits silently without printing
+      // anything and without starting the machine.  We use two signals to detect
+      // this and surface a warning to the console:
+      //
+      // 1. Cart-line counter: the C core always emits at least one printf line
+      //    (e.g. "normal cartridge") when it successfully identifies the CRT
+      //    format.  C64WASM.consumeCartLineCount() returns the number of such
+      //    lines flushed during this call.  Zero = format not recognised.
+      //
+      // 2. debugger_isRunning(): a successful load leaves the machine running.
+      //    If the debugger is still paused after loadCartridge, nothing started.
+      //
+      // Both checks are heuristic — they can in theory fire on edge cases — but
+      // in practice they reliably distinguish a recognised load from a silent
+      // no-op.  Neither throws; the warning is purely diagnostic.
+      const cartLines = this.wasm.consumeCartLineCount();
+      const isRunning = (x as unknown as { debugger_isRunning?: () => number })
+        .debugger_isRunning?.() ?? 1; // default 1 (assume ok) if export absent
+
+      if (cartLines === 0) {
+        const msg = 'CRT format may not be recognised by this emulator build.';
+        console.warn('[C64 cart] WARNING: no cartridge-type output from WASM during load — ' + msg);
+        C64Emulator.dispatchCartLoadFailed(msg);
+      } else if (!isRunning) {
+        const msg = 'Cartridge was parsed but the machine did not start.';
+        console.warn(
+          '[C64 cart] WARNING: debugger_isRunning() returned 0 after c64_loadCartridge — ' + msg,
+        );
+        C64Emulator.dispatchCartLoadFailed(msg);
+      } else {
+        // Third heuristic: run 60 frames and count how many distinct PC values
+        // appear.  A legitimately running machine (even one in a KERNAL wait-loop
+        // during cart boot) visits at least 2 addresses per frame.  A truly broken
+        // machine (e.g. plain 8K normal cart with KERNAL banked out) stays pinned
+        // at a single address for all 60 frames: uniquePCs === 1.
+        //
+        // 3-frame pc0===pc1 was too narrow and fired a false-positive on Magic Desk
+        // carts that sit in the KERNAL delay loop ($E9E5/$E9E6) for ~40 frames
+        // before jumping to the game.
+        const getPC = (x as unknown as { c64_getPC?: () => number }).c64_getPC;
+        if (getPC) {
+          const pcSet = new Set<number>();
+          for (let i = 0; i < 60; i++) {
+            x.debugger_update(20);
+            pcSet.add(getPC());
+          }
+          // The 60-frame probe loop accumulates ~54 000 SID samples (60 × 20 ms ×
+          // ~45 samples/ms at 44 100 Hz) without ever calling sid_getAudioBuffer().
+          // The SID's internal write counter wraps ~13× past the 4096-sample buffer
+          // boundary.  If left unserviced, the next call from the audio worklet
+          // supplies an out-of-bounds pointer → WASM trap.
+          // Drain once here to reset the write counter regardless of probe outcome.
+          x.sid_getAudioBuffer();
+          if (pcSet.size === 1) {
+            const stuckPc = '0x' + [...pcSet][0].toString(16).toUpperCase();
+            const msg =
+              `CPU stuck at ${stuckPc} for 60 frames — ` +
+              'this cart type may have a memory banking incompatibility with this emulator build.';
+            console.warn('[C64 cart] WARNING: ' + msg);
+            C64Emulator.dispatchCartLoadFailed(msg);
+          } else {
+            console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), ${pcSet.size} unique PCs over 60 frames`);
+          }
+        } else {
+          console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+        }
+      }
+
+      return;
+    }
+
     try {
       switch (options.type) {
         case 'prg':
@@ -147,9 +330,6 @@ export class C64Emulator {
           break;
         case 'd64':
           x.c64_insertDisk(ptr, options.data.length);
-          break;
-        case 'crt':
-          x.c64_loadCartridge(ptr, options.data.length);
           break;
         case 'snapshot':
           x.c64_loadSnapshot(ptr, options.data.length);
@@ -161,10 +341,25 @@ export class C64Emulator {
   }
 
   removeCartridge(): void {
+    // Only detach — do NOT reset here. Callers that want a reset after detach
+    // (e.g. "Detach Cartridge" button) should call reset() explicitly via
+    // C64Player.detachCartridge(). Keeping detach and reset separate means
+    // loadGame()'s own pre-flight reset isn't duplicated on hot-swap loads.
     this.wasm.exports?.c64_removeCartridge();
+  }
 
-    this.wasm.exports?.c64_reset();
-    this.frameCount = 0;
+  /**
+   * Dispatch a browser CustomEvent so the UI layer can react to a failed CRT
+   * load without coupling the emulator to any specific UI framework.
+   * Safe to call in non-browser environments (Node / tests) — `window` is
+   * guarded so it never throws.
+   */
+  private static dispatchCartLoadFailed(reason: string): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('c64-cart-load-failed', { detail: { reason } }),
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
