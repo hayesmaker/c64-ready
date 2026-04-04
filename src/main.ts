@@ -78,3 +78,15 @@ window.addEventListener('c64-load-error', (e: Event) => {
   status.textContent = `Load error: ${msg}`;
   status.style.color = '#f44';
 });
+
+// Cartridge format not recognised by WASM — surface as a visible UI warning.
+// This is separate from c64-load-error (which covers fetch/parse failures).
+window.addEventListener('c64-cart-load-failed', (e: Event) => {
+  const detail = (e as CustomEvent).detail as { reason?: string } | undefined;
+  const reason = detail?.reason ?? 'Unknown cartridge error';
+  console.warn('Cart load failed event:', detail);
+  renderer.setError('CARTRIDGE UNSUPPORTED');
+  status.textContent = `Cartridge error: ${reason}`;
+  status.style.color = '#f80';
+});
+

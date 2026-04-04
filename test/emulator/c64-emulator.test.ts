@@ -169,11 +169,15 @@ describe('C64Emulator', () => {
     (wasm as any).consumeCartLineCount = vi.fn(() => 0);
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events: Event[] = [];
+    window.addEventListener('c64-cart-load-failed', (e) => events.push(e));
 
     const emulator = await C64Emulator.load();
     emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('CRT format may not be recognised'));
+    expect(events).toHaveLength(1);
+    expect((events[0] as CustomEvent).detail.reason).toMatch(/not be recognised/i);
   });
 
   it('warns to console when debugger_isRunning returns 0 after crt load (machine did not start)', async () => {
@@ -182,11 +186,15 @@ describe('C64Emulator', () => {
     (exports.debugger_isRunning as ReturnType<typeof vi.fn>).mockReturnValue(0);
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events: Event[] = [];
+    window.addEventListener('c64-cart-load-failed', (e) => events.push(e));
 
     const emulator = await C64Emulator.load();
     emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('debugger_isRunning() returned 0'));
+    expect(events).toHaveLength(1);
+    expect((events[0] as CustomEvent).detail.reason).toMatch(/did not start/i);
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {

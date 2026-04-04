@@ -182,18 +182,17 @@ export class C64Emulator {
         .debugger_isRunning?.() ?? 1; // default 1 (assume ok) if export absent
 
       if (cartLines === 0) {
+        const msg =
+          'CRT format may not be recognised by this emulator build.';
+        console.warn('[C64 cart] WARNING: no cartridge-type output from WASM during load — ' + msg);
+        C64Emulator.dispatchCartLoadFailed(msg);
+      } else if (!isRunning) {
+        const msg = 'Cartridge was parsed but the machine did not start.';
         console.warn(
-          '[C64 cart] WARNING: no cartridge-type output from WASM during load — ' +
-          'the CRT format may not be recognised by this emulator build.',
+          '[C64 cart] WARNING: debugger_isRunning() returned 0 after c64_loadCartridge — ' + msg,
         );
-      }
-      if (!isRunning) {
-        console.warn(
-          '[C64 cart] WARNING: debugger_isRunning() returned 0 after c64_loadCartridge — ' +
-          'the cartridge may have failed to start.',
-        );
-      }
-      if (cartLines > 0 && isRunning) {
+        C64Emulator.dispatchCartLoadFailed(msg);
+      } else {
         console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
       }
 
@@ -223,6 +222,20 @@ export class C64Emulator {
     // C64Player.detachCartridge(). Keeping detach and reset separate means
     // loadGame()'s own pre-flight reset isn't duplicated on hot-swap loads.
     this.wasm.exports?.c64_removeCartridge();
+  }
+
+  /**
+   * Dispatch a browser CustomEvent so the UI layer can react to a failed CRT
+   * load without coupling the emulator to any specific UI framework.
+   * Safe to call in non-browser environments (Node / tests) — `window` is
+   * guarded so it never throws.
+   */
+  private static dispatchCartLoadFailed(reason: string): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('c64-cart-load-failed', { detail: { reason } }),
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
