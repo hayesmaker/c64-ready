@@ -68,32 +68,37 @@ function parseCrt(buf) {
     5: 'Ocean type 1', 7: 'Fun Play', 8: 'Super Games', 15: 'Magic Desk',
     17: 'Dinamic', 19: 'EasyFlash', 21: 'Comal-80', 32: 'Pagefox',
   };
-
-  // Memory map description from EXROM/GAME lines
   const memMapNames = {
-    '0,0': '16K (ROML+ROMH)',
-    '0,1': '8K (ROML only)',
-    '1,0': 'MAX Machine (2K at $F800)',
-    '1,1': 'Ultimax / disabled',
+    '0,0': '16K (ROML+ROMH)', '0,1': '8K (ROML only)',
+    '1,0': 'MAX Machine (2K at $F800)', '1,1': 'Ultimax / disabled',
   };
-  const memMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
+  const flagMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
 
   const chips = [];
   let offset = headerLen;
+  let totalRomBytes = 0;
   while (offset + 16 <= buf.length) {
     const sig = buf.slice(offset, offset + 4).toString('ascii');
     if (sig !== 'CHIP') break;
-    const pktLen  = buf.readUInt32BE(offset + 4);
+    const pktLen   = buf.readUInt32BE(offset + 4);
     const chipType = buf.readUInt16BE(offset + 8);
-    const bank    = buf.readUInt16BE(offset + 10);
+    const bank     = buf.readUInt16BE(offset + 10);
     const loadAddr = buf.readUInt16BE(offset + 12);
-    const romSize = buf.readUInt16BE(offset + 14);
+    const romSize  = buf.readUInt16BE(offset + 14);
     chips.push({ bank, chipType, loadAddr: '0x' + loadAddr.toString(16).toUpperCase(), romSize });
+    totalRomBytes += romSize;
     offset += pktLen;
-    if (chips.length > 64) break; // safety cap
+    if (chips.length > 64) break;
   }
 
-  return { magic, version, hwType, hwTypeName: hwTypeNames[hwType] ?? `Unknown(${hwType})`, exrom, game, memMap, cartName, chips, fileSize: buf.length };
+  // Build the same "flags, actual" description used by describeCrt in c64-emulator.ts
+  const chipAddrs = chips.map(c => `${c.loadAddr}+${c.romSize >> 10}K`);
+  const actualDesc = chips.length > 0
+    ? `${totalRomBytes >> 10}K actual (${chipAddrs.join(', ')})`
+    : 'no CHIP data';
+  const memMap = `${flagMap} flags, ${actualDesc}`;
+
+  return { magic, version, hwType, hwTypeName: hwTypeNames[hwType] ?? `Unknown(${hwType})`, exrom, game, flagMap, memMap, cartName, chips, totalRomBytes, fileSize: buf.length };
 }
 
 // ── HW type result label ──────────────────────────────────────────────────────

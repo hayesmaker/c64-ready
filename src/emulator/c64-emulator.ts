@@ -172,21 +172,38 @@ export class C64Emulator {
       '1,1': 'Ultimax / disabled',
     };
     const hwName = hwTypeNames[hwType] ?? `Unknown(${hwType})`;
-    const memMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
+    const flagMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
 
-    // Count CHIP packets
+    // Walk CHIP packets: collect load addresses to describe actual ROM coverage.
+    // The EXROM/GAME flags declare the *intended* memory map but don't reflect
+    // how many CHIP packets are actually present — e.g. many "16K" (EXROM=0,
+    // GAME=0) carts have only one 8K CHIP at $8000, leaving ROMH unmapped.
     const headerLen = view.getUint32(16, false);
     let chipCount = 0;
     let off = headerLen;
+    const chipAddrs: string[] = [];
+    let totalRomBytes = 0;
     while (off + 16 <= data.length) {
       const sig = String.fromCharCode(data[off], data[off+1], data[off+2], data[off+3]);
       if (sig !== 'CHIP') break;
+      const pktLen  = view.getUint32(off + 4, false);
+      const loadAddr = view.getUint16(off + 12, false);
+      const romSize  = view.getUint16(off + 14, false);
+      chipAddrs.push(`$${loadAddr.toString(16).toUpperCase()}+${romSize >> 10}K`);
+      totalRomBytes += romSize;
       chipCount++;
-      off += view.getUint32(off + 4, false);
+      off += pktLen;
       if (chipCount > 64) break;
     }
 
-    return `hwType=${hwType}(${hwName}) | ${memMap} | ${chipCount} CHIP(s) | ${data.length} bytes`;
+    // If the actual ROM content differs from what EXROM/GAME flags imply, note it.
+    // e.g. "16K (ROML+ROMH) flags, actual: $8000+8K" makes the mismatch visible.
+    const actualDesc = chipAddrs.length > 0
+      ? `${totalRomBytes >> 10}K actual (${chipAddrs.join(', ')})`
+      : 'no CHIP data';
+    const mapDesc = `${flagMap} flags, ${actualDesc}`;
+
+    return `hwType=${hwType}(${hwName}) | ${mapDesc} | ${chipCount} CHIP(s) | ${data.length} bytes`;
   }
 
   loadGame(options: GameLoadOptions): void {
