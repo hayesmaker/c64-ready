@@ -155,6 +155,44 @@ export class C64WASM {
   // WASI imports (only fd_write is used by this binary)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Line-buffer for stdout (fd 1) printf output from the WASM C core.
+   * Accumulated character-by-character; flushed on newline or null byte.
+   * Kept as a Uint8Array buffer to match the printChar pattern from c64.js.
+   */
+  private stdoutBuf: number[] = [];
+
+  /**
+   * Patterns emitted by the C64 ROM/cartridge loader that we want to surface.
+   * Examples seen in practice:
+   *   "magic desk cartridge"
+   *   "normal cartridge"
+   *   "easy flash cartridge"
+   *   "read magic desk bank count = 10"
+   *   "bank 0"  "bank 1"  ...
+   */
+  private static readonly CART_LOG_PATTERNS = [
+    /cartri?dge/i,         // cartridge type announcements
+    /bank\s*\d+/i,         // bank loading ("bank 0", "bank 1", …)
+    /bank\s*count/i,       // "read magic desk bank count = N"
+    /read\s+magic/i,       // "read magic desk …"
+    /easy\s*flash/i,       // EasyFlash-specific lines
+    /crt\b/i,              // generic CRT-related lines
+  ];
+
+  /** Flush the accumulated stdout line to console if it matches cart patterns */
+  private flushStdoutLine(): void {
+    if (this.stdoutBuf.length === 0) return;
+    const line = new TextDecoder().decode(new Uint8Array(this.stdoutBuf)).trim();
+    this.stdoutBuf = [];
+    if (!line) return;
+
+    const isCartLine = C64WASM.CART_LOG_PATTERNS.some((re) => re.test(line));
+    if (isCartLine) {
+      console.log('[C64 cart]', line);
+    }
+  }
+
   private makeWasiImports(mem: WebAssembly.Memory) {
     return {
       fd_write: (fd: number, iovs: number, iovs_len: number, nwritten: number): number => {
@@ -164,12 +202,26 @@ export class C64WASM {
         for (let i = 0; i < iovs_len; i++) {
           const ptr = view.getUint32(iovs + i * 8, true);
           const len = view.getUint32(iovs + i * 8 + 4, true);
-          // Only forward stderr (fd 2) to the console — stdout (fd 1) is
-          // extremely noisy (SID dumps buffer length every frame).
-          if (fd === 2) {
+
+          if (fd === 1) {
+            // stdout — accumulate into line buffer, flush on newline/null.
+            // This surfaces cartridge loading diagnostics (type, bank count,
+            // bank-by-bank progress) while suppressing the noisy per-frame
+            // SID/timing output.
+            for (let j = 0; j < len; j++) {
+              const ch = u8[ptr + j];
+              if (ch === 0 || ch === 10 /* '\n' */) {
+                this.flushStdoutLine();
+              } else {
+                this.stdoutBuf.push(ch);
+              }
+            }
+          } else if (fd === 2) {
+            // stderr — forward verbatim to console.error
             const text = new TextDecoder().decode(u8.subarray(ptr, ptr + len));
-            console.error(text);
+            console.error('[C64 stderr]', text);
           }
+
           written += len;
         }
         view.setUint32(nwritten, written, true);
