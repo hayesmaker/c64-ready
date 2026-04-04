@@ -717,6 +717,19 @@ function buildBrowserHtml(inputPort) {
       inputWs.onmessage = ({ data }) => {
         try {
           const msg = JSON.parse(data);
+          // On hello, sync button state from server's current cart state.
+          // When a game was pre-loaded via --game at startup the server includes
+          // cartFilename in the hello message — treat it as cart-loaded so the
+          // detach/reset buttons are immediately enabled for late-joining clients.
+          if (msg.type === 'hello') {
+            if (msg.cartFilename) {
+              const cartName = msg.cartFilename.replace(/\.crt$/i,'').replace(/[-_]/g,' ');
+              setBadge(gameBadge, '🎮 ' + cartName, 'ok');
+              setLoadStatus('loaded', 'ok');
+              detachBtn.disabled = false;
+              resetBtn.disabled = false;
+            }
+          }
           // Cart lifecycle
           if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
             blurAll();
