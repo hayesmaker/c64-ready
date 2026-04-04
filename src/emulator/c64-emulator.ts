@@ -197,8 +197,7 @@ export class C64Emulator {
         .debugger_isRunning?.() ?? 1; // default 1 (assume ok) if export absent
 
       if (cartLines === 0) {
-        const msg =
-          'CRT format may not be recognised by this emulator build.';
+        const msg = 'CRT format may not be recognised by this emulator build.';
         console.warn('[C64 cart] WARNING: no cartridge-type output from WASM during load — ' + msg);
         C64Emulator.dispatchCartLoadFailed(msg);
       } else if (!isRunning) {
@@ -208,7 +207,26 @@ export class C64Emulator {
         );
         C64Emulator.dispatchCartLoadFailed(msg);
       } else {
-        console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+        // Third heuristic: run a few frames and verify the PC is actually moving.
+        // Some carts (plain 8K normal, EXROM=0 GAME=1) are recognised by the WASM
+        // loader and leave isRunning=1, but a WASM-internal memory banking bug sets
+        // the CPU I/O port to $F9 (LORAM=0, HIRAM=0) which banks out KERNAL+BASIC
+        // so the CPU spins at a fixed address executing garbage. The frozen screen
+        // looks like a crashed BASIC prompt with no text or cursor.
+        const pc0 = (x as unknown as { c64_getPC?: () => number }).c64_getPC?.() ?? -1;
+        x.debugger_update(20); // one frame
+        x.debugger_update(20);
+        x.debugger_update(20);
+        const pc1 = (x as unknown as { c64_getPC?: () => number }).c64_getPC?.() ?? -1;
+        if (pc0 !== -1 && pc0 === pc1) {
+          const msg =
+            'CPU appears stuck (PC did not advance after 3 frames) — ' +
+            'this cart type may have a memory banking incompatibility with this emulator build.';
+          console.warn('[C64 cart] WARNING: ' + msg);
+          C64Emulator.dispatchCartLoadFailed(msg);
+        } else {
+          console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+        }
       }
 
       return;

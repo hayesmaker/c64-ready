@@ -24,9 +24,10 @@ describe('C64Emulator', () => {
       c64_reset: vi.fn(),
       c64_removeCartridge: vi.fn(),
       debugger_update: vi.fn(() => 1),
-      debugger_isRunning: vi.fn(() => 1), // default: running after load
+      debugger_isRunning: vi.fn(() => 1),
       debugger_set_speed: vi.fn(),
       debugger_play: vi.fn(),
+      c64_getPC: vi.fn(() => 0x8009), // default: advancing PC (different values per call)
       c64_getPixelBuffer: vi.fn(() => 0),
       sid_getAudioBuffer: vi.fn(() => 0),
       sid_dumpBuffer: vi.fn(() => 2),
@@ -42,6 +43,9 @@ describe('C64Emulator', () => {
       }),
       free: vi.fn(),
     };
+    // Make c64_getPC return a different value each call (simulating advancing PC)
+    let _pcCall = 0;
+    (exports.c64_getPC as ReturnType<typeof vi.fn>).mockImplementation(() => 0x8000 + (_pcCall++ * 10));
 
     const wasm = {
       exports,
@@ -224,6 +228,23 @@ describe('C64Emulator', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('debugger_isRunning() returned 0'));
     expect(events).toHaveLength(1);
     expect((events[0] as CustomEvent).detail.reason).toMatch(/did not start/i);
+  });
+
+  it('warns when CPU PC does not advance after load (stuck CPU / memory banking bug)', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    // PC always returns the same value — simulates stuck CPU
+    (exports.c64_getPC as ReturnType<typeof vi.fn>).mockReturnValue(0xa47f);
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events: Event[] = [];
+    window.addEventListener('c64-cart-load-failed', (e) => events.push(e));
+
+    const emulator = await C64Emulator.load();
+    emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('CPU appears stuck'));
+    expect(events).toHaveLength(1);
+    expect((events[0] as CustomEvent).detail.reason).toMatch(/memory banking/i);
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {

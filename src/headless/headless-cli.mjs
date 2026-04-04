@@ -225,7 +225,15 @@ export async function runHeadless(options = {}) {
           console.error('[C64 cart] WARNING: debugger_isRunning() returned 0 after load — ' +
             'the cartridge may have failed to start.');
         } else {
-          console.error(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+          const pc0 = typeof exports.c64_getPC === 'function' ? exports.c64_getPC() : -1;
+          exports.debugger_update(20); exports.debugger_update(20); exports.debugger_update(20);
+          const pc1 = typeof exports.c64_getPC === 'function' ? exports.c64_getPC() : -1;
+          if (pc0 !== -1 && pc0 === pc1) {
+            console.error('[C64 cart] WARNING: CPU stuck after 3 frames — ' +
+              'this cart may have a memory banking incompatibility with this emulator build.');
+          } else {
+            console.error(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+          }
         }
         // free(ptr), c64_reset, debugger_set_speed, debugger_play intentionally
         // omitted: c64_loadCartridge already resets and resumes the machine
@@ -337,7 +345,15 @@ export async function runHeadless(options = {}) {
                       console.error('[C64 cart] WARNING: debugger_isRunning() returned 0 — ' +
                         'the cartridge may have failed to start.');
                     } else {
-                      console.error(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+                      const pc0 = typeof exports.c64_getPC === 'function' ? exports.c64_getPC() : -1;
+                      exports.debugger_update(20); exports.debugger_update(20); exports.debugger_update(20);
+                      const pc1 = typeof exports.c64_getPC === 'function' ? exports.c64_getPC() : -1;
+                      if (pc0 !== -1 && pc0 === pc1) {
+                        console.error('[C64 cart] WARNING: CPU stuck after 3 frames — ' +
+                          'this cart may have a memory banking incompatibility with this emulator build.');
+                      } else {
+                        console.error(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+                      }
                     }
                     // ─────────────────────────────────────────────────────────
                     // free(ptr), debugger_set_speed and debugger_play intentionally
