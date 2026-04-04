@@ -124,11 +124,14 @@ export class C64Emulator {
     if (!this.running) return;
     const x = this.wasm.exports!;
 
-    // Clamp dTime exactly like the original c64.js render loop:
-    // if dTime is 0 or > 100 ms, lock to ~60 fps to prevent runaway cycles.
-    // if (!dTime || dTime > 100) {
-    //   dTime = 1000 / 60;
-    // }
+    // Clamp dTime to one frame's worth of work (~20ms at 50fps).
+    // Without this, any synchronous blocking work that happens between two rAF
+    // calls (e.g. the post-load 60-frame PC probe, a cart reset, a detach) causes
+    // the next tick to receive an enormous dTime and the WASM runs hundreds of
+    // extra frames in a single call, producing a visible multi-second freeze.
+    // Clamping to 25ms (allowing slight tolerance above 50fps) keeps the emulator
+    // at real-time speed after any blocking gap.
+    if (!dTime || dTime > 25) dTime = 20;
 
     const updated = x.debugger_update(dTime);
     this.frameCount++;
