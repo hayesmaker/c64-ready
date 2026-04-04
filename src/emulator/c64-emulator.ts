@@ -101,10 +101,15 @@ export class C64Emulator {
 
   reset(): void {
     this.wasm.exports?.c64_reset();
+    // Some cartridge types (EXROM=0, GAME=0 / EXROM=0, GAME=1) leave the CPU
+    // I/O port ($01) at $00 or $F9 after c64_reset(), which banks out KERNAL
+    // and BASIC.  The KERNAL boot sequence never runs so the screen stays blank.
+    // Writing $37 (LORAM=1, HIRAM=1, CHAREN=1) restores the default memory map;
+    // the KERNAL will overwrite it with $37 again during its own init anyway, so
+    // this is a safe no-op for carts that don't corrupt the port.
+    this.wasm.exports?.c64_ramWrite(1, 0x37);
     // c64_reset() resets CPU/memory but preserves the debugger's running/paused
-    // state.  Explicitly call debugger_play() so the machine always resumes
-    // after a reset rather than sitting frozen — mirrors the headless hard-reset
-    // path (resetSidRing + debugger_play implied by the init sequence).
+    // state.  Explicitly call debugger_play() so the machine always resumes.
     this.wasm.exports?.debugger_play();
     this.frameCount = 0;
   }
@@ -224,7 +229,9 @@ export class C64Emulator {
       // nothing is mounted) and correct for hot-swaps.
       x.c64_removeCartridge();
       x.c64_reset();
-      // Ensure the debugger is playing before the cart load — c64_reset()
+      // Restore default memory map — same fix as reset() above.
+      x.c64_ramWrite(1, 0x37);
+      // Ensure the debugger is playing before the cart load.
       // preserves the current paused/running state and c64_loadCartridge()
       // does NOT internally call debugger_play().  Without this, simple 8K
       // normal cartridges (EXROM=0, GAME=1) load but execute zero CPU cycles.

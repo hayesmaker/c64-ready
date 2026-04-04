@@ -254,8 +254,7 @@ export async function runHeadless(options = {}) {
         const gameData = await fs.readFile(gamePath);
         const crtDesc = describeCrt(new Uint8Array(gameData));
         if (crtDesc) console.error(`[C64 cart] loading: ${crtDesc}`);
-        const ptr = c64wasm.allocAndWrite(new Uint8Array(gameData));
-        c64wasm.updateHeapViews();
+        const ptr = c64wasm.allocAndWrite(new Uint8Array(gameData));        c64wasm.updateHeapViews();
         heap = c64wasm.heap;
         exports.c64_loadCartridge(ptr, gameData.length);
         // ── Silent-failure detection (mirrors C64Emulator.loadGame) ──────────
@@ -380,6 +379,7 @@ export async function runHeadless(options = {}) {
                     if (crtDesc) console.error(`[C64 cart] loading: ${crtDesc}`);
                     exports.c64_removeCartridge();
                     exports.c64_reset();           // clean slate before loading new cart
+                    exports.c64_ramWrite(1, 0x37); // restore KERNAL+BASIC after reset
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
@@ -445,7 +445,8 @@ export async function runHeadless(options = {}) {
             } else if (cmd.type === 'detach-crt') {
               const gapStart = Date.now();
               exports.c64_removeCartridge();
-              exports.c64_reset();               // return to clean BASIC prompt
+              exports.c64_reset();
+              exports.c64_ramWrite(1, 0x37); // restore KERNAL+BASIC after reset
               const gapMs = Date.now() - gapStart;
               resetSidRing();
               if (webrtcEncoder) {
@@ -457,14 +458,10 @@ export async function runHeadless(options = {}) {
               else if (logEvents) console.error(`[event] cart-detached gap=${gapMs}ms`);
             } else if (cmd.type === 'hard-reset') {
               // Instant hard reset: detach cart and soft-reset the machine.
-              // c64_removeCartridge() is ~0ms; c64_reset() with no cart is ~110ms
-              // and runs synchronously inline — no setImmediate deferral needed
-              // since there is no loadCartridge call to block the event loop.
-              // The game is intentionally NOT reloaded: hard reset returns to
-              // the BASIC prompt / blank screen, matching real C64 behaviour.
               const gapStart = Date.now();
               exports.c64_removeCartridge();
               exports.c64_reset();
+              exports.c64_ramWrite(1, 0x37); // restore KERNAL+BASIC after reset
               const gapMs = Date.now() - gapStart;
               resetSidRing();
               if (webrtcEncoder) {

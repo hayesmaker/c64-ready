@@ -36,6 +36,7 @@ describe('C64Emulator', () => {
       c64_loadCartridge: vi.fn(),
       c64_loadSnapshot: vi.fn(),
       c64_ramRead: vi.fn(() => 0xab),
+      c64_ramWrite: vi.fn(),
       c64_getSnapshotSize: vi.fn(() => 4),
       malloc: vi.fn(() => 8),
       c64_getSnapshot: vi.fn((ptr: number) => {
@@ -136,7 +137,7 @@ describe('C64Emulator', () => {
     expect((wasm as any).free).not.toHaveBeenCalled();
   });
 
-  it('calls removeCartridge then reset then debugger_play before loadCartridge (mirrors headless pre-flight)', async () => {
+  it('calls removeCartridge, reset, ramWrite($37), debugger_play then loadCartridge (mirrors headless pre-flight)', async () => {
     const { wasm, exports } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const emulator = await C64Emulator.load();
@@ -148,6 +149,9 @@ describe('C64Emulator', () => {
     (exports.c64_reset as ReturnType<typeof vi.fn>).mockImplementation(() =>
       callOrder.push('reset'),
     );
+    (exports.c64_ramWrite as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      callOrder.push('ramWrite'),
+    );
     (exports.debugger_play as ReturnType<typeof vi.fn>).mockImplementation(() =>
       callOrder.push('debugger_play'),
     );
@@ -157,30 +161,36 @@ describe('C64Emulator', () => {
 
     emulator.loadGame({ type: 'crt', data: new Uint8Array([1, 2, 3]) });
 
-    // debugger_play is called once during init and once in the CRT pre-flight
+    // The pre-flight must be: removeCartridge → reset → ramWrite($37) → debugger_play → loadCartridge
     expect(callOrder).toContain('removeCartridge');
     expect(callOrder).toContain('reset');
+    expect(callOrder).toContain('ramWrite');
     expect(callOrder).toContain('loadCartridge');
-    // The pre-flight debugger_play must come between reset and loadCartridge
     const resetIdx = callOrder.indexOf('reset');
+    const ramWriteIdx = callOrder.indexOf('ramWrite');
     const playIdx = callOrder.lastIndexOf('debugger_play');
     const loadIdx = callOrder.indexOf('loadCartridge');
-    expect(resetIdx).toBeLessThan(playIdx);
+    expect(resetIdx).toBeLessThan(ramWriteIdx);
+    expect(ramWriteIdx).toBeLessThan(playIdx);
     expect(playIdx).toBeLessThan(loadIdx);
+    // Verify ramWrite was called with addr=1 (CPU I/O port), val=0x37
+    expect(exports.c64_ramWrite).toHaveBeenCalledWith(1, 0x37);
   });
 
-  it('reset() calls c64_reset then debugger_play so the machine resumes', async () => {
+  it('reset() calls c64_reset, ramWrite($37 to CPU port), then debugger_play so the machine resumes', async () => {
     const { wasm, exports } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
     const emulator = await C64Emulator.load();
 
     // Clear call counts from init
     (exports.c64_reset as ReturnType<typeof vi.fn>).mockClear();
+    (exports.c64_ramWrite as ReturnType<typeof vi.fn>).mockClear();
     (exports.debugger_play as ReturnType<typeof vi.fn>).mockClear();
 
     emulator.reset();
 
     expect(exports.c64_reset).toHaveBeenCalledOnce();
+    expect(exports.c64_ramWrite).toHaveBeenCalledWith(1, 0x37);
     expect(exports.debugger_play).toHaveBeenCalledOnce();
   });
 
