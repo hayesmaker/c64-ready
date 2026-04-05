@@ -745,6 +745,13 @@ function buildBrowserHtml(inputPort) {
               }, 100);
             }
           }
+          if (msg.type === 'hello' && msg.cartFilename) {
+            const cartName = msg.cartFilename.replace(/\\.crt$/i,'').replace(/[-_]/g,' ');
+            setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');
+            setLoadStatus('loaded', 'ok');
+            detachBtn.disabled = false;
+            resetBtn.disabled = false;
+          }
           if (msg.type === 'cart-loading')    setLoadStatus('loading…', 'warn');
           if (msg.type === 'cart-load-error') setLoadStatus('error: ' + (msg.reason || '?'), 'err');
           if (msg.type === 'host-confirmed')  setBadge(inputBadge, 'input: host', 'ok');
