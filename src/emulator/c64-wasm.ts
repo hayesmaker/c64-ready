@@ -155,6 +155,55 @@ export class C64WASM {
   // WASI imports (only fd_write is used by this binary)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Line-buffer for stdout (fd 1) printf output from the WASM C core.
+   * Accumulated byte-by-byte; flushed to flushStdoutLine() on newline/null.
+   */
+  private stdoutBuf: number[] = [];
+
+  /**
+   * Count of cart-diagnostic lines flushed since the last consumeCartLineCount().
+   * The C core prints at least one line (e.g. "normal cartridge") for every
+   * recognised CRT format. Zero after a load = format not recognised.
+   */
+  private cartLineCount = 0;
+
+  /**
+   * Return and reset the cart-diagnostic line counter.
+   * Call once before c64_loadCartridge() to flush pre-load noise, then
+   * again after to count only the lines produced by the cart load.
+   */
+  consumeCartLineCount(): number {
+    const n = this.cartLineCount;
+    this.cartLineCount = 0;
+    return n;
+  }
+
+  /**
+   * Patterns matching cart-loader printf output we want to surface.
+   * Examples: "normal cartridge", "magic desk cartridge", "bank 0", etc.
+   */
+  private static readonly CART_LOG_PATTERNS = [
+    /cartri?dge/i,
+    /bank\s*\d+/i,
+    /bank\s*count/i,
+    /read\s+magic/i,
+    /easy\s*flash/i,
+    /crt\b/i,
+  ];
+
+  /** Flush the accumulated stdout line; log and count it if it matches cart patterns */
+  private flushStdoutLine(): void {
+    if (this.stdoutBuf.length === 0) return;
+    const line = new TextDecoder().decode(new Uint8Array(this.stdoutBuf)).trim();
+    this.stdoutBuf = [];
+    if (!line) return;
+    if (C64WASM.CART_LOG_PATTERNS.some((re) => re.test(line))) {
+      console.log('[C64 cart]', line);
+      this.cartLineCount++;
+    }
+  }
+
   private makeWasiImports(mem: WebAssembly.Memory) {
     return {
       fd_write: (fd: number, iovs: number, iovs_len: number, nwritten: number): number => {
@@ -164,11 +213,22 @@ export class C64WASM {
         for (let i = 0; i < iovs_len; i++) {
           const ptr = view.getUint32(iovs + i * 8, true);
           const len = view.getUint32(iovs + i * 8 + 4, true);
-          // Only forward stderr (fd 2) to the console — stdout (fd 1) is
-          // extremely noisy (SID dumps buffer length every frame).
-          if (fd === 2) {
+          if (fd === 1) {
+            // stdout — accumulate into line buffer; flush on newline/null.
+            // This surfaces cart-loading diagnostics while suppressing the
+            // noisy per-frame SID/timing output.
+            for (let j = 0; j < len; j++) {
+              const ch = u8[ptr + j];
+              if (ch === 0 || ch === 10 /* '\n' */) {
+                this.flushStdoutLine();
+              } else {
+                this.stdoutBuf.push(ch);
+              }
+            }
+          } else if (fd === 2) {
+            // stderr — forward verbatim
             const text = new TextDecoder().decode(u8.subarray(ptr, ptr + len));
-            console.error(text);
+            console.error('[C64 stderr]', text);
           }
           written += len;
         }

@@ -135,9 +135,82 @@ export class C64Emulator {
   // Game loading
   // ---------------------------------------------------------------------------
 
+  /**
+   * Parse the CRT file header and return a human-readable one-line description.
+   * Returns null if the data is too short or not a valid CRT.
+   */
+  private static describeCrt(data: Uint8Array): string | null {
+    if (data.length < 64) return null;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const magic = String.fromCharCode(...data.slice(0, 16)).trimEnd();
+    if (!magic.startsWith('C64 CARTRIDGE')) return null;
+
+    const hwType = view.getUint16(22, false);
+    const exrom  = data[24];
+    const game   = data[25];
+
+    const hwTypeNames: Record<number, string> = {
+      0: 'Normal', 1: 'Action Replay', 3: 'Final Cartridge III', 4: 'Simons BASIC',
+      5: 'Ocean type 1', 7: 'Fun Play', 8: 'Super Games', 15: 'Magic Desk',
+      17: 'Dinamic', 19: 'EasyFlash', 21: 'Comal-80', 32: 'Pagefox',
+    };
+    const memMapNames: Record<string, string> = {
+      '0,0': '16K (ROML+ROMH)',
+      '0,1': '8K (ROML only)',
+      '1,0': 'MAX Machine (2K at $F800)',
+      '1,1': 'Ultimax / disabled',
+    };
+    const hwName = hwTypeNames[hwType] ?? `Unknown(${hwType})`;
+    const flagMap = memMapNames[`${exrom},${game}`] ?? `EXROM=${exrom} GAME=${game}`;
+
+    // Walk CHIP packets to describe actual ROM coverage
+    const headerLen = view.getUint32(16, false);
+    let chipCount = 0;
+    let off = headerLen;
+    const chipAddrs: string[] = [];
+    let totalRomBytes = 0;
+    while (off + 16 <= data.length) {
+      const sig = String.fromCharCode(data[off], data[off+1], data[off+2], data[off+3]);
+      if (sig !== 'CHIP') break;
+      const pktLen   = view.getUint32(off + 4, false);
+      const loadAddr = view.getUint16(off + 12, false);
+      const romSize  = view.getUint16(off + 14, false);
+      chipAddrs.push(`$${loadAddr.toString(16).toUpperCase()}+${romSize >> 10}K`);
+      totalRomBytes += romSize;
+      chipCount++;
+      off += pktLen;
+      if (chipCount > 64) break;
+    }
+
+    const actualDesc = chipAddrs.length > 0
+      ? `${totalRomBytes >> 10}K actual (${chipAddrs.join(', ')})`
+      : 'no CHIP data';
+
+    return `hwType=${hwType}(${hwName}) | ${flagMap} flags, ${actualDesc} | ${chipCount} CHIP(s) | ${data.length} bytes`;
+  }
+
+  /**
+   * Dispatch a browser CustomEvent so the UI can react to a failed CRT load.
+   * Safe in non-browser environments — `window` is guarded.
+   */
+  private static dispatchCartLoadFailed(reason: string): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('c64-cart-load-failed', { detail: { reason } }));
+    }
+  }
+
   loadGame(options: GameLoadOptions): void {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
+
+    // Log CRT header info before the load so it is always visible
+    if (options.type === 'crt') {
+      const crtDesc = C64Emulator.describeCrt(options.data);
+      if (crtDesc) console.log(`[C64 cart] loading: ${crtDesc}`);
+      // Flush any pre-load stdout noise so consumeCartLineCount() only
+      // counts output that belongs to this specific cart load
+      this.wasm.consumeCartLineCount();
+    }
 
     const ptr = this.wasm.allocAndWrite(options.data);
     try {
@@ -157,6 +230,48 @@ export class C64Emulator {
       }
     } finally {
       this.wasm.free(ptr);
+    }
+
+    // Post-load heuristic diagnostics for CRT — logging only, no extra WASM state changes
+    if (options.type === 'crt') {
+      const cartLines = this.wasm.consumeCartLineCount();
+      const isRunning = (x as unknown as { debugger_isRunning?: () => number })
+        .debugger_isRunning?.() ?? 1;
+
+      if (cartLines === 0) {
+        const msg = 'CRT format may not be recognised by this emulator build.';
+        console.warn('[C64 cart] WARNING: no cartridge-type output from WASM during load — ' + msg);
+        C64Emulator.dispatchCartLoadFailed(msg);
+      } else if (!isRunning) {
+        const msg = 'Cartridge was parsed but the machine did not start.';
+        console.warn('[C64 cart] WARNING: debugger_isRunning() returned 0 after load — ' + msg);
+        C64Emulator.dispatchCartLoadFailed(msg);
+      } else {
+        // Run 60 frames and count distinct PC values.
+        // A running machine visits >=2 addresses; a stuck machine stays at exactly 1.
+        const getPC = (x as unknown as { c64_getPC?: () => number }).c64_getPC;
+        if (getPC) {
+          const pcSet = new Set<number>();
+          for (let i = 0; i < 60; i++) {
+            x.debugger_update(20);
+            pcSet.add(getPC());
+          }
+          // Drain SID after the probe — the loop accumulates ~54 000 samples
+          // without servicing sid_getAudioBuffer(); draining resets the SID
+          // write counter before the audio worklet resumes.
+          x.sid_getAudioBuffer();
+          if (pcSet.size === 1) {
+            const stuckPc = '0x' + [...pcSet][0].toString(16).toUpperCase();
+            const msg = `CPU stuck at ${stuckPc} for 60 frames — cart may have a memory banking incompatibility.`;
+            console.warn('[C64 cart] WARNING: ' + msg);
+            C64Emulator.dispatchCartLoadFailed(msg);
+          } else {
+            console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), ${pcSet.size} unique PCs over 60 frames`);
+          }
+        } else {
+          console.log(`[C64 cart] load OK — ${cartLines} diagnostic line(s), machine is running`);
+        }
+      }
     }
   }
 
