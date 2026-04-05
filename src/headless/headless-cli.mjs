@@ -6,6 +6,89 @@ import { execSync } from 'child_process';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
 
+// ── CRT info parser ───────────────────────────────────────────────────────────
+// Inline JS port of src/emulator/crt-info.ts — kept here so headless-cli.mjs
+// runs without a TypeScript build step.
+//
+// Reference: https://vice-emu.sourceforge.io/vice_17.html#SEC380
+const _CRT_HW_TYPES = {
+   0:'Normal cartridge', 1:'Action Replay', 2:'KCS Power Cartridge',
+   3:'Final Cartridge III', 4:'Simons BASIC', 5:'Ocean type 1',
+   6:'Expert Cartridge', 7:'Fun Play, Power Play', 8:'Super Games',
+   9:'Atomic Power', 10:'Epyx Fastload', 11:'Westermann Learning',
+  12:'Rex Utility', 13:'Final Cartridge I', 14:'Magic Formel',
+  15:'C64 Game System (SYSTEM 3)', 16:'Warp Speed', 17:'Dinamic',
+  18:'Zaxxon / Super Zaxxon (SEGA)', 19:'Magic Desk / Domark / HES Australia',
+  20:'Super Snapshot V5', 21:'Comal-80', 22:'Structured BASIC', 23:'Ross',
+  24:'Dela EP64', 25:'Dela EP7x8', 26:'Dela EP256', 27:'Rex EP256',
+  28:'Mikro Assembler', 29:'Final Cartridge Plus', 30:'Action Replay 4',
+  31:'Stardos', 32:'EasyFlash', 33:'EasyFlash Xbank', 34:'Capture',
+  35:'Action Replay 3', 36:'Retro Replay', 37:'MMC64', 38:'MMC Replay',
+  39:'IDE64', 40:'Super Snapshot V4', 41:'IEEE-488', 42:'Game Killer',
+  43:'Prophet64', 44:'EXOS', 45:'Freeze Frame', 46:'Freeze Machine',
+  47:'Snapshot64', 48:'Super Explode V5.0', 49:'Magic Voice',
+  50:'Action Replay 2', 51:'MACH 5', 52:'Diashow-Maker', 53:'Pagefox',
+  54:'Kingsoft', 55:'Silverrock 128K Longshot', 56:'Formel 64', 57:'RGCD',
+  58:'RR-Net MK3', 59:'Easy Calc', 60:'GMod2', 61:'MAX Basic', 62:'GMod3',
+  63:'ZIPP-CODE 48', 64:'Blackbox V8', 65:'Blackbox V3', 66:'Blackbox V4',
+  67:'REX RAM-Floppy', 68:'BIS-Plus', 69:'SD-BOX', 70:'MultiMAX',
+  71:'Blackbox V9', 72:'Lt. Kernal Host Adaptor', 73:'RAMLink', 74:'H.E.R.O.',
+  75:'IEEE Flash! 64', 76:'Turtle Graphics II', 77:'Freeze Frame MK2',
+  78:'Partner 64',
+};
+/**
+ * Parse a CRT file and return a human-readable summary line plus metadata.
+ * Returns null if the data is too short or the magic bytes are absent.
+ * @param {Uint8Array} data
+ * @param {string} [filename]
+ */
+function parseCrtInfo(data, filename) {
+  if (!data || data.length < 0x40) return null;
+  // Validate "C64 CARTRIDGE" magic
+  let magic = '';
+  for (let i = 0; i < 16; i++) magic += String.fromCharCode(data[i]);
+  if (!magic.startsWith('C64 CARTRIDGE')) return null;
+
+  const headerLen = ((data[0x10]<<24)|(data[0x11]<<16)|(data[0x12]<<8)|data[0x13])>>>0;
+  const hwType    = ((data[0x16]<<8)|data[0x17])>>>0;
+  const exrom     = data[0x18];
+  const game      = data[0x19];
+
+  let cartName = '';
+  for (let i = 0x20; i < 0x40 && data[i] !== 0; i++) cartName += String.fromCharCode(data[i]);
+  cartName = cartName.trim();
+
+  let bankConfig;
+  if      (exrom === 0 && game === 0) bankConfig = '16K (ROML+ROMH)';
+  else if (exrom === 0 && game === 1) bankConfig = '8K (ROML only)';
+  else if (exrom === 1 && game === 0) bankConfig = 'Ultimax';
+  else                                bankConfig = 'inactive (pass-through)';
+
+  let chipCount = 0, totalRomBytes = 0;
+  let offset = Math.max(headerLen, 0x40);
+  while (offset + 16 <= data.length) {
+    let cm = '';
+    for (let i = 0; i < 4; i++) cm += String.fromCharCode(data[offset + i]);
+    if (cm !== 'CHIP') break;
+    const pktLen  = ((data[offset+4]<<24)|(data[offset+5]<<16)|(data[offset+6]<<8)|data[offset+7])>>>0;
+    if (pktLen < 16) break;
+    const dataSize = ((data[offset+0x0E]<<8)|data[offset+0x0F])>>>0;
+    chipCount++;
+    totalRomBytes += dataSize;
+    offset += pktLen;
+  }
+
+  const hwName    = _CRT_HW_TYPES[hwType] ?? `Unknown(${hwType})`;
+  const fileLabel = filename ? ` "${filename}"` : '';
+  const namePart  = cartName ? ` name="${cartName}"` : '';
+  const kbActual  = (totalRomBytes / 1024).toFixed(0);
+  const line =
+    `[C64 cart]${fileLabel} loading: hwType=${hwType}(${hwName})` +
+    ` | ${bankConfig} flags, ${kbActual}K actual` +
+    ` | ${chipCount} CHIP(s) | ${data.length} bytes${namePart}`;
+  return { line, hwType, hwName, exrom, game, bankConfig, cartName, chipCount, totalRomBytes };
+}
+
 // ── Build info ────────────────────────────────────────────────────────────────
 // Read once at module load so every createInputServer call gets the same values.
 const _repoRootForBuildInfo = path.resolve(new URL('../../', import.meta.url).pathname);
@@ -210,7 +293,10 @@ export async function runHeadless(options = {}) {
     if (gamePath) {
       try {
         const gameData = await fs.readFile(gamePath);
-        const ptr = c64wasm.allocAndWrite(new Uint8Array(gameData));
+        const gameArr  = new Uint8Array(gameData);
+        const cartInfo = parseCrtInfo(gameArr, path.basename(gamePath));
+        if (cartInfo) console.error(cartInfo.line);
+        const ptr = c64wasm.allocAndWrite(gameArr);
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
         exports.c64_loadCartridge(ptr, gameData.length);
@@ -309,6 +395,8 @@ export async function runHeadless(options = {}) {
                     const gapStart = Date.now();
                     exports.c64_removeCartridge();
                     exports.c64_reset();           // clean slate before loading new cart
+                    const cartInfo = parseCrtInfo(arr, filename);
+                    if (cartInfo) console.error(cartInfo.line);
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
