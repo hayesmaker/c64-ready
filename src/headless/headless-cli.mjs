@@ -493,12 +493,9 @@ export async function runHeadless(options = {}) {
               if (act.action === 'press') exports.keyboard_keyPressed(act.key);
               else                        exports.keyboard_keyReleased(act.key);
             }
-            if (logEvents && c64acts.length > 0) {
-              const role = event._role ?? 'unknown';
-              console.error(`[event] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
-            }
             if (verbose && c64acts.length > 0) {
-              console.error(`[input] key ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
+              const role = event._role ?? 'unknown';
+              console.error(`[input] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
             }
           }
         },
