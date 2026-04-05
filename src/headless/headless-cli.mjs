@@ -480,7 +480,7 @@ export async function runHeadless(options = {}) {
               if (dir)  exports.c64_joystick_push(port, dir);
               if (fire) exports.c64_joystick_push(port, fire);
             }
-            if (logEvents) {
+            if (verbose) {
               const role = event._role ?? 'unknown';
               console.error(`[event] input joystick role=${role} port=${event.joystickPort ?? 2} action=${event.action ?? 'press'} dir=${event.direction ?? '-'} fire=${!!(event.fire || event.fire1)}`);
             }
