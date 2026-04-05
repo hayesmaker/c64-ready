@@ -22,14 +22,22 @@ describe('C64Player', () => {
   }
 
   function stubFetchForGame(data?: Uint8Array) {
-    // Provide a minimal, valid CRT-like header when no data is supplied so
-    // the player's CRT validation passes in tests.
+    // Provide a minimal valid CRT header (0x40 bytes) so parseCrtInfo passes.
+    // Layout mirrors the real CRT spec:
+    //   0x00  "C64 CARTRIDGE   " (16 bytes, space-padded)
+    //   0x10  header length = 0x40 (big-endian u32)
+    //   0x16  hwType = 0 (Normal cartridge, big-endian u16)
+    //   0x18  exrom = 1, game = 1 (inactive / pass-through)
     if (!data) {
-      const header = 'C64 CARTRIDGE';
-      data = new Uint8Array(16);
-      for (let i = 0; i < header.length && i < 16; i++) {
-        data[i] = header.charCodeAt(i);
-      }
+      data = new Uint8Array(0x40);
+      const sig = 'C64 CARTRIDGE   ';
+      for (let i = 0; i < 16; i++) data[i] = sig.charCodeAt(i);
+      // header length = 0x40
+      data[0x10] = 0; data[0x11] = 0; data[0x12] = 0; data[0x13] = 0x40;
+      // hwType = 0
+      data[0x16] = 0; data[0x17] = 0;
+      // exrom = 1, game = 1
+      data[0x18] = 1; data[0x19] = 1;
     }
 
     vi.stubGlobal(

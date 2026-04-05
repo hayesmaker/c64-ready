@@ -1,4 +1,5 @@
 import { C64Emulator } from '../emulator/c64-emulator';
+import { parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
 import type { InputMode } from '../emulator/input';
@@ -126,6 +127,11 @@ export class C64Player {
       console.error(err);
       throw err;
     }
+    if (type === 'crt') {
+      const filename = url.split('/').pop() ?? url;
+      const info = parseCrtInfo(data, filename);
+      if (info) console.log(info.line);
+    }
     try {
       this.emulator.loadGame({ type, data });
       onProgress?.(100, 'READY!');
@@ -156,6 +162,10 @@ export class C64Player {
         const err = new Error('Invalid CRT file format');
         console.error(err);
         throw err;
+      }
+      if (type === 'crt') {
+        const info = parseCrtInfo(data, file.name);
+        if (info) console.log(info.line);
       }
       try {
         this.emulator.loadGame({ type, data });
@@ -224,11 +234,7 @@ export class C64Player {
   }
 }
 
-// Simple CRT format validator
+// CRT format validator — delegates to parseCrtInfo so magic-check logic lives in one place.
 function isValidCRT(data: Uint8Array): boolean {
-  // CRT files typically start with the ASCII header 'C64 CARTRIDGE' within the first 16 bytes
-  if (!data || data.length < 16) return false;
-  const header = String.fromCharCode(...Array.from(data.slice(0, 16)));
-  console.log('[c64-player]: header=', header);
-  return header.includes('C64 CARTRIDGE') || header.includes('C64 CARTRIDGE');
+  return parseCrtInfo(data) !== null;
 }

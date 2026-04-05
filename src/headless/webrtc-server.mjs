@@ -710,8 +710,9 @@ function buildBrowserHtml(inputPort) {
       inputWs.onopen = () => {
         inputBackoff = 1000;
         setBadge(inputBadge, 'input: connected', 'ok');
-        // Claim host role immediately
-        inputWs.send(JSON.stringify({ type: 'host', username: 'player' }));
+        // Claim host role — force:true evicts any stale previous session so
+        // detach / reset always work even after a page reload or reconnect.
+        inputWs.send(JSON.stringify({ type: 'host', username: 'player', force: true }));
       };
 
       inputWs.onmessage = ({ data }) => {
