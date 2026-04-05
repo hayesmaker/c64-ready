@@ -215,9 +215,24 @@ export function createInputServer(opts = {}) {
       // ── Host claim ────────────────────────────────────────────────────────
       if (msg.type === 'host') {
         if (hostClient && hostClient.readyState === hostClient.OPEN) {
-          ws.send(JSON.stringify({ type: 'host-taken' }));
-          logEv('host-claim-rejected', { reason: 'slot-taken', username: msg.username ?? 'player' });
-          return;
+          // force:true lets a new connection take over from a stale/ghost host
+          // (e.g. page reload, WebRTC reconnect, or lost tab).  Without this
+          // the new browser tab gets host-taken and detach/reset silently fail.
+          if (!msg.force) {
+            ws.send(JSON.stringify({ type: 'host-taken' }));
+            logEv('host-claim-rejected', { reason: 'slot-taken', username: msg.username ?? 'player' });
+            return;
+          }
+          // Forcibly evict the existing host before granting the new claim.
+          if (verbose) console.error(`[input-server] force host claim — evicting ${hostUsername}`);
+          logEv('host-force-evicted', { evicted: hostUsername, by: msg.username ?? 'player' });
+          clearHostTimeout();
+          clearGrace();
+          try { hostClient.send(JSON.stringify({ type: 'host-evicted', reason: 'force-claim' })); } catch (_) {}
+          try { hostClient.close(); } catch (_) {}
+          hostClient   = null;
+          hostUsername = null;
+          inviteToken  = null;
         }
         const isRejoin = graceTimer && pendingHostUsername === (msg.username ?? 'player');
         if (graceTimer) clearGrace(); // cancel grace regardless of who's claiming
