@@ -6,6 +6,62 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v0.8.0 - 2026-04-05
+
+> **Note:** v0.7.0 was tagged locally but never published as a GitHub release.
+> v0.8.0 is the first public release since v0.6.2 and includes all v0.7.0 changes
+> plus the additional fixes and features listed below.
+
+### New features
+
+- **feat(cart): cartridge type, size and CHIP count logged on load** (`87fa675`)
+  New `parseCrtInfo()` parser in `src/emulator/crt-info.ts` reads the CRT binary header
+  (magic, `hwType`, EXROM/GAME bits, cart name, CHIP packets) and emits a structured log
+  line at every cart load in both the browser player and the headless CLI. Example:
+  ```
+  [C64 cart] "legend-of-wilf.crt" loading: hwType=32(EasyFlash) | Ultimax flags, 96K actual | 12 CHIP(s) | 98560 bytes name="EasyFlash"
+  ```
+  78 hardware type names (full VICE list). Browser logs to `console.log`; headless logs to
+  stderr. `isValidCRT()` now delegates to `parseCrtInfo()` — no duplicate magic-check logic.
+
+- **feat(hello): `serverVersion` and `serverGitHash` in hello message** (`9d287ee`)
+  Every new WebSocket client receives the running server's package version and short git hash
+  in the `hello` frame: `{ serverVersion: '0.8.0', serverGitHash: 'abc1234' }`. Fields are
+  omitted when unavailable (non-git / standalone environments).
+
+- **feat(webrtc): spectator connection limit (`--max-spectators`, default 5)** (`7091d83`)
+  Caps concurrent WebRTC peers at 2 player slots + `maxSpectators`. Connections over the
+  limit receive `{ type: 'capacity-full' }` and are dropped before ICE negotiation — no
+  encoder load. Configurable via `--max-spectators` CLI flag or `MAX_SPECTATORS` env var.
+
+### Bug fixes
+
+- **fix(input): force host claim on page (re)connect — fixes detach/reset** (`fcfa464`)
+  The WebRTC player page always claims host on `inputWs.onopen`. If a previous session's
+  socket was still registered as `hostClient` (Docker restart, page reload, WebRTC
+  reconnect) the new socket received `host-taken` and `detach-crt` / `hard-reset` commands
+  were silently dropped. Fix: browser sends `force: true`; input-server evicts the stale
+  host before granting the new slot.
+
+- **fix(webrtc): enable detach/reset buttons when initial game is already loaded** (`03872dc`)
+  When the browser connects after the server has booted with `--game`, the `hello` message
+  contains `cartFilename` but the page wasn't acting on it — both buttons stayed disabled
+  until a new `cart-loaded` event arrived. Now mirrors the `cart-loaded` UI update path.
+
+- **fix(docker): bake `GIT_HASH` into image via build arg** (`f8b1bb7`)
+  `git` is not installed in `node:24-slim`. `execSync('git rev-parse')` silently failed
+  in the container so `serverGitHash` was never sent. Fix: `Dockerfile.headless` writes
+  the hash to `.git-hash` at build time; `headless-cli.mjs` reads it at startup.
+
+### CI / tooling
+
+- **ci(test): PR test workflow for branch-protection status check** (`c20c3b2`)
+  `deploy.yml` only runs on push to master; branch protection was waiting indefinitely
+  for a check that never fired on PRs. New `.github/workflows/test.yml` runs `npm test`
+  on every PR targeting master with the same job name so the required check is satisfied.
+
+---
+
 ## v0.7.0 - 2026-03-31
 
 ### Critical fixes
