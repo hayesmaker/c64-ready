@@ -51,6 +51,20 @@ If ping/input RTT are healthy but gameplay feels delayed, the issue is likely vi
 
 Tune these after collecting session data.
 
+### Auto-resync controls (frontend env)
+
+The frontend supports controlled automatic video resync using these env vars:
+
+- `VITE_AUTO_RESYNC` (`1`/`0`, default `1`)
+- `VITE_AUTO_RESYNC_POOR_MS` (default `70`)
+- `VITE_AUTO_RESYNC_HOLD_MS` (default `8000`)
+- `VITE_AUTO_RESYNC_COOLDOWN_MS` (default `45000`)
+- `VITE_AUTO_RESYNC_MAX_PER_WINDOW` (default `3`)
+- `VITE_AUTO_RESYNC_WINDOW_MS` (default `600000`)
+
+Policy default: auto-resync triggers when video delay stays above `VITE_AUTO_RESYNC_POOR_MS`
+for `VITE_AUTO_RESYNC_HOLD_MS`, respecting cooldown and max-per-window limits.
+
 ## Quick triage flow
 
 1. Check `Ping` and `Input RTT`.
