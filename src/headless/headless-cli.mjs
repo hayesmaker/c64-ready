@@ -580,6 +580,25 @@ export async function runHeadless(options = {}) {
   // than wall clock — making loadCartridge blockages invisible to the receiver.
   if (webrtcEncoder) webrtcEncoder.setFps(targetFps);
 
+  // ── Event loop lag monitoring (for input flood investigation) ─────────────
+  let eventLoopMonitor = null;
+  let eventLoopLogTimer = null;
+  try {
+    const perfHooks = await import('perf_hooks');
+    eventLoopMonitor = perfHooks.monitorEventLoopDelay();
+    eventLoopMonitor.enable();
+    const EVENT_LOOP_LOG_MS = 5000;
+    eventLoopLogTimer = setInterval(() => {
+      const lag = eventLoopMonitor ? eventLoopMonitor.min / 1e6 : 0; // ms
+      if (lag > 5) { // only log if >5ms lag
+        console.error(`[input-flood] event-loop-lag min=${lag.toFixed(2)}ms`);
+      }
+      if (eventLoopMonitor) eventLoopMonitor.reset();
+    }, EVENT_LOOP_LOG_MS);
+  } catch (e) {
+    // perf_hooks not available (e.g., old Node) — skip monitoring
+  }
+
   // ── Audio timing ──────────────────────────────────────────────────────────
   const audioSampleRate = 44100;
   const samplesPerFrame = Math.floor(audioSampleRate / targetFps); // 882 @ 50fps

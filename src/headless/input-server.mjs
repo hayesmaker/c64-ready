@@ -36,6 +36,32 @@ export function createInputServer(opts = {}) {
   const serverVersion     = opts.serverVersion     ?? null;
   const serverGitHash     = opts.serverGitHash     ?? null;
 
+  // ── Input flood instrumentation ───────────────────────────────────────────────
+  const _inputStats = {
+    host: { joystick: 0, key: 0, lastMsgTime: 0 },
+    p2:   { joystick: 0, key: 0, lastMsgTime: 0 },
+  };
+  let _inputLogTimer = null;
+  const INPUT_LOG_INTERVAL_MS = 5000; // every 5 seconds
+
+  function _startInputLog() {
+    if (_inputLogTimer) return;
+    _inputLogTimer = setInterval(() => {
+      const now = Date.now();
+      // Only log if there's been recent activity (within last 10s)
+      const h = _inputStats.host.lastMsgTime && (now - _inputStats.host.lastMsgTime < 10000);
+      const p = _inputStats.p2.lastMsgTime && (now - _inputStats.p2.lastMsgTime < 10000);
+      if (h || p) {
+        console.error(`[input-flood] host joystick=${_inputStats.host.joystick} key=${_inputStats.host.key} | p2 joystick=${_inputStats.p2.joystick} key=${_inputStats.p2.key}`);
+      }
+      // Reset counters after reporting
+      _inputStats.host.joystick = 0;
+      _inputStats.host.key = 0;
+      _inputStats.p2.joystick = 0;
+      _inputStats.p2.key = 0;
+    }, INPUT_LOG_INTERVAL_MS);
+  }
+
   /** Emit a structured event log line — only when --log-events is active.
    *  Format: [event] <tag> key=value ...
    *  Never called per-frame; only on meaningful state transitions. */
@@ -184,6 +210,8 @@ export function createInputServer(opts = {}) {
   wss.on('listening', () => {
     console.error(`[input-server] WebSocket listening on ws://0.0.0.0:${port}`);
     logEv('server-listening', { port });
+    // Start input flood logging
+    _startInputLog();
   });
 
   wss.on('connection', (ws, req) => {
@@ -494,9 +522,15 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient && ws !== p2Client) return;
         if (ws === hostClient) resetHostTimeout();
         if (ws === p2Client)   resetP2Timeout();
+        // Track input counts for flood investigation
+        const role = ws === hostClient ? 'host' : 'p2';
+        const stats = role === 'host' ? _inputStats.host : _inputStats.p2;
+        if (msg.type === 'joystick') stats.joystick++;
+        else stats.key++;
+        stats.lastMsgTime = Date.now();
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
-        msg._role = ws === hostClient ? 'host' : 'p2';
+        msg._role = role;
         if (onInput) onInput(msg);
         return;
       }
