@@ -48,8 +48,8 @@ export function createInputServer(opts = {}) {
   let _latencyLogTimer = null;
   let _inputLogTimer = null;
   const _networkStats = {
-    host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
-    p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
+    host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null },
+    p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null },
   };
 
   function broadcastNetworkStats() {
@@ -612,14 +612,7 @@ export function createInputServer(opts = {}) {
           clientTime: msg.clientTime ?? null,
         };
         try { ws.send(JSON.stringify(payload)); } catch (_) {}
-        if (msg.clientTime) {
-          const rtt = now - msg.clientTime;
-          console.error(`[ping] role=${role} rtt=${rtt}ms`);
-          if (role === 'host' || role === 'p2') {
-            _networkStats[role].pingRtt = rtt;
-            broadcastNetworkStats();
-          }
-        }
+        if (verbose) console.error(`[ping] role=${role} pong pingId=${msg.pingId ?? '-'} `);
         return;
       }
     });
