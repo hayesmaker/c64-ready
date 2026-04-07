@@ -47,6 +47,26 @@ export function createInputServer(opts = {}) {
   const _avgLatency = { host: 0, p2: 0 };
   let _latencyLogTimer = null;
   let _inputLogTimer = null;
+  const _networkStats = {
+    host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
+    p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
+  };
+
+  function broadcastNetworkStats() {
+    if (!hostClient && !p2Client) return;
+    const payload = JSON.stringify({
+      type: 'network-stats',
+      serverTime: Date.now(),
+      host: { ..._networkStats.host },
+      p2:   { ..._networkStats.p2 },
+    });
+    if (hostClient && hostClient.readyState === hostClient.OPEN) {
+      try { hostClient.send(payload); } catch (_) {}
+    }
+    if (p2Client && p2Client.readyState === p2Client.OPEN) {
+      try { p2Client.send(payload); } catch (_) {}
+    }
+  }
   const INPUT_LOG_INTERVAL_MS = 5000; // every 5 seconds
 
   function _startInputLog() {
@@ -538,13 +558,24 @@ export function createInputServer(opts = {}) {
         if (msg.clientTime) {
           const now = Date.now();
           const latency = now - msg.clientTime;
+          const bucket = _networkStats[role];
+          if (bucket) {
+            bucket.lastLatency = latency;
+          }
           // Log latency periodically (every 5s) to avoid spam
           if (!_latencyLogTimer) {
             _latencyLogTimer = setInterval(() => {
               const hostActive = _latencyCount.host > 0;
               const p2Active   = _latencyCount.p2 > 0;
               if (hostActive || p2Active) {
-                console.error(`[input-latency] host-avg=${_avgLatency.host.toFixed(0)}ms p2-avg=${_avgLatency.p2.toFixed(0)}ms`);
+                const hostAvg = hostActive ? Number(_avgLatency.host.toFixed(0)) : null;
+                const p2Avg   = p2Active   ? Number(_avgLatency.p2.toFixed(0))   : null;
+                const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
+                const p2Label   = p2Avg   != null ? `${p2Avg}`   : '--';
+                console.error(`[input-latency] host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
+                _networkStats.host.avgLatency = hostAvg;
+                _networkStats.p2.avgLatency   = p2Avg;
+                broadcastNetworkStats();
               }
               // Reset averages
               _avgLatency.host = 0; _avgLatency.p2 = 0;
@@ -555,9 +586,13 @@ export function createInputServer(opts = {}) {
           _latencyCount[role]++;
           _avgLatency[role] = ((_avgLatency[role] * (_latencyCount[role] - 1)) + latency) / _latencyCount[role];
           if (latency > LATENCY_SPIKE_MS) {
+            if (bucket) {
+              bucket.lastSpikeLatency = latency;
+              bucket.lastSpikeAt = now;
+            }
             console.error(`[input-latency] spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
               `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
-          }
+            }
         }
 
         // Tag with role so onInput can include it in logEvents output
@@ -580,6 +615,10 @@ export function createInputServer(opts = {}) {
         if (msg.clientTime) {
           const rtt = now - msg.clientTime;
           console.error(`[ping] role=${role} rtt=${rtt}ms`);
+          if (role === 'host' || role === 'p2') {
+            _networkStats[role].pingRtt = rtt;
+            broadcastNetworkStats();
+          }
         }
         return;
       }
