@@ -41,6 +41,10 @@ export function createInputServer(opts = {}) {
     host: { joystick: 0, key: 0, lastMsgTime: 0 },
     p2:   { joystick: 0, key: 0, lastMsgTime: 0 },
   };
+  // ── Input latency tracking ─────────────────────────────────────────────────
+  const _latencyCount = { host: 0, p2: 0 };
+  const _avgLatency = { host: 0, p2: 0 };
+  let _latencyLogTimer = null;
   let _inputLogTimer = null;
   const INPUT_LOG_INTERVAL_MS = 5000; // every 5 seconds
 
@@ -528,6 +532,29 @@ export function createInputServer(opts = {}) {
         if (msg.type === 'joystick') stats.joystick++;
         else stats.key++;
         stats.lastMsgTime = Date.now();
+
+        // ── Input latency profiling ───────────────────────────────────────
+        if (msg.clientTime) {
+          const now = Date.now();
+          const latency = now - msg.clientTime;
+          // Log latency periodically (every 5s) to avoid spam
+          if (!_latencyLogTimer) {
+            _latencyLogTimer = setInterval(() => {
+              const h = _inputStats.host.lastMsgTime && (now - _inputStats.host.lastMsgTime < 10000);
+              const p = _inputStats.p2.lastMsgTime && (now - _inputStats.p2.lastMsgTime < 10000);
+              if (h || p) {
+                console.error(`[input-latency] host-avg=${_avgLatency.host.toFixed(0)}ms p2-avg=${_avgLatency.p2.toFixed(0)}ms`);
+              }
+              // Reset averages
+              _avgLatency.host = 0; _avgLatency.p2 = 0;
+              _latencyCount.host = 0; _latencyCount.p2 = 0;
+            }, 5000);
+          }
+          // Accumulate for averaging
+          _latencyCount[role]++;
+          _avgLatency[role] = ((_avgLatency[role] * (_latencyCount[role] - 1)) + latency) / _latencyCount[role];
+        }
+
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
         msg._role = role;
@@ -570,10 +597,12 @@ export function createInputServer(opts = {}) {
 
     // ── Hello handshake ───────────────────────────────────────────────────
     const hostActive = !!(hostClient && hostClient.readyState === hostClient.OPEN);
+    const serverTime = Date.now();
     ws.send(JSON.stringify({
       type:        'hello',
       protocol:    'c64-input',
       version:     1,
+      serverTime,  // Unix ms for client clock sync
       // During grace period: treat slot as free so the original host can reclaim it.
       // hostPendingRejoin tells P2 (and spectators) to hold off.
       hostTaken:           hostActive,
