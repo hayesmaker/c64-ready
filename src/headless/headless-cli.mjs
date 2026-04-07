@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdirSync, createWriteStream, readdirSync, statSync, unlinkSync } from 'fs';
 import path from 'path';
 import {fileURLToPath} from 'url';
 import { execSync } from 'child_process';
@@ -181,7 +181,7 @@ export async function runHeadless(options = {}) {
 
     const logsDir = path.join(repoRoot, 'logs');
     try {
-      fs.mkdirSync(logsDir, { recursive: true });
+      mkdirSync(logsDir, { recursive: true });
     } catch (e) {
       console.error('[headless] could not create logs directory:', e.message);
       return;
@@ -190,15 +190,15 @@ export async function runHeadless(options = {}) {
     // Clean up old logs
     if (logRetainDays > 0) {
       try {
-        const files = fs.readdirSync(logsDir);
+        const files = readdirSync(logsDir);
         const now = Date.now();
         for (const f of files) {
           if (!f.startsWith('headless-') || !f.endsWith('.log')) continue;
           const fpath = path.join(logsDir, f);
-          const stat = fs.statSync(fpath);
+          const stat = statSync(fpath);
           const ageDays = (now - stat.mtimeMs) / (1000 * 60 * 60 * 24);
           if (ageDays > logRetainDays) {
-            fs.unlinkSync(fpath);
+            unlinkSync(fpath);
             console.error(`[headless] purged old log: ${f} (${ageDays.toFixed(1)} days old)`);
           }
         }
@@ -211,7 +211,7 @@ export async function runHeadless(options = {}) {
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
     const logPath = path.join(logsDir, `headless-${timestamp}.log`);
     try {
-      logStream = fs.createWriteStream(logPath, { flags: 'a' });
+      logStream = createWriteStream(logPath, { flags: 'a' });
       console.error(`[headless] logging to: ${logPath}`);
     } catch (e) {
       console.error('[headless] could not open log file:', e.message);
