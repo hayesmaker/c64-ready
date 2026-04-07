@@ -599,6 +599,11 @@ export function createInputServer(opts = {}) {
         // without input-server needing to know about logEvents details.
         msg._role = role;
         if (onInput) onInput(msg);
+        if (Number.isFinite(msg.inputId) && ws.readyState === ws.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'input-ack', inputId: msg.inputId }));
+          } catch (_) {}
+        }
         return;
       }
 
