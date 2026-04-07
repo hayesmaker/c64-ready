@@ -46,8 +46,8 @@ If ping/input RTT are healthy but gameplay feels delayed, the issue is likely vi
 
 - Network degraded: RTT >= 120 ms
 - Network poor: RTT >= 220 ms
-- Video delayed: `max(drift, jitter_ema) >= 150 ms`
-- Video poor: `max(drift, jitter_ema) >= 300 ms`
+- Video delayed: `max(drift, jitter_ema) >= 40 ms`
+- Video poor: `max(drift, jitter_ema) >= 70 ms`
 
 Tune these after collecting session data.
 
