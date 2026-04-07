@@ -441,7 +441,8 @@ export async function runHeadless(options = {}) {
         sidRingWrite   = 0;
         sidRingRead    = 0;
         sidRingCount   = 0;
-        sidFrameBuf.fill(0);
+        sidFrameBufMax.fill(0);
+        sidFrameView = sidFrameBufMax.subarray(0, 1);
       }
 
       inputServer = createInputServer({
@@ -683,7 +684,9 @@ export async function runHeadless(options = {}) {
 
   // ── Audio timing ──────────────────────────────────────────────────────────
   const audioSampleRate = 44100;
-  const samplesPerFrame = Math.floor(audioSampleRate / targetFps); // 882 @ 50fps
+  const FALLBACK_DELTA_MS = 1000 / 60;
+  const MAX_DELTA_MS = 100;
+  const MAX_AUDIO_SAMPLES_PER_ITER = Math.ceil((audioSampleRate * MAX_DELTA_MS) / 1000);
   let audioInterval = null;
 
   // SID audio design — two-stage pipeline:
@@ -696,9 +699,9 @@ export async function runHeadless(options = {}) {
   //   Each pull copies the full 4096-sample WASM buffer into a JS-side ring.
   //
   // Stage 2 (JS ring → ffmpeg/WebRTC):
-  //   Every video frame, dequeue exactly samplesPerFrame samples from the JS
-  //   ring into sidFrameBuf. Send that to ffmpeg/WebRTC every frame — no
-  //   bursting, perfectly aligned with the video frame rate, no A/V drift.
+  //   Every loop iteration, dequeue samples based on REAL elapsed wall-clock
+  //   time, not target fps. This keeps audio throughput anchored to 44100 Hz
+  //   even if the loop temporarily runs at 42fps, preventing A/V clock drift.
   //   The ring provides the decoupling: WASM pushes in 4096-sample chunks,
   //   consumers pull in 882-sample chunks.
   //
@@ -712,7 +715,8 @@ export async function runHeadless(options = {}) {
   // Accumulator: how many emulated samples have passed since last WASM pull.
   let   sidSampleAccum = 0;
   // Single staging buffer for per-frame audio delivered to ffmpeg/WebRTC.
-  const sidFrameBuf    = new Float32Array(samplesPerFrame);
+  const sidFrameBufMax = new Float32Array(MAX_AUDIO_SAMPLES_PER_ITER);
+  let sidFrameView     = sidFrameBufMax.subarray(0, 1);
 
   /** Pull one 4096-sample chunk from the WASM SID buffer into the JS ring. */
   function pullSidBuffer() {
@@ -744,20 +748,22 @@ export async function runHeadless(options = {}) {
     }
   }
 
-  /** Dequeue up to n samples from the JS ring into sidFrameBuf. Returns true if enough data. */
-  function dequeueSidFrame() {
+  /** Dequeue n samples from JS ring into sidFrameBufMax and expose sidFrameView. */
+  function dequeueSidFrame(n) {
+    const samplesNeeded = Math.max(1, Math.min(n, MAX_AUDIO_SAMPLES_PER_ITER));
+    sidFrameView = sidFrameBufMax.subarray(0, samplesNeeded);
     // If the ring doesn't have a full frame yet, pad with silence rather than
     // stalling — this can happen on the very first frames before the SID has
     // had time to fill a full 4096-sample chunk.
-    if (sidRingCount < samplesPerFrame) {
-      sidFrameBuf.fill(0);
+    if (sidRingCount < samplesNeeded) {
+      sidFrameBufMax.fill(0, 0, samplesNeeded);
       return false;
     }
-    for (let i = 0; i < samplesPerFrame; i++) {
-      sidFrameBuf[i] = sidRing[(sidRingRead + i) % SID_RING_SIZE];
+    for (let i = 0; i < samplesNeeded; i++) {
+      sidFrameBufMax[i] = sidRing[(sidRingRead + i) % SID_RING_SIZE];
     }
-    sidRingRead  = (sidRingRead + samplesPerFrame) % SID_RING_SIZE;
-    sidRingCount -= samplesPerFrame;
+    sidRingRead  = (sidRingRead + samplesNeeded) % SID_RING_SIZE;
+    sidRingCount -= samplesNeeded;
     return true;
   }
 
@@ -839,6 +845,7 @@ export async function runHeadless(options = {}) {
 
   let windowStart = Date.now();
   let windowCount = 0;
+  let lastStepAt = Date.now();
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
     try {
@@ -849,24 +856,32 @@ export async function runHeadless(options = {}) {
       const iterStart = Date.now();
       const frameMs   = Math.round(1000 / targetFps);
 
+      // Drive emulation with real wall-clock delta to avoid long-term A/V drift
+      // when actual loop FPS differs from target FPS.
+      const nowMs = Date.now();
+      let emuDeltaMs = nowMs - lastStepAt;
+      lastStepAt = nowMs;
+      if (!emuDeltaMs || emuDeltaMs > MAX_DELTA_MS) emuDeltaMs = FALLBACK_DELTA_MS;
+
       // Run a single full-frame emulation step.
       // debugger_update() returns truthy when the emulator has completed a full
       // video frame (VSync). c64.js gates its redraw on both this return value
       // AND debugger_isRunning() — we mirror that here so we never push a stale
       // or repeated pixel buffer into WebRTC during boot/reset sequences.
-      const frameReady = !!exports.debugger_update(frameMs);
+      const frameReady = !!exports.debugger_update(emuDeltaMs);
       const isRunning  = !!exports.debugger_isRunning();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
       // audio clock stays continuous — gaps cause desync, not silence.
       if (audio || (webrtc && webrtcEncoder)) {
-        sidSampleAccum += samplesPerFrame;
+        const samplesThisIter = Math.max(1, Math.round((audioSampleRate * emuDeltaMs) / 1000));
+        sidSampleAccum += samplesThisIter;
         while (sidSampleAccum >= SID_BUFFER_SIZE) {
           sidSampleAccum -= SID_BUFFER_SIZE;
           pullSidBuffer();
         }
-        dequeueSidFrame(); // fills sidFrameBuf (or silence if ring not primed yet)
+        dequeueSidFrame(samplesThisIter); // fills sidFrameView (or silence)
       }
 
       // ── WebRTC: push video + audio into the live track ─────────────────
@@ -879,7 +894,7 @@ export async function runHeadless(options = {}) {
           webrtcEncoder.pushVideoFrame(rgba);
         }
 
-        webrtcEncoder.pushAudioFrame(sidFrameBuf);
+        webrtcEncoder.pushAudioFrame(sidFrameView);
       }
 
       // Capture video frame and audio chunk, then write both atomically.
@@ -924,7 +939,7 @@ export async function runHeadless(options = {}) {
         if (frameReady && isRunning) {
           const ptr = exports.c64_getPixelBuffer();
           const videoFrame = heap.heapU8.subarray(ptr, ptr + frameSize);
-          const audioChunk = audio ? sidFrameBuf : null;
+          const audioChunk = audio ? sidFrameView : null;
           await ffmpegRunner.writeFrame(videoFrame, audioChunk);
         }
       }
@@ -955,7 +970,7 @@ export async function runHeadless(options = {}) {
     if (windowCount >= 50) {
       const now = Date.now();
       const secs = (now - windowStart) / 1000;
-      const actualFps = 50 / secs;
+      const actualFps = windowCount / secs;
       windowStart = now;
       windowCount = 0;
       // Drift reporting: if actual FPS deviates more than 10% from target, warn.
@@ -1063,4 +1078,3 @@ try {
 } catch (e) {
   // ignore errors in CLI wrapper detection
 }
-
