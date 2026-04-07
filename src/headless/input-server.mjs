@@ -36,6 +36,57 @@ export function createInputServer(opts = {}) {
   const serverVersion     = opts.serverVersion     ?? null;
   const serverGitHash     = opts.serverGitHash     ?? null;
 
+  // ── Input flood instrumentation ───────────────────────────────────────────────
+  const _inputStats = {
+    host: { joystick: 0, key: 0, lastMsgTime: 0 },
+    p2:   { joystick: 0, key: 0, lastMsgTime: 0 },
+  };
+  // ── Input latency tracking ─────────────────────────────────────────────────
+  const LATENCY_SPIKE_MS = 200;
+  const _latencyCount = { host: 0, p2: 0 };
+  const _avgLatency = { host: 0, p2: 0 };
+  let _latencyLogTimer = null;
+  let _inputLogTimer = null;
+  const _networkStats = {
+    host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
+    p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
+  };
+
+  function broadcastNetworkStats() {
+    if (!hostClient && !p2Client) return;
+    const payload = JSON.stringify({
+      type: 'network-stats',
+      serverTime: Date.now(),
+      host: { ..._networkStats.host },
+      p2:   { ..._networkStats.p2 },
+    });
+    if (hostClient && hostClient.readyState === hostClient.OPEN) {
+      try { hostClient.send(payload); } catch (_) {}
+    }
+    if (p2Client && p2Client.readyState === p2Client.OPEN) {
+      try { p2Client.send(payload); } catch (_) {}
+    }
+  }
+  const INPUT_LOG_INTERVAL_MS = 5000; // every 5 seconds
+
+  function _startInputLog() {
+    if (_inputLogTimer) return;
+    _inputLogTimer = setInterval(() => {
+      const now = Date.now();
+      // Only log if there's been recent activity (within last 10s)
+      const h = _inputStats.host.lastMsgTime && (now - _inputStats.host.lastMsgTime < 10000);
+      const p = _inputStats.p2.lastMsgTime && (now - _inputStats.p2.lastMsgTime < 10000);
+      if (h || p) {
+        console.error(`[input-flood] host joystick=${_inputStats.host.joystick} key=${_inputStats.host.key} | p2 joystick=${_inputStats.p2.joystick} key=${_inputStats.p2.key}`);
+      }
+      // Reset counters after reporting
+      _inputStats.host.joystick = 0;
+      _inputStats.host.key = 0;
+      _inputStats.p2.joystick = 0;
+      _inputStats.p2.key = 0;
+    }, INPUT_LOG_INTERVAL_MS);
+  }
+
   /** Emit a structured event log line — only when --log-events is active.
    *  Format: [event] <tag> key=value ...
    *  Never called per-frame; only on meaningful state transitions. */
@@ -184,6 +235,8 @@ export function createInputServer(opts = {}) {
   wss.on('listening', () => {
     console.error(`[input-server] WebSocket listening on ws://0.0.0.0:${port}`);
     logEv('server-listening', { port });
+    // Start input flood logging
+    _startInputLog();
   });
 
   wss.on('connection', (ws, req) => {
@@ -494,10 +547,79 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient && ws !== p2Client) return;
         if (ws === hostClient) resetHostTimeout();
         if (ws === p2Client)   resetP2Timeout();
+        // Track input counts for flood investigation
+        const role = ws === hostClient ? 'host' : 'p2';
+        const stats = role === 'host' ? _inputStats.host : _inputStats.p2;
+        if (msg.type === 'joystick') stats.joystick++;
+        else stats.key++;
+        stats.lastMsgTime = Date.now();
+
+        // ── Input latency profiling ───────────────────────────────────────
+        if (msg.clientTime) {
+          const now = Date.now();
+          const latency = now - msg.clientTime;
+          const bucket = _networkStats[role];
+          if (bucket) {
+            bucket.lastLatency = latency;
+          }
+          // Log latency periodically (every 5s) to avoid spam
+          if (!_latencyLogTimer) {
+            _latencyLogTimer = setInterval(() => {
+              const hostActive = _latencyCount.host > 0;
+              const p2Active   = _latencyCount.p2 > 0;
+              if (hostActive || p2Active) {
+                const hostAvg = hostActive ? Number(_avgLatency.host.toFixed(0)) : null;
+                const p2Avg   = p2Active   ? Number(_avgLatency.p2.toFixed(0))   : null;
+                const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
+                const p2Label   = p2Avg   != null ? `${p2Avg}`   : '--';
+                console.error(`[input-latency] host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
+                _networkStats.host.avgLatency = hostAvg;
+                _networkStats.p2.avgLatency   = p2Avg;
+                broadcastNetworkStats();
+              }
+              // Reset averages
+              _avgLatency.host = 0; _avgLatency.p2 = 0;
+              _latencyCount.host = 0; _latencyCount.p2 = 0;
+            }, 5000);
+          }
+          // Accumulate for averaging
+          _latencyCount[role]++;
+          _avgLatency[role] = ((_avgLatency[role] * (_latencyCount[role] - 1)) + latency) / _latencyCount[role];
+          if (latency > LATENCY_SPIKE_MS) {
+            if (bucket) {
+              bucket.lastSpikeLatency = latency;
+              bucket.lastSpikeAt = now;
+            }
+            console.error(`[input-latency] spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
+              `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
+            }
+        }
+
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
-        msg._role = ws === hostClient ? 'host' : 'p2';
+        msg._role = role;
         if (onInput) onInput(msg);
+        return;
+      }
+
+      if (msg.type === 'ping') {
+        const role = ws === hostClient ? 'host' : (ws === p2Client ? 'p2' : 'spectator');
+        const now = Date.now();
+        const payload = {
+          type: 'pong',
+          pingId: msg.pingId ?? null,
+          serverTime: now,
+          clientTime: msg.clientTime ?? null,
+        };
+        try { ws.send(JSON.stringify(payload)); } catch (_) {}
+        if (msg.clientTime) {
+          const rtt = now - msg.clientTime;
+          console.error(`[ping] role=${role} rtt=${rtt}ms`);
+          if (role === 'host' || role === 'p2') {
+            _networkStats[role].pingRtt = rtt;
+            broadcastNetworkStats();
+          }
+        }
         return;
       }
     });
@@ -536,10 +658,12 @@ export function createInputServer(opts = {}) {
 
     // ── Hello handshake ───────────────────────────────────────────────────
     const hostActive = !!(hostClient && hostClient.readyState === hostClient.OPEN);
+    const serverTime = Date.now();
     ws.send(JSON.stringify({
       type:        'hello',
       protocol:    'c64-input',
       version:     1,
+      serverTime,  // Unix ms for client clock sync
       // During grace period: treat slot as free so the original host can reclaim it.
       // hostPendingRejoin tells P2 (and spectators) to hold off.
       hostTaken:           hostActive,
@@ -568,4 +692,3 @@ export function createInputServer(opts = {}) {
 
   return { wss, close };
 }
-

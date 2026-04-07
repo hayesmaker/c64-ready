@@ -62,6 +62,15 @@ if [ "${LOG_EVENTS}" = "1" ] || [ "${LOG_EVENTS}" = "true" ]; then
   ARGS="$ARGS --log-events"
 fi
 
+# Log file output (survives container restarts when logs dir is bind-mounted)
+if [ "${LOG_FILE}" = "1" ] || [ "${LOG_FILE}" = "true" ]; then
+  ARGS="$ARGS --log-file"
+  # Log retention in days (default: 7)
+  if [ -n "${LOG_RETAIN_DAYS}" ]; then
+    ARGS="$ARGS --log-retain-days $LOG_RETAIN_DAYS"
+  fi
+fi
+
 echo "[entrypoint] node bin/headless.mjs $ARGS"
 # shellcheck disable=SC2086
 exec node bin/headless.mjs $ARGS

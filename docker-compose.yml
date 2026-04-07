@@ -47,4 +47,5 @@ services:
       - ./src/headless:/app/src/headless:ro
       - ./src/emulator:/app/src/emulator:ro
       - ./bin:/app/bin:ro
+      - ./logs:/app/logs
 
