@@ -58,6 +58,9 @@ All console output (`console.log` and `console.error`) is tee'd to both stdout/s
 - Cartridge load/reset events
 - WebRTC connection state
 - Errors and warnings
+- Input latency summaries (`[input-latency] host-avg=... p2-avg=...`)
+- Input latency spikes (`[input-latency] spike role=... latency=...`)
+- Ping round-trip times (`[ping] role=... rtt=...`)
 
 ## Docker Volume Mount
 

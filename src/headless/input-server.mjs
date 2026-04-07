@@ -42,6 +42,7 @@ export function createInputServer(opts = {}) {
     p2:   { joystick: 0, key: 0, lastMsgTime: 0 },
   };
   // ── Input latency tracking ─────────────────────────────────────────────────
+  const LATENCY_SPIKE_MS = 200;
   const _latencyCount = { host: 0, p2: 0 };
   const _avgLatency = { host: 0, p2: 0 };
   let _latencyLogTimer = null;
@@ -540,9 +541,9 @@ export function createInputServer(opts = {}) {
           // Log latency periodically (every 5s) to avoid spam
           if (!_latencyLogTimer) {
             _latencyLogTimer = setInterval(() => {
-              const h = _inputStats.host.lastMsgTime && (now - _inputStats.host.lastMsgTime < 10000);
-              const p = _inputStats.p2.lastMsgTime && (now - _inputStats.p2.lastMsgTime < 10000);
-              if (h || p) {
+              const hostActive = _latencyCount.host > 0;
+              const p2Active   = _latencyCount.p2 > 0;
+              if (hostActive || p2Active) {
                 console.error(`[input-latency] host-avg=${_avgLatency.host.toFixed(0)}ms p2-avg=${_avgLatency.p2.toFixed(0)}ms`);
               }
               // Reset averages
@@ -553,12 +554,33 @@ export function createInputServer(opts = {}) {
           // Accumulate for averaging
           _latencyCount[role]++;
           _avgLatency[role] = ((_avgLatency[role] * (_latencyCount[role] - 1)) + latency) / _latencyCount[role];
+          if (latency > LATENCY_SPIKE_MS) {
+            console.error(`[input-latency] spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
+              `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
+          }
         }
 
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
         msg._role = role;
         if (onInput) onInput(msg);
+        return;
+      }
+
+      if (msg.type === 'ping') {
+        const role = ws === hostClient ? 'host' : (ws === p2Client ? 'p2' : 'spectator');
+        const now = Date.now();
+        const payload = {
+          type: 'pong',
+          pingId: msg.pingId ?? null,
+          serverTime: now,
+          clientTime: msg.clientTime ?? null,
+        };
+        try { ws.send(JSON.stringify(payload)); } catch (_) {}
+        if (msg.clientTime) {
+          const rtt = now - msg.clientTime;
+          console.error(`[ping] role=${role} rtt=${rtt}ms`);
+        }
         return;
       }
     });
@@ -631,4 +653,3 @@ export function createInputServer(opts = {}) {
 
   return { wss, close };
 }
-
