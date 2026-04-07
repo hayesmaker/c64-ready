@@ -142,6 +142,8 @@ export async function runHeadless(options = {}) {
   let webrtcPort = 9002;
   let logEvents = false;
   let maxSpectators = 5;
+  let logFile = false;
+  let logRetainDays = 7;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -156,6 +158,8 @@ export async function runHeadless(options = {}) {
     else if (a === '--no-game') noGame = true;
     else if (a === '--verbose') verbose = true;
     else if (a === '--log-events') logEvents = true;
+    else if (a === '--log-file') logFile = true;
+    else if (a === '--log-retain-days') logRetainDays = Number(argv[++i]);
     else if (a === '--fps') fps = Number(argv[++i]);
     else if (a === '--input') enableInput = true;
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
@@ -166,6 +170,84 @@ export async function runHeadless(options = {}) {
       return {ok: false, output: 'help'};
     }
   }
+
+  // ── Log file setup ────────────────────────────────────────────────────────────
+  let logStream = null;
+  let _origConsoleLog = null;
+  let _origConsoleError = null;
+
+  function _setupLogFile() {
+    if (!logFile) return;
+
+    const logsDir = path.join(repoRoot, 'logs');
+    try {
+      fs.mkdirSync(logsDir, { recursive: true });
+    } catch (e) {
+      console.error('[headless] could not create logs directory:', e.message);
+      return;
+    }
+
+    // Clean up old logs
+    if (logRetainDays > 0) {
+      try {
+        const files = fs.readdirSync(logsDir);
+        const now = Date.now();
+        for (const f of files) {
+          if (!f.startsWith('headless-') || !f.endsWith('.log')) continue;
+          const fpath = path.join(logsDir, f);
+          const stat = fs.statSync(fpath);
+          const ageDays = (now - stat.mtimeMs) / (1000 * 60 * 60 * 24);
+          if (ageDays > logRetainDays) {
+            fs.unlinkSync(fpath);
+            console.error(`[headless] purged old log: ${f} (${ageDays.toFixed(1)} days old)`);
+          }
+        }
+      } catch (e) {
+        console.error('[headless] log cleanup error:', e.message);
+      }
+    }
+
+    // Generate filename
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const logPath = path.join(logsDir, `headless-${timestamp}.log`);
+    try {
+      logStream = fs.createWriteStream(logPath, { flags: 'a' });
+      console.error(`[headless] logging to: ${logPath}`);
+    } catch (e) {
+      console.error('[headless] could not open log file:', e.message);
+      return;
+    }
+
+    // Tee console methods
+    _origConsoleLog = console.log;
+    _origConsoleError = console.error;
+
+    const _writeLog = (origFn, ...args) => {
+      origFn.apply(console, args);
+      if (logStream && logStream.writable) {
+        const line = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n';
+        logStream.write(line);
+      }
+    };
+
+    console.log = (...args) => _writeLog(_origConsoleLog, ...args);
+    console.error = (...args) => _writeLog(_origConsoleError, ...args);
+  }
+
+  function _teardownLogFile() {
+    if (logStream) {
+      try { logStream.end(); } catch (_) {}
+      logStream = null;
+    }
+    if (_origConsoleLog) {
+      console.log = _origConsoleLog;
+      console.error = _origConsoleError;
+      _origConsoleLog = null;
+      _origConsoleError = null;
+    }
+  }
+
+  _setupLogFile();
 
   const defaultWasmPaths = [
     path.join(repoRoot, 'public', 'c64.wasm'),
@@ -919,6 +1001,9 @@ export async function runHeadless(options = {}) {
       console.error('[headless] webrtc server close error:', e && e.message ? e.message : e);
     }
   }
+
+  // ── Log file teardown ──────────────────────────────────────────────────────
+  _teardownLogFile();
 
   if (record && ffmpegRunner) {
     // Clear audio interval if it was used (currently null/no-op)
