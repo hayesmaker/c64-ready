@@ -65,6 +65,18 @@ export function createWebRTCServer({
   }
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
+  const peerStatsPrev = new Map();
+  const senderTelemetry = {
+    sampledAt: Date.now(),
+    peerCount: 0,
+    avgRttMs: null,
+    sendDelayMsPerPacket: null,
+    encodeMsPerFrame: null,
+    framesSentPerSec: null,
+    framesEncodedPerSec: null,
+    bytesSentPerSec: null,
+    qualityLimitation: null,
+  };
   const minBitrateKbpsSafe = Number.isFinite(minBitrateKbps) && minBitrateKbps > 0
     ? Math.round(minBitrateKbps)
     : 200;
@@ -120,6 +132,96 @@ export function createWebRTCServer({
       // Best-effort diagnostics only
     }
   }
+
+  async function sampleSenderTelemetry() {
+    const nowWall = Date.now();
+    let peerCount = 0;
+    let rttSum = 0;
+    let rttCount = 0;
+    let deltaFramesSent = 0;
+    let deltaFramesEncoded = 0;
+    let deltaBytesSent = 0;
+    let deltaPacketsSent = 0;
+    let deltaPacketSendDelay = 0;
+    let deltaEncodeTime = 0;
+    const qualityCounts = {};
+
+    for (const pc of activePeers) {
+      peerCount++;
+      try {
+        const report = await pc.getStats();
+        let selected = null;
+        let outboundVideo = null;
+        for (const stat of report.values()) {
+          if (stat.type === 'candidate-pair' && stat.nominated && (stat.state === 'succeeded' || stat.selected)) {
+            selected = stat;
+          }
+          if (stat.type === 'outbound-rtp' && stat.kind === 'video' && !stat.isRemote) {
+            outboundVideo = stat;
+          }
+        }
+
+        if (selected && Number.isFinite(selected.currentRoundTripTime)) {
+          rttSum += selected.currentRoundTripTime * 1000;
+          rttCount++;
+        }
+        if (!outboundVideo) continue;
+
+        const reason = outboundVideo.qualityLimitationReason ?? 'none';
+        qualityCounts[reason] = (qualityCounts[reason] ?? 0) + 1;
+
+        const current = {
+          timestampMs: Number.isFinite(outboundVideo.timestamp) ? outboundVideo.timestamp : nowWall,
+          framesSent: Number.isFinite(outboundVideo.framesSent) ? outboundVideo.framesSent : null,
+          framesEncoded: Number.isFinite(outboundVideo.framesEncoded) ? outboundVideo.framesEncoded : null,
+          bytesSent: Number.isFinite(outboundVideo.bytesSent) ? outboundVideo.bytesSent : null,
+          packetsSent: Number.isFinite(outboundVideo.packetsSent) ? outboundVideo.packetsSent : null,
+          totalPacketSendDelay: Number.isFinite(outboundVideo.totalPacketSendDelay) ? outboundVideo.totalPacketSendDelay : null,
+          totalEncodeTime: Number.isFinite(outboundVideo.totalEncodeTime) ? outboundVideo.totalEncodeTime : null,
+        };
+
+        const prev = peerStatsPrev.get(pc);
+        peerStatsPrev.set(pc, current);
+        if (!prev) continue;
+
+        if (current.framesSent != null && prev.framesSent != null && current.framesSent >= prev.framesSent) {
+          deltaFramesSent += current.framesSent - prev.framesSent;
+        }
+        if (current.framesEncoded != null && prev.framesEncoded != null && current.framesEncoded >= prev.framesEncoded) {
+          deltaFramesEncoded += current.framesEncoded - prev.framesEncoded;
+        }
+        if (current.bytesSent != null && prev.bytesSent != null && current.bytesSent >= prev.bytesSent) {
+          deltaBytesSent += current.bytesSent - prev.bytesSent;
+        }
+        if (current.packetsSent != null && prev.packetsSent != null && current.packetsSent >= prev.packetsSent) {
+          deltaPacketsSent += current.packetsSent - prev.packetsSent;
+        }
+        if (current.totalPacketSendDelay != null && prev.totalPacketSendDelay != null && current.totalPacketSendDelay >= prev.totalPacketSendDelay) {
+          deltaPacketSendDelay += current.totalPacketSendDelay - prev.totalPacketSendDelay;
+        }
+        if (current.totalEncodeTime != null && prev.totalEncodeTime != null && current.totalEncodeTime >= prev.totalEncodeTime) {
+          deltaEncodeTime += current.totalEncodeTime - prev.totalEncodeTime;
+        }
+      } catch (_) {
+        // best effort only
+      }
+    }
+
+    const sampleIntervalS = 5;
+    senderTelemetry.sampledAt = nowWall;
+    senderTelemetry.peerCount = peerCount;
+    senderTelemetry.avgRttMs = rttCount > 0 ? (rttSum / rttCount) : null;
+    senderTelemetry.sendDelayMsPerPacket = deltaPacketsSent > 0 ? (deltaPacketSendDelay / deltaPacketsSent) * 1000 : null;
+    senderTelemetry.encodeMsPerFrame = deltaFramesEncoded > 0 ? (deltaEncodeTime / deltaFramesEncoded) * 1000 : null;
+    senderTelemetry.framesSentPerSec = deltaFramesSent / sampleIntervalS;
+    senderTelemetry.framesEncodedPerSec = deltaFramesEncoded / sampleIntervalS;
+    senderTelemetry.bytesSentPerSec = deltaBytesSent / sampleIntervalS;
+    senderTelemetry.qualityLimitation = qualityCounts;
+  }
+
+  const senderTelemetryTimer = setInterval(() => {
+    sampleSenderTelemetry().catch(() => {});
+  }, 5000);
 
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
@@ -211,6 +313,7 @@ export function createWebRTCServer({
     function closePeer(reason) {
       clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
+      peerStatsPrev.delete(pc);
       // Decrement pendingPeers only if this peer never made it to ICE connected.
       if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
       console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
@@ -385,9 +488,13 @@ export function createWebRTCServer({
       }
       if (verbose) console.error(`[webrtc] forceKeyframe: triggered on ${count} sender(s)`);
     },
+    getTelemetrySnapshot() {
+      return { ...senderTelemetry };
+    },
     close: () =>
       new Promise((resolve) => {
         clearInterval(pingInterval);
+        clearInterval(senderTelemetryTimer);
         wss.close(() => httpServer.close(() => resolve()));
       }),
   };

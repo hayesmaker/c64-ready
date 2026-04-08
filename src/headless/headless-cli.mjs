@@ -6,6 +6,13 @@ import { execSync } from 'child_process';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
 
+const nowMonoMs = () => {
+  if (typeof globalThis.performance !== 'undefined' && typeof globalThis.performance.now === 'function') {
+    return globalThis.performance.now();
+  }
+  return Date.now();
+};
+
 // ── CRT info parser ───────────────────────────────────────────────────────────
 // Inline JS port of src/emulator/crt-info.ts — kept here so headless-cli.mjs
 // runs without a TypeScript build step.
@@ -192,6 +199,14 @@ export async function runHeadless(options = {}) {
     videoFramesSent: 0,
     videoFramesDroppedLate: 0,
     videoFramesDroppedCap: 0,
+    webrtcPeerCount: null,
+    webrtcAvgRttMs: null,
+    webrtcSendDelayMsPerPacket: null,
+    webrtcEncodeMsPerFrame: null,
+    webrtcFramesSentPerSec: null,
+    webrtcFramesEncodedPerSec: null,
+    webrtcBytesSentPerSec: null,
+    webrtcQualityLimitation: null,
     sampledAt: Date.now(),
   };
 
@@ -621,6 +636,7 @@ export async function runHeadless(options = {}) {
   // RTCPeerConnection fed by the shared encoder tracks.
   let webrtcEncoder = null;
   let webrtcServer  = null;
+  let getWebrtcTelemetry = () => null;
 
   if (webrtc) {
     try {
@@ -673,6 +689,9 @@ export async function runHeadless(options = {}) {
           } catch (_) {}
         },
       });
+      if (typeof webrtcServer.getTelemetrySnapshot === 'function') {
+        getWebrtcTelemetry = () => webrtcServer.getTelemetrySnapshot();
+      }
 
       out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/ (send cap: ${webrtcOutputFpsSafe > 0 ? `${webrtcOutputFpsSafe}fps` : 'off'})`);
     } catch (e) {
@@ -689,7 +708,7 @@ export async function runHeadless(options = {}) {
   const frameMs = Math.round(1000 / targetFps);
   const webrtcSendFps = webrtcOutputFpsSafe > 0 ? Math.max(1, Math.min(targetFps, webrtcOutputFpsSafe)) : targetFps;
   const webrtcSendIntervalMs = 1000 / webrtcSendFps;
-  let nextVideoDueAtMs = Date.now();
+  let nextVideoDueAtMs = nowMonoMs();
   let videoFramesSent = 0;
   let videoFramesDroppedLate = 0;
   let videoFramesDroppedCap = 0;
@@ -881,9 +900,9 @@ export async function runHeadless(options = {}) {
     ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
     : null;
 
-  let windowStart = Date.now();
+  let windowStart = nowMonoMs();
   let windowCount = 0;
-  let lastStepAt = Date.now();
+  let lastStepAt = nowMonoMs();
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
     try {
@@ -891,10 +910,10 @@ export async function runHeadless(options = {}) {
 
       // Capture frame start time BEFORE emulation so sleepMs accounts for
       // ALL work in this iteration (emulation + audio + video push + ffmpeg).
-      const iterStart = Date.now();
+      const iterStart = nowMonoMs();
       // Drive emulation with real wall-clock delta to avoid long-term A/V drift
       // when actual loop FPS differs from target FPS.
-      const nowMs = Date.now();
+      const nowMs = nowMonoMs();
       let emuDeltaMs = nowMs - lastStepAt;
       lastStepAt = nowMs;
       if (!emuDeltaMs || emuDeltaMs > MAX_DELTA_MS) emuDeltaMs = FALLBACK_DELTA_MS;
@@ -925,7 +944,7 @@ export async function runHeadless(options = {}) {
         // Only push a video frame when the emulator confirms one is ready and
         // is actively running — mirrors c64.js: if (update && !!debugger_isRunning())
         if (frameReady && isRunning) {
-          const nowVideoMs = Date.now();
+          const nowVideoMs = nowMonoMs();
           if (nowVideoMs + 1 < nextVideoDueAtMs) {
             videoFramesDroppedCap++;
             videoFramesDroppedCapWindow++;
@@ -1010,7 +1029,7 @@ export async function runHeadless(options = {}) {
       // Worst-case input latency = one full frame (20ms @ 50fps): a keydown
       // that lands just AFTER step 2 waits until the following frame.
       // Average latency = half a frame (~10ms).
-      const workMs = Date.now() - iterStart;
+      const workMs = nowMonoMs() - iterStart;
       const sleepMs = Math.max(0, frameMs - workMs);
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
       await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
@@ -1020,7 +1039,7 @@ export async function runHeadless(options = {}) {
     // diagnostics
     windowCount++;
     if (windowCount >= 50) {
-      const now = Date.now();
+      const now = nowMonoMs();
       const secs = (now - windowStart) / 1000;
       const actualFps = windowCount / secs;
       windowStart = now;
@@ -1040,6 +1059,17 @@ export async function runHeadless(options = {}) {
       runtimeStats.videoFramesSent = videoFramesSent;
       runtimeStats.videoFramesDroppedLate = videoFramesDroppedLate;
       runtimeStats.videoFramesDroppedCap = videoFramesDroppedCap;
+      const webrtcTelemetry = getWebrtcTelemetry();
+      if (webrtcTelemetry) {
+        runtimeStats.webrtcPeerCount = webrtcTelemetry.peerCount ?? null;
+        runtimeStats.webrtcAvgRttMs = Number.isFinite(webrtcTelemetry.avgRttMs) ? webrtcTelemetry.avgRttMs : null;
+        runtimeStats.webrtcSendDelayMsPerPacket = Number.isFinite(webrtcTelemetry.sendDelayMsPerPacket) ? webrtcTelemetry.sendDelayMsPerPacket : null;
+        runtimeStats.webrtcEncodeMsPerFrame = Number.isFinite(webrtcTelemetry.encodeMsPerFrame) ? webrtcTelemetry.encodeMsPerFrame : null;
+        runtimeStats.webrtcFramesSentPerSec = Number.isFinite(webrtcTelemetry.framesSentPerSec) ? webrtcTelemetry.framesSentPerSec : null;
+        runtimeStats.webrtcFramesEncodedPerSec = Number.isFinite(webrtcTelemetry.framesEncodedPerSec) ? webrtcTelemetry.framesEncodedPerSec : null;
+        runtimeStats.webrtcBytesSentPerSec = Number.isFinite(webrtcTelemetry.bytesSentPerSec) ? webrtcTelemetry.bytesSentPerSec : null;
+        runtimeStats.webrtcQualityLimitation = webrtcTelemetry.qualityLimitation ?? null;
+      }
       runtimeStats.sampledAt = Date.now();
       if (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0) {
         videoFramesDroppedLateWindow = 0;
