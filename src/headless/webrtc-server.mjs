@@ -66,6 +66,7 @@ export function createWebRTCServer({
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
   const peerControllers = new Set();
+  const peerBySession = new Map();
   const peerStatsPrev = new Map();
   const senderTelemetry = {
     sampledAt: Date.now(),
@@ -291,6 +292,40 @@ export function createWebRTCServer({
     }
   }
 
+  function normalizeSessionKey(raw) {
+    if (raw == null) return null;
+    const value = String(raw).trim();
+    if (!value) return null;
+    // Avoid pathological/untrusted values bloating logs/maps.
+    return value.slice(0, 128);
+  }
+
+  function bindControllerSession(controller, rawSession, source = 'offer') {
+    const sessionKey = normalizeSessionKey(rawSession);
+    if (!sessionKey) return null;
+    if (controller.sessionKey === sessionKey) return sessionKey;
+
+    if (controller.sessionKey) {
+      const mapped = peerBySession.get(controller.sessionKey);
+      if (mapped === controller) peerBySession.delete(controller.sessionKey);
+    }
+
+    const previous = peerBySession.get(sessionKey);
+    if (previous && previous !== controller) {
+      logEv('webrtc-session-replaced', {
+        session: sessionKey,
+        oldAddr: previous.remoteAddr ?? '-',
+        newAddr: controller.remoteAddr ?? '-',
+        source,
+      });
+      try { previous.closePeer?.('session-replaced'); } catch (_) {}
+    }
+
+    peerBySession.set(sessionKey, controller);
+    controller.sessionKey = sessionKey;
+    return sessionKey;
+  }
+
   const senderTelemetryTimer = setInterval(() => {
     sampleSenderTelemetry().catch(() => {});
   }, 5000);
@@ -339,6 +374,13 @@ export function createWebRTCServer({
     ws._sigAlive = true; // initialise alive flag
     ws.on('pong', () => { ws._sigAlive = true; });
     const remoteAddr = req.socket.remoteAddress;
+    let initialSessionId = null;
+    try {
+      const reqUrl = new URL(req.url || '/', 'http://localhost');
+      initialSessionId = reqUrl.searchParams.get('sid')
+        || reqUrl.searchParams.get('sessionId')
+        || null;
+    } catch (_) {}
 
     // ── Capacity gate ─────────────────────────────────────────────────────────
     // Count active ICE-connected peers + in-flight (pending) connections.
@@ -373,6 +415,7 @@ export function createWebRTCServer({
       remoteAddr,
       connected: false,
       iceState: 'new',
+      sessionKey: null,
       closePeer: null,
     };
     peerControllers.add(controller);
@@ -395,6 +438,10 @@ export function createWebRTCServer({
       clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
       peerStatsPrev.delete(pc);
+      if (controller.sessionKey) {
+        const mapped = peerBySession.get(controller.sessionKey);
+        if (mapped === controller) peerBySession.delete(controller.sessionKey);
+      }
       peerControllers.delete(controller);
       // Decrement pendingPeers only if this peer never made it to ICE connected.
       if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
@@ -409,6 +456,7 @@ export function createWebRTCServer({
       pc.close();
     }
     controller.closePeer = closePeer;
+    bindControllerSession(controller, initialSessionId, 'query');
 
     // ── Trickle ICE: forward server-side candidates to the browser ───────
     pc.onicecandidate = ({ candidate }) => {
@@ -472,6 +520,7 @@ export function createWebRTCServer({
 
       try {
         if (msg.type === 'offer') {
+          bindControllerSession(controller, msg.sessionId ?? msg.sid ?? msg.clientSessionId ?? null, 'offer');
           await pc.setRemoteDescription(msg);
 
           // ── CRITICAL: tracks must be added BEFORE createAnswer() ─────────
@@ -582,6 +631,7 @@ export function createWebRTCServer({
       for (const c of peerControllers) {
         peers.push({
           addr: c.remoteAddr,
+          session: c.sessionKey,
           iceState: c.iceState,
           connected: c.connected,
           wsOpen: c.ws && c.ws.readyState === c.ws.OPEN,
@@ -888,7 +938,24 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
 
       setBadge(videoBadge, 'video: connecting…', 'dim');
 
-      sigWs = new WebSocket('ws://' + location.host);
+      function getOrCreateSessionId() {
+        try {
+          const key = 'c64live.webrtcSessionId';
+          const existing = localStorage.getItem(key);
+          if (existing) return existing;
+          const created = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+            ? globalThis.crypto.randomUUID()
+            : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
+          localStorage.setItem(key, created);
+          return created;
+        } catch (_) {
+          return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+        }
+      }
+      const rtcSessionId = getOrCreateSessionId();
+      const sigUrl = new URL('ws://' + location.host);
+      sigUrl.searchParams.set('sid', rtcSessionId);
+      sigWs = new WebSocket(sigUrl.toString());
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
       pc.ontrack = (e) => {
@@ -954,7 +1021,7 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
           );
         }
         await pc.setLocalDescription(offer);
-        sigWs.send(JSON.stringify(pc.localDescription));
+        sigWs.send(JSON.stringify({ ...pc.localDescription, sessionId: rtcSessionId }));
       };
 
       sigWs.onmessage = async ({ data }) => {
