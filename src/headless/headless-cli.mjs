@@ -141,7 +141,9 @@ export async function runHeadless(options = {}) {
   let webrtc = false;
   let webrtcPort = 9002;
   let logEvents = false;
-  let maxSpectators = 5;
+  let maxSpectators = 3;
+  let webrtcMinBitrateKbps = 200;
+  let webrtcMaxBitrateKbps = 600;
   let logFile = false;
   let logRetainDays = 7;
   for (let i = 0; i < argv.length; i++) {
@@ -166,10 +168,19 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc') webrtc = true;
     else if (a === '--webrtc-port') webrtcPort = Number(argv[++i]);
     else if (a === '--max-spectators') maxSpectators = Number(argv[++i]);
+    else if (a === '--webrtc-min-bitrate-kbps') webrtcMinBitrateKbps = Number(argv[++i]);
+    else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
   }
+
+  const webrtcMinBitrateKbpsSafe = Number.isFinite(webrtcMinBitrateKbps) && webrtcMinBitrateKbps > 0
+    ? Math.round(webrtcMinBitrateKbps)
+    : 200;
+  const webrtcMaxBitrateKbpsSafe = Number.isFinite(webrtcMaxBitrateKbps) && webrtcMaxBitrateKbps > 0
+    ? Math.max(webrtcMinBitrateKbpsSafe, Math.round(webrtcMaxBitrateKbps))
+    : Math.max(webrtcMinBitrateKbpsSafe, 600);
 
   // ── Log file setup ────────────────────────────────────────────────────────────
   let logStream = null;
@@ -615,6 +626,8 @@ export async function runHeadless(options = {}) {
         logEvents,
         inputPort: wsPort,
         maxSpectators,
+        minBitrateKbps: webrtcMinBitrateKbpsSafe,
+        maxBitrateKbps: webrtcMaxBitrateKbpsSafe,
         // onOffer fires BEFORE createAnswer() — the right place to addTrack()
         onOffer(pc) {
           const stream = new MediaStream([videoTrack, audioTrack]);
@@ -627,16 +640,17 @@ export async function runHeadless(options = {}) {
           // Reduce video sender bitrate after connection to minimise encode
           // latency. A tight ceiling keeps frame sizes small and predictable,
           // reducing the encoder's internal queue and decode buffer on the
-          // receiving end. 800 kbps is well above lossless for 384×272 @ 50fps.
+          // receiving end.
           try {
             const senders = pc.getSenders();
             for (const sender of senders) {
               if (sender.track && sender.track.kind === 'video') {
                 const params = sender.getParameters();
+                const maxBitrateBps = Math.max(100_000, Math.round(webrtcMaxBitrateKbpsSafe * 1000));
                 if (params.encodings && params.encodings.length > 0) {
-                  params.encodings[0].maxBitrate = 800_000;
+                  params.encodings[0].maxBitrate = maxBitrateBps;
                 } else {
-                  params.encodings = [{ maxBitrate: 800_000 }];
+                  params.encodings = [{ maxBitrate: maxBitrateBps }];
                 }
                 sender.setParameters(params).catch(() => {});
                 break;
@@ -658,6 +672,12 @@ export async function runHeadless(options = {}) {
   let frameCount = 0;
   let ffmpegDied = false; // set to true if ffmpeg exits unexpectedly and we give up
   const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
+  const frameMs = Math.round(1000 / targetFps);
+  const lateDropTriggerMs = Math.max(4, Math.round(frameMs * 0.75));
+  const lateDropDebtMaxMs = Math.max(frameMs * 3, 200);
+  let videoLagDebtMs = 0;
+  let videoLateDropTotal = 0;
+  let videoLateDropWindow = 0;
   // Now that targetFps is known, configure the WebRTC encoder's frame duration
   // so video timestamps are driven by frame count × frame duration (µs) rather
   // than wall clock — making loadCartridge blockages invisible to the receiver.
@@ -854,8 +874,6 @@ export async function runHeadless(options = {}) {
       // Capture frame start time BEFORE emulation so sleepMs accounts for
       // ALL work in this iteration (emulation + audio + video push + ffmpeg).
       const iterStart = Date.now();
-      const frameMs   = Math.round(1000 / targetFps);
-
       // Drive emulation with real wall-clock delta to avoid long-term A/V drift
       // when actual loop FPS differs from target FPS.
       const nowMs = Date.now();
@@ -870,6 +888,11 @@ export async function runHeadless(options = {}) {
       // or repeated pixel buffer into WebRTC during boot/reset sequences.
       const frameReady = !!exports.debugger_update(emuDeltaMs);
       const isRunning  = !!exports.debugger_isRunning();
+      const shouldDropLateVideo = Boolean(
+        webrtc && webrtcEncoder &&
+        frameReady && isRunning &&
+        videoLagDebtMs >= lateDropTriggerMs
+      );
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
@@ -889,9 +912,15 @@ export async function runHeadless(options = {}) {
         // Only push a video frame when the emulator confirms one is ready and
         // is actively running — mirrors c64.js: if (update && !!debugger_isRunning())
         if (frameReady && isRunning) {
-          const ptr  = exports.c64_getPixelBuffer();
-          const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
-          webrtcEncoder.pushVideoFrame(rgba);
+          if (shouldDropLateVideo) {
+            videoLagDebtMs = Math.max(0, videoLagDebtMs - frameMs);
+            videoLateDropTotal++;
+            videoLateDropWindow++;
+          } else {
+            const ptr  = exports.c64_getPixelBuffer();
+            const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
+            webrtcEncoder.pushVideoFrame(rgba);
+          }
         }
 
         webrtcEncoder.pushAudioFrame(sidFrameView);
@@ -959,7 +988,17 @@ export async function runHeadless(options = {}) {
       // Worst-case input latency = one full frame (20ms @ 50fps): a keydown
       // that lands just AFTER step 2 waits until the following frame.
       // Average latency = half a frame (~10ms).
-      const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
+      const workMs = Date.now() - iterStart;
+      if (webrtc && webrtcEncoder) {
+        const overrunMs = Math.max(0, workMs - frameMs);
+        if (overrunMs > 0) {
+          videoLagDebtMs = Math.min(lateDropDebtMaxMs, videoLagDebtMs + overrunMs);
+        } else {
+          videoLagDebtMs = Math.max(0, videoLagDebtMs - Math.round(frameMs * 0.25));
+        }
+      }
+
+      const sleepMs = Math.max(0, frameMs - workMs);
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
       await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
     } catch (_) {
@@ -981,6 +1020,12 @@ export async function runHeadless(options = {}) {
         if (driftPct > 10) {
           console.error(`[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`);
         }
+        if (videoLateDropWindow > 0) {
+          console.error(`[event] webrtc-video-drop-late count=${videoLateDropWindow} total=${videoLateDropTotal} debtMs=${Math.round(videoLagDebtMs)}`);
+        }
+      }
+      if (videoLateDropWindow > 0) {
+        videoLateDropWindow = 0;
       }
     }
     if (verify && frameCount % 60 === 0) {

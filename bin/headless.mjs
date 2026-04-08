@@ -54,11 +54,13 @@ Options:
   --output <path|url>  Output file path or rtmp:// stream URL
   --duration <secs>    Recording duration in seconds  (omit for endless streaming)
   --fps <n>            Target frame rate  (default: 50 for PAL)
-   --webrtc             Start a WebRTC streaming server (low-latency; replaces RTMP+flv.js)
+  --webrtc             Start a WebRTC streaming server (low-latency; replaces RTMP+flv.js)
   --webrtc-port <n>    WebRTC signalling + player HTTP port  (default: 9002)
-  --max-spectators <n> Max concurrent spectator WebRTC connections (default: 5)
+  --max-spectators <n> Max concurrent spectator WebRTC connections (default: 3)
                        Players count separately (up to 2), so total WebRTC peers = n+2.
                        New connections beyond this limit receive { type: 'capacity-full' }.
+  --webrtc-min-bitrate-kbps <n> VP8 SDP x-google-min-bitrate hint (default: 200)
+  --webrtc-max-bitrate-kbps <n> VP8 SDP x-google-max-bitrate hint (default: 600)
   --input              Start WebSocket input server for remote control
   --ws-port <n>        WebSocket server port  (default: 9001)
   --verbose            Print per-frame diagnostics to stderr
@@ -116,4 +118,3 @@ if (!res.ok) {
 // Force exit: native addons (@roamhq/wrtc) keep the event loop alive
 // even after all work is done. This is safe — all cleanup already ran above.
 process.exit(0);
-

@@ -31,11 +31,13 @@ const { RTCPeerConnection } = wrtc;
  * @param {boolean}  [opts.verbose=false]       Log state changes to stderr
  * @param {number}   [opts.inputPort=9001]      Port the input WebSocket listens on
  *                                               (embedded in the browser page)
- * @param {number}   [opts.maxSpectators=5]     Maximum number of spectator connections
+ * @param {number}   [opts.maxSpectators=3]     Maximum number of spectator connections
  *                                               (not counting the 2 player slots).
  *                                               When the limit is reached, new WebRTC
  *                                               connections are rejected immediately with
  *                                               a { type: 'capacity-full' } message.
+ * @param {number}   [opts.minBitrateKbps=200]  SDP x-google-min-bitrate for VP8 answer
+ * @param {number}   [opts.maxBitrateKbps=600]  SDP x-google-max-bitrate for VP8 answer
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
  *   Called synchronously when an SDP offer arrives, BEFORE createAnswer().
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
@@ -48,7 +50,9 @@ export function createWebRTCServer({
   verbose = false,
   logEvents = false,
   inputPort = 9001,
-  maxSpectators = 5,
+  maxSpectators = 3,
+  minBitrateKbps = 200,
+  maxBitrateKbps = 600,
   onOffer,
   onPeerConnected,
 } = {}) {
@@ -61,6 +65,12 @@ export function createWebRTCServer({
   }
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
+  const minBitrateKbpsSafe = Number.isFinite(minBitrateKbps) && minBitrateKbps > 0
+    ? Math.round(minBitrateKbps)
+    : 200;
+  const maxBitrateKbpsSafe = Number.isFinite(maxBitrateKbps) && maxBitrateKbps > 0
+    ? Math.max(minBitrateKbpsSafe, Math.round(maxBitrateKbps))
+    : Math.max(minBitrateKbpsSafe, 600);
 
   // Total capacity = 2 player slots + maxSpectators.
   // We track all in-flight WS connections (including those not yet ICE-connected)
@@ -68,10 +78,53 @@ export function createWebRTCServer({
   const MAX_CONNECTIONS = 2 + maxSpectators;
   let pendingPeers = 0; // WS connections not yet ICE-connected or ICE-failed
 
+  function logLoadSnapshot(tag, extra = {}) {
+    const snapshot = {
+      active: activePeers.size,
+      pending: pendingPeers,
+      total: activePeers.size + pendingPeers,
+      max: MAX_CONNECTIONS,
+      ...extra,
+    };
+    logEv(tag, snapshot);
+    if (verbose) console.error(`[webrtc-load] ${tag} active=${snapshot.active} pending=${snapshot.pending} total=${snapshot.total}/${snapshot.max}`);
+  }
+
+  async function logRouteSnapshot(pc, remoteAddr) {
+    try {
+      const report = await pc.getStats();
+      let selected = null;
+      const localById = new Map();
+      const remoteById = new Map();
+      for (const stat of report.values()) {
+        if (stat.type === 'candidate-pair' && stat.nominated && (stat.state === 'succeeded' || stat.selected)) selected = stat;
+        if (stat.type === 'local-candidate') localById.set(stat.id, stat);
+        if (stat.type === 'remote-candidate') remoteById.set(stat.id, stat);
+      }
+      if (!selected) return;
+      const local = localById.get(selected.localCandidateId);
+      const remote = remoteById.get(selected.remoteCandidateId);
+      const rttMs = Number.isFinite(selected.currentRoundTripTime) ? Math.round(selected.currentRoundTripTime * 1000) : null;
+      logEv('webrtc-route', {
+        addr: remoteAddr,
+        protocol: selected.protocol ?? '-',
+        localType: local?.candidateType ?? '-',
+        remoteType: remote?.candidateType ?? '-',
+        networkType: local?.networkType ?? '-',
+        rttMs: rttMs ?? '-',
+      });
+      if (verbose) {
+        console.error(`[webrtc-route] addr=${remoteAddr} protocol=${selected.protocol ?? '-'} local=${local?.candidateType ?? '-'} remote=${remote?.candidateType ?? '-'} net=${local?.networkType ?? '-'} rtt=${rttMs ?? '-'}ms`);
+      }
+    } catch (_) {
+      // Best-effort diagnostics only
+    }
+  }
+
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildBrowserHtml(inputPort));
+      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe));
     } else if (req.url === '/favicon.ico') {
       // Return a minimal 1×1 transparent ICO so browsers don't log a 404
       res.writeHead(204);
@@ -135,6 +188,7 @@ export function createWebRTCServer({
     pendingPeers++;
     console.error(`[webrtc] peer connected from ${remoteAddr}`);
     logEv('webrtc-peer-connected', { addr: remoteAddr });
+    logLoadSnapshot('webrtc-load-change', { reason: 'peer-connected' });
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -161,6 +215,7 @@ export function createWebRTCServer({
       if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
       console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
       logEv('webrtc-peer-closed', { addr: remoteAddr, reason });
+      logLoadSnapshot('webrtc-load-change', { reason: `peer-closed:${reason}` });
       // Tell the browser the stream died so it can reconnect immediately
       // rather than sitting on a frozen frame.
       if (ws.readyState === ws.OPEN) {
@@ -193,6 +248,8 @@ export function createWebRTCServer({
         }
         activePeers.add(pc);
         logEv('webrtc-ice-connected', { addr: remoteAddr, state: s });
+        logLoadSnapshot('webrtc-load-change', { reason: `ice-${s}` });
+        logRouteSnapshot(pc, remoteAddr);
         onPeerConnected?.(pc);
       } else if (s === 'disconnected') {
         // Transient — remove from active peers so we stop pushing frames to
@@ -200,6 +257,7 @@ export function createWebRTCServer({
         // Give ICE 6 seconds to self-recover before treating it as fatal.
         activePeers.delete(pc);
         logEv('webrtc-ice-disconnected', { addr: remoteAddr, grace: 6000 });
+        logLoadSnapshot('webrtc-load-change', { reason: 'ice-disconnected' });
         disconnectTimer = setTimeout(() => {
           console.error(`[webrtc] ICE 'disconnected' grace expired (${remoteAddr}) — closing`);
           logEv('webrtc-ice-grace-expired', { addr: remoteAddr });
@@ -247,7 +305,9 @@ export function createWebRTCServer({
             sdp = sdp.replace(
               /(a=rtpmap:(\d+) VP8\/\d+\r?\n)/,
               (match, line, pt) => {
-                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=200;x-google-max-bitrate=800\r\n`;
+                const minKbps = Math.max(50, minBitrateKbpsSafe);
+                const maxKbps = Math.max(minKbps, maxBitrateKbpsSafe);
+                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\r\n`;
                 return line + fmtp;
               }
             );
@@ -334,7 +394,9 @@ export function createWebRTCServer({
 }
 
 // ─── Embedded browser-side player page ──────────────────────────────────────
-function buildBrowserHtml(inputPort) {
+function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600) {
+  const minKbps = Math.max(50, Math.round(minBitrateKbps));
+  const maxKbps = Math.max(minKbps, Math.round(maxBitrateKbps));
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -653,7 +715,7 @@ function buildBrowserHtml(inputPort) {
         if (offer.sdp) {
           offer.sdp = offer.sdp.replace(
             /(a=rtpmap:(\\d+) VP8\\/\\d+\\r?\\n)/,
-            function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=200;x-google-max-bitrate=800\\r\\n'; }
+            function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\\r\\n'; }
           );
         }
         await pc.setLocalDescription(offer);

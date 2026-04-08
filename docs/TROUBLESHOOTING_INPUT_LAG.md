@@ -46,8 +46,8 @@ If ping/input RTT are healthy but gameplay feels delayed, the issue is likely vi
 
 - Network degraded: RTT >= 120 ms
 - Network poor: RTT >= 220 ms
-- Video delayed: `max(drift, jitter_ema) >= 40 ms`
-- Video poor: `max(drift, jitter_ema) >= 70 ms`
+- Video delayed: `max(drift, jitter_ema) >= 65 ms`
+- Video poor: `max(drift, jitter_ema) >= 80 ms`
 
 Tune these after collecting session data.
 
@@ -56,7 +56,7 @@ Tune these after collecting session data.
 The frontend supports controlled automatic video resync using these env vars:
 
 - `VITE_AUTO_RESYNC` (`1`/`0`, default `1`)
-- `VITE_AUTO_RESYNC_POOR_MS` (default `70`)
+- `VITE_AUTO_RESYNC_POOR_MS` (default `80`)
 - `VITE_AUTO_RESYNC_HOLD_MS` (default `8000`)
 - `VITE_AUTO_RESYNC_COOLDOWN_MS` (default `45000`)
 - `VITE_AUTO_RESYNC_MAX_PER_WINDOW` (default `3`)
