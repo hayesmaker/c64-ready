@@ -78,6 +78,8 @@ export function createWebRTCServer({
     bytesSentPerSec: null,
     qualityLimitation: null,
   };
+  let lastPressureLogAt = 0;
+  let lastPressureSignature = '';
   const minBitrateKbpsSafe = Number.isFinite(minBitrateKbps) && minBitrateKbps > 0
     ? Math.round(minBitrateKbps)
     : 200;
@@ -218,6 +220,75 @@ export function createWebRTCServer({
     senderTelemetry.framesEncodedPerSec = deltaFramesEncoded / sampleIntervalS;
     senderTelemetry.bytesSentPerSec = deltaBytesSent / sampleIntervalS;
     senderTelemetry.qualityLimitation = qualityCounts;
+
+    if (peerCount > 0) {
+      const avgRttMs = Number.isFinite(senderTelemetry.avgRttMs)
+        ? senderTelemetry.avgRttMs.toFixed(1)
+        : '-';
+      const encodeMs = Number.isFinite(senderTelemetry.encodeMsPerFrame)
+        ? senderTelemetry.encodeMsPerFrame.toFixed(2)
+        : '-';
+      const sendDelayMs = Number.isFinite(senderTelemetry.sendDelayMsPerPacket)
+        ? senderTelemetry.sendDelayMsPerPacket.toFixed(2)
+        : '-';
+      const fpsOut = Number.isFinite(senderTelemetry.framesSentPerSec)
+        ? senderTelemetry.framesSentPerSec.toFixed(1)
+        : '-';
+      const fpsEncoded = Number.isFinite(senderTelemetry.framesEncodedPerSec)
+        ? senderTelemetry.framesEncodedPerSec.toFixed(1)
+        : '-';
+      const bitrateKbps = Number.isFinite(senderTelemetry.bytesSentPerSec)
+        ? ((senderTelemetry.bytesSentPerSec * 8) / 1000).toFixed(0)
+        : '-';
+      const qualitySummary = Object.entries(qualityCounts)
+        .filter(([, count]) => Number.isFinite(count) && count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([reason, count]) => `${reason}:${count}`)
+        .join('|') || 'none:0';
+
+      logEv('webrtc-sender-telemetry', {
+        peers: peerCount,
+        fpsOut,
+        fpsEncoded,
+        encodeMs,
+        sendDelayMs,
+        bitrateKbps,
+        rttMs: avgRttMs,
+        quality: qualitySummary,
+      });
+
+      const pressureReasons = [];
+      if (Number.isFinite(senderTelemetry.framesSentPerSec) && senderTelemetry.framesSentPerSec < 44) {
+        pressureReasons.push('low-fps-out');
+      }
+      if (Number.isFinite(senderTelemetry.encodeMsPerFrame) && senderTelemetry.encodeMsPerFrame > 12) {
+        pressureReasons.push('slow-encode');
+      }
+      if (Number.isFinite(senderTelemetry.sendDelayMsPerPacket) && senderTelemetry.sendDelayMsPerPacket > 4) {
+        pressureReasons.push('packet-send-delay');
+      }
+      if ((qualityCounts.cpu ?? 0) > 0) pressureReasons.push('quality-cpu');
+      if ((qualityCounts.bandwidth ?? 0) > 0) pressureReasons.push('quality-bandwidth');
+
+      if (pressureReasons.length > 0) {
+        const signature = pressureReasons.join('|');
+        const now = Date.now();
+        const shouldLogPressure = signature !== lastPressureSignature || (now - lastPressureLogAt) >= 30_000;
+        if (shouldLogPressure) {
+          lastPressureSignature = signature;
+          lastPressureLogAt = now;
+          logEv('webrtc-sender-pressure', {
+            reasons: signature,
+            peers: peerCount,
+            fpsOut,
+            encodeMs,
+            sendDelayMs,
+            bitrateKbps,
+            quality: qualitySummary,
+          });
+        }
+      }
+    }
   }
 
   const senderTelemetryTimer = setInterval(() => {

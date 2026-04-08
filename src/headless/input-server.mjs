@@ -89,8 +89,8 @@ export function createInputServer(opts = {}) {
       // Only log if there's been recent activity (within last 10s)
       const h = _inputStats.host.lastMsgTime && (now - _inputStats.host.lastMsgTime < 10000);
       const p = _inputStats.p2.lastMsgTime && (now - _inputStats.p2.lastMsgTime < 10000);
-      if (h || p) {
-        console.error(`[input-flood] host joystick=${_inputStats.host.joystick} key=${_inputStats.host.key} | p2 joystick=${_inputStats.p2.joystick} key=${_inputStats.p2.key}`);
+      if ((h || p) && (logEvents || verbose)) {
+        console.error(`[event] input-flood host-joystick=${_inputStats.host.joystick} host-key=${_inputStats.host.key} p2-joystick=${_inputStats.p2.joystick} p2-key=${_inputStats.p2.key}`);
       }
       // Reset counters after reporting
       _inputStats.host.joystick = 0;
@@ -789,7 +789,9 @@ export function createInputServer(opts = {}) {
                 const p2Avg   = p2Active   ? Number(_avgLatency.p2.toFixed(0))   : null;
                 const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
                 const p2Label   = p2Avg   != null ? `${p2Avg}`   : '--';
-                console.error(`[input-latency] host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
+                if (logEvents || verbose) {
+                  console.error(`[event] input-latency host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
+                }
                 _networkStats.host.avgLatency = hostAvg;
                 _networkStats.p2.avgLatency   = p2Avg;
                 broadcastNetworkStats();
@@ -807,8 +809,10 @@ export function createInputServer(opts = {}) {
               bucket.lastSpikeLatency = latency;
               bucket.lastSpikeAt = now;
             }
-            console.error(`[input-latency] spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
-              `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
+            if (logEvents || verbose) {
+              console.error(`[event] input-latency-spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
+                `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
+            }
             }
         }
 

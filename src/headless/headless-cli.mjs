@@ -752,8 +752,8 @@ export async function runHeadless(options = {}) {
     const EVENT_LOOP_LOG_MS = 5000;
     eventLoopLogTimer = setInterval(() => {
       const lag = eventLoopMonitor ? eventLoopMonitor.min / 1e6 : 0; // ms
-      if (lag > 5) { // only log if >5ms lag
-        console.error(`[input-flood] event-loop-lag min=${lag.toFixed(2)}ms`);
+      if (lag > 5 && (logEvents || verbose)) { // only log if >5ms lag
+        console.error(`[event] event-loop-lag min=${lag.toFixed(2)}ms`);
       }
       if (eventLoopMonitor) eventLoopMonitor.reset();
     }, EVENT_LOOP_LOG_MS);
