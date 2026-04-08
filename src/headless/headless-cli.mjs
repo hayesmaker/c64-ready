@@ -144,6 +144,7 @@ export async function runHeadless(options = {}) {
   let maxSpectators = 3;
   let webrtcMinBitrateKbps = 200;
   let webrtcMaxBitrateKbps = 600;
+  let webrtcOutputFps = 40;
   let logFile = false;
   let logRetainDays = 7;
   for (let i = 0; i < argv.length; i++) {
@@ -170,6 +171,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--max-spectators') maxSpectators = Number(argv[++i]);
     else if (a === '--webrtc-min-bitrate-kbps') webrtcMinBitrateKbps = Number(argv[++i]);
     else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
+    else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
@@ -181,6 +183,17 @@ export async function runHeadless(options = {}) {
   const webrtcMaxBitrateKbpsSafe = Number.isFinite(webrtcMaxBitrateKbps) && webrtcMaxBitrateKbps > 0
     ? Math.max(webrtcMinBitrateKbpsSafe, Math.round(webrtcMaxBitrateKbps))
     : Math.max(webrtcMinBitrateKbpsSafe, 600);
+  const webrtcOutputFpsSafe = Number.isFinite(webrtcOutputFps) && webrtcOutputFps > 0
+    ? Math.round(webrtcOutputFps)
+    : 0;
+
+  const runtimeStats = {
+    webrtcSendFps: null,
+    videoFramesSent: 0,
+    videoFramesDroppedLate: 0,
+    videoFramesDroppedCap: 0,
+    sampledAt: Date.now(),
+  };
 
   // ── Log file setup ────────────────────────────────────────────────────────────
   let logStream = null;
@@ -464,6 +477,7 @@ export async function runHeadless(options = {}) {
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         serverVersion: _serverVersion,
         serverGitHash: _serverGitHash,
+        getRuntimeStats: () => ({ ...runtimeStats }),
         onCommand: (cmd) => {
           if (!exports) return;
           if (cmd.type === 'load-crt') {
@@ -660,7 +674,7 @@ export async function runHeadless(options = {}) {
         },
       });
 
-      out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/`);
+      out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/ (send cap: ${webrtcOutputFpsSafe > 0 ? `${webrtcOutputFpsSafe}fps` : 'off'})`);
     } catch (e) {
       console.error('[headless] Failed to start WebRTC server:', e && e.message ? e.message : e);
       out.push(`webrtc-server-failed: ${String(e)}`);
@@ -673,11 +687,15 @@ export async function runHeadless(options = {}) {
   let ffmpegDied = false; // set to true if ffmpeg exits unexpectedly and we give up
   const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
   const frameMs = Math.round(1000 / targetFps);
-  const lateDropTriggerMs = Math.max(4, Math.round(frameMs * 0.75));
-  const lateDropDebtMaxMs = Math.max(frameMs * 3, 200);
-  let videoLagDebtMs = 0;
-  let videoLateDropTotal = 0;
-  let videoLateDropWindow = 0;
+  const webrtcSendFps = webrtcOutputFpsSafe > 0 ? Math.max(1, Math.min(targetFps, webrtcOutputFpsSafe)) : targetFps;
+  const webrtcSendIntervalMs = 1000 / webrtcSendFps;
+  let nextVideoDueAtMs = Date.now();
+  let videoFramesSent = 0;
+  let videoFramesDroppedLate = 0;
+  let videoFramesDroppedCap = 0;
+  let videoFramesDroppedLateWindow = 0;
+  let videoFramesDroppedCapWindow = 0;
+  runtimeStats.webrtcSendFps = webrtcSendFps;
   // Now that targetFps is known, configure the WebRTC encoder's frame duration
   // so video timestamps are driven by frame count × frame duration (µs) rather
   // than wall clock — making loadCartridge blockages invisible to the receiver.
@@ -888,11 +906,6 @@ export async function runHeadless(options = {}) {
       // or repeated pixel buffer into WebRTC during boot/reset sequences.
       const frameReady = !!exports.debugger_update(emuDeltaMs);
       const isRunning  = !!exports.debugger_isRunning();
-      const shouldDropLateVideo = Boolean(
-        webrtc && webrtcEncoder &&
-        frameReady && isRunning &&
-        videoLagDebtMs >= lateDropTriggerMs
-      );
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
@@ -912,14 +925,23 @@ export async function runHeadless(options = {}) {
         // Only push a video frame when the emulator confirms one is ready and
         // is actively running — mirrors c64.js: if (update && !!debugger_isRunning())
         if (frameReady && isRunning) {
-          if (shouldDropLateVideo) {
-            videoLagDebtMs = Math.max(0, videoLagDebtMs - frameMs);
-            videoLateDropTotal++;
-            videoLateDropWindow++;
+          const nowVideoMs = Date.now();
+          if (nowVideoMs + 1 < nextVideoDueAtMs) {
+            videoFramesDroppedCap++;
+            videoFramesDroppedCapWindow++;
           } else {
+            const overdueMs = Math.max(0, nowVideoMs - nextVideoDueAtMs);
+            if (overdueMs >= webrtcSendIntervalMs) {
+              const lateDrops = Math.floor(overdueMs / webrtcSendIntervalMs);
+              videoFramesDroppedLate += lateDrops;
+              videoFramesDroppedLateWindow += lateDrops;
+              nextVideoDueAtMs += lateDrops * webrtcSendIntervalMs;
+            }
             const ptr  = exports.c64_getPixelBuffer();
             const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
             webrtcEncoder.pushVideoFrame(rgba);
+            videoFramesSent++;
+            nextVideoDueAtMs = Math.max(nextVideoDueAtMs + webrtcSendIntervalMs, nowVideoMs + 1);
           }
         }
 
@@ -989,15 +1011,6 @@ export async function runHeadless(options = {}) {
       // that lands just AFTER step 2 waits until the following frame.
       // Average latency = half a frame (~10ms).
       const workMs = Date.now() - iterStart;
-      if (webrtc && webrtcEncoder) {
-        const overrunMs = Math.max(0, workMs - frameMs);
-        if (overrunMs > 0) {
-          videoLagDebtMs = Math.min(lateDropDebtMaxMs, videoLagDebtMs + overrunMs);
-        } else {
-          videoLagDebtMs = Math.max(0, videoLagDebtMs - Math.round(frameMs * 0.25));
-        }
-      }
-
       const sleepMs = Math.max(0, frameMs - workMs);
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
       await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
@@ -1020,12 +1033,17 @@ export async function runHeadless(options = {}) {
         if (driftPct > 10) {
           console.error(`[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`);
         }
-        if (videoLateDropWindow > 0) {
-          console.error(`[event] webrtc-video-drop-late count=${videoLateDropWindow} total=${videoLateDropTotal} debtMs=${Math.round(videoLagDebtMs)}`);
+        if (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0) {
+          console.error(`[event] webrtc-video-drop sent=${videoFramesSent} late=${videoFramesDroppedLateWindow} cap=${videoFramesDroppedCapWindow} totalLate=${videoFramesDroppedLate} totalCap=${videoFramesDroppedCap} fpsCap=${webrtcSendFps}`);
         }
       }
-      if (videoLateDropWindow > 0) {
-        videoLateDropWindow = 0;
+      runtimeStats.videoFramesSent = videoFramesSent;
+      runtimeStats.videoFramesDroppedLate = videoFramesDroppedLate;
+      runtimeStats.videoFramesDroppedCap = videoFramesDroppedCap;
+      runtimeStats.sampledAt = Date.now();
+      if (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0) {
+        videoFramesDroppedLateWindow = 0;
+        videoFramesDroppedCapWindow = 0;
       }
     }
     if (verify && frameCount % 60 === 0) {

@@ -61,9 +61,14 @@ The frontend supports controlled automatic video resync using these env vars:
 - `VITE_AUTO_RESYNC_COOLDOWN_MS` (default `45000`)
 - `VITE_AUTO_RESYNC_MAX_PER_WINDOW` (default `3`)
 - `VITE_AUTO_RESYNC_WINDOW_MS` (default `600000`)
+- `VITE_AUTO_RESYNC_JITTER_MS` (default `72`)
+- `VITE_AUTO_RESYNC_JITTER_HOLD_MS` (default `15000`)
+- `VITE_AUTO_RESYNC_JITTER_DRIFT_GUARD_MS` (default `40`)
 
 Policy default: auto-resync triggers when video delay stays above `VITE_AUTO_RESYNC_POOR_MS`
 for `VITE_AUTO_RESYNC_HOLD_MS`, respecting cooldown and max-per-window limits.
+If drift stays low but jitter remains elevated, a jitter-only auto-resync path can trigger
+using the jitter-specific env vars above.
 
 ## Quick triage flow
 

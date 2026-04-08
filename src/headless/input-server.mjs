@@ -21,6 +21,7 @@ import { randomBytes } from 'crypto';
  * @param {boolean}  [opts.verbose]
  * @param {number}   [opts.hostTimeoutMs=300000]
  * @param {Function} [opts.validateKickToken]
+ * @param {Function} [opts.getRuntimeStats]
  * @param {string}   [opts.serverVersion]   Package version string, e.g. '0.7.0'
  * @param {string}   [opts.serverGitHash]   Abbreviated git commit hash, e.g. '16e86cd'
  * @returns {{ wss: WebSocketServer, close: () => Promise<void> }}
@@ -35,6 +36,7 @@ export function createInputServer(opts = {}) {
   const validateKickToken = opts.validateKickToken ?? (() => null);
   const serverVersion     = opts.serverVersion     ?? null;
   const serverGitHash     = opts.serverGitHash     ?? null;
+  const getRuntimeStats   = opts.getRuntimeStats   ?? (() => null);
 
   // ── Input flood instrumentation ───────────────────────────────────────────────
   const _inputStats = {
@@ -47,6 +49,7 @@ export function createInputServer(opts = {}) {
   const _avgLatency = { host: 0, p2: 0 };
   let _latencyLogTimer = null;
   let _inputLogTimer = null;
+  let _networkStatsTimer = null;
   const _networkStats = {
     host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null },
     p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null },
@@ -54,11 +57,13 @@ export function createInputServer(opts = {}) {
 
   function broadcastNetworkStats() {
     if (!hostClient && !p2Client) return;
+    const runtime = getRuntimeStats?.() ?? null;
     const payload = JSON.stringify({
       type: 'network-stats',
       serverTime: Date.now(),
       host: { ..._networkStats.host },
       p2:   { ..._networkStats.p2 },
+      ...(runtime ? { server: runtime } : {}),
     });
     if (hostClient && hostClient.readyState === hostClient.OPEN) {
       try { hostClient.send(payload); } catch (_) {}
@@ -85,6 +90,13 @@ export function createInputServer(opts = {}) {
       _inputStats.p2.joystick = 0;
       _inputStats.p2.key = 0;
     }, INPUT_LOG_INTERVAL_MS);
+  }
+
+  function _startNetworkStatsTicker() {
+    if (_networkStatsTimer) return;
+    _networkStatsTimer = setInterval(() => {
+      broadcastNetworkStats();
+    }, 5000);
   }
 
   /** Emit a structured event log line — only when --log-events is active.
@@ -237,6 +249,7 @@ export function createInputServer(opts = {}) {
     logEv('server-listening', { port });
     // Start input flood logging
     _startInputLog();
+    _startNetworkStatsTicker();
   });
 
   wss.on('connection', (ws, req) => {
@@ -685,6 +698,9 @@ export function createInputServer(opts = {}) {
     clearHostTimeout();
     clearP2Timeout();
     clearGrace();
+    if (_inputLogTimer) { clearInterval(_inputLogTimer); _inputLogTimer = null; }
+    if (_latencyLogTimer) { clearInterval(_latencyLogTimer); _latencyLogTimer = null; }
+    if (_networkStatsTimer) { clearInterval(_networkStatsTimer); _networkStatsTimer = null; }
     wss.close(() => resolve());
   });
 

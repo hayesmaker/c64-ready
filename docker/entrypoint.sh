@@ -36,6 +36,9 @@ if [ "${WEBRTC_ENABLED}" = "1" ] || [ "${WEBRTC_ENABLED}" = "true" ]; then
   if [ -n "${WEBRTC_MAX_BITRATE_KBPS}" ]; then
     ARGS="$ARGS --webrtc-max-bitrate-kbps $WEBRTC_MAX_BITRATE_KBPS"
   fi
+  if [ -n "${WEBRTC_OUTPUT_FPS}" ]; then
+    ARGS="$ARGS --webrtc-output-fps $WEBRTC_OUTPUT_FPS"
+  fi
 else
   echo "[entrypoint] MODE: RTMP    (output → ${RTMP_URL:-rtmp://nms:1935/live/c64})"
   ARGS="$ARGS --record"

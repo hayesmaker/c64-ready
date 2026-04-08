@@ -125,6 +125,7 @@ the full annotated list.
 | `MAX_SPECTATORS` | `3` | Max concurrent spectator connections (players are separate, see below) |
 | `WEBRTC_MIN_BITRATE_KBPS` | `200` | VP8 SDP `x-google-min-bitrate` hint in kbps |
 | `WEBRTC_MAX_BITRATE_KBPS` | `600` | VP8 SDP `x-google-max-bitrate` hint in kbps |
+| `WEBRTC_OUTPUT_FPS` | `40` | Cap outgoing WebRTC video FPS (`0` disables cap) |
 | `WS_PORT` | `9001` | WebSocket input server port inside the container |
 | `WS_HOST_PORT` | `9001` | Host-side port mapping for the input WebSocket |
 
