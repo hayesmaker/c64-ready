@@ -32,7 +32,8 @@
   },
   "bin": {
     "c64-ready": "bin/serve.mjs",
-    "c64-headless": "bin/headless.mjs"
+    "c64-headless": "bin/headless.mjs",
+    "c64-admin": "bin/admin.mjs"
   },
   "exports": {
     ".": {

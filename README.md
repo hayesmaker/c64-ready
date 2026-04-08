@@ -126,8 +126,24 @@ the full annotated list.
 | `WEBRTC_MIN_BITRATE_KBPS` | `200` | VP8 SDP `x-google-min-bitrate` hint in kbps |
 | `WEBRTC_MAX_BITRATE_KBPS` | `600` | VP8 SDP `x-google-max-bitrate` hint in kbps |
 | `WEBRTC_OUTPUT_FPS` | `40` | Cap outgoing WebRTC video FPS (`0` disables cap) |
+| `C64_ADMIN_TOKEN` | *(empty)* | Shared token required by `c64-admin` (`status`, `kick`) |
 | `WS_PORT` | `9001` | WebSocket input server port inside the container |
 | `WS_HOST_PORT` | `9001` | Host-side port mapping for the input WebSocket |
+
+### Admin CLI
+
+Use `c64-admin` to inspect active players/spectators and run admin actions over the input WebSocket:
+
+```zsh
+# show current room/client state
+c64-admin --token "$C64_ADMIN_TOKEN" status
+
+# kick a specific player slot
+c64-admin --token "$C64_ADMIN_TOKEN" kick --player host
+
+# kick all clients and disconnect all WebRTC peers
+c64-admin --token "$C64_ADMIN_TOKEN" kick --all
+```
 
 #### Spectator limit
 

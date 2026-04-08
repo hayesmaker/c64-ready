@@ -65,6 +65,7 @@ export function createWebRTCServer({
   }
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
+  const peerControllers = new Set();
   const peerStatsPrev = new Map();
   const senderTelemetry = {
     sampledAt: Date.now(),
@@ -295,6 +296,15 @@ export function createWebRTCServer({
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     });
+    const controller = {
+      pc,
+      ws,
+      remoteAddr,
+      connected: false,
+      iceState: 'new',
+      closePeer: null,
+    };
+    peerControllers.add(controller);
 
     // Grace timer: if ICE goes 'disconnected' we wait up to 6s for self-
     // recovery before treating it as fatal. Many transient causes (brief
@@ -314,6 +324,7 @@ export function createWebRTCServer({
       clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
       peerStatsPrev.delete(pc);
+      peerControllers.delete(controller);
       // Decrement pendingPeers only if this peer never made it to ICE connected.
       if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
       console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
@@ -326,6 +337,7 @@ export function createWebRTCServer({
       }
       pc.close();
     }
+    controller.closePeer = closePeer;
 
     // ── Trickle ICE: forward server-side candidates to the browser ───────
     pc.onicecandidate = ({ candidate }) => {
@@ -336,6 +348,7 @@ export function createWebRTCServer({
 
     pc.oniceconnectionstatechange = () => {
       const s = pc.iceConnectionState;
+      controller.iceState = s;
       // Always log ICE state changes — they are infrequent and critical for
       // diagnosing stream freezes. This fires regardless of --verbose.
       console.error(`[webrtc] ICE state → ${s} (${remoteAddr})`);
@@ -349,6 +362,7 @@ export function createWebRTCServer({
           if (pendingPeers > 0) pendingPeers--;
           everConnected = true;
         }
+        controller.connected = true;
         activePeers.add(pc);
         logEv('webrtc-ice-connected', { addr: remoteAddr, state: s });
         logLoadSnapshot('webrtc-load-change', { reason: `ice-${s}` });
@@ -359,6 +373,7 @@ export function createWebRTCServer({
         // a peer that may not be receiving them, but do NOT close yet.
         // Give ICE 6 seconds to self-recover before treating it as fatal.
         activePeers.delete(pc);
+        controller.connected = false;
         logEv('webrtc-ice-disconnected', { addr: remoteAddr, grace: 6000 });
         logLoadSnapshot('webrtc-load-change', { reason: 'ice-disconnected' });
         disconnectTimer = setTimeout(() => {
@@ -490,6 +505,48 @@ export function createWebRTCServer({
     },
     getTelemetrySnapshot() {
       return { ...senderTelemetry };
+    },
+    getPeerSnapshot() {
+      const peers = [];
+      for (const c of peerControllers) {
+        peers.push({
+          addr: c.remoteAddr,
+          iceState: c.iceState,
+          connected: c.connected,
+          wsOpen: c.ws && c.ws.readyState === c.ws.OPEN,
+        });
+      }
+      return {
+        active: activePeers.size,
+        pending: pendingPeers,
+        total: activePeers.size + pendingPeers,
+        max: MAX_CONNECTIONS,
+        peers,
+      };
+    },
+    disconnectPeersByAddr(addr, reason = 'admin-kick') {
+      if (!addr) return 0;
+      let closed = 0;
+      const addrNorm = String(addr).replace(/^::ffff:/, '');
+      for (const c of Array.from(peerControllers)) {
+        const peerAddrNorm = String(c.remoteAddr ?? '').replace(/^::ffff:/, '');
+        if (peerAddrNorm !== addrNorm) continue;
+        try {
+          c.closePeer?.(reason);
+          closed++;
+        } catch (_) {}
+      }
+      return closed;
+    },
+    disconnectAllPeers(reason = 'admin-kick-all') {
+      let closed = 0;
+      for (const c of Array.from(peerControllers)) {
+        try {
+          c.closePeer?.(reason);
+          closed++;
+        } catch (_) {}
+      }
+      return closed;
     },
     close: () =>
       new Promise((resolve) => {

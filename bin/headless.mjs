@@ -62,6 +62,7 @@ Options:
   --webrtc-min-bitrate-kbps <n> VP8 SDP x-google-min-bitrate hint (default: 200)
   --webrtc-max-bitrate-kbps <n> VP8 SDP x-google-max-bitrate hint (default: 600)
   --webrtc-output-fps <n> Max WebRTC video send FPS cap (default: 40)
+  --admin-token <token>  Shared admin token for c64-admin commands
   --input              Start WebSocket input server for remote control
   --ws-port <n>        WebSocket server port  (default: 9001)
   --verbose            Print per-frame diagnostics to stderr

@@ -152,6 +152,7 @@ export async function runHeadless(options = {}) {
   let webrtcMinBitrateKbps = 200;
   let webrtcMaxBitrateKbps = 600;
   let webrtcOutputFps = 40;
+  let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
   let logFile = false;
   let logRetainDays = 7;
   for (let i = 0; i < argv.length; i++) {
@@ -179,10 +180,12 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc-min-bitrate-kbps') webrtcMinBitrateKbps = Number(argv[++i]);
     else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
     else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
+    else if (a === '--admin-token') adminToken = argv[++i] ?? '';
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
   }
+  const adminTokenSafe = String(adminToken ?? '').trim();
 
   const webrtcMinBitrateKbpsSafe = Number.isFinite(webrtcMinBitrateKbps) && webrtcMinBitrateKbps > 0
     ? Math.round(webrtcMinBitrateKbps)
@@ -489,10 +492,17 @@ export async function runHeadless(options = {}) {
         verbose,
         logEvents,
         validateKickToken,
+        validateAdminToken: (token) => {
+          if (!adminTokenSafe) return false;
+          return token === adminTokenSafe;
+        },
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         serverVersion: _serverVersion,
         serverGitHash: _serverGitHash,
         getRuntimeStats: () => ({ ...runtimeStats }),
+        getWebrtcPeerSnapshot: () => getWebrtcPeerSnapshot(),
+        disconnectWebrtcPeersByAddr: (addr, reason) => disconnectWebrtcPeersByAddr(addr, reason),
+        disconnectAllWebrtcPeers: (reason) => disconnectAllWebrtcPeers(reason),
         onCommand: (cmd) => {
           if (!exports) return;
           if (cmd.type === 'load-crt') {
@@ -637,6 +647,9 @@ export async function runHeadless(options = {}) {
   let webrtcEncoder = null;
   let webrtcServer  = null;
   let getWebrtcTelemetry = () => null;
+  let getWebrtcPeerSnapshot = () => null;
+  let disconnectWebrtcPeersByAddr = () => 0;
+  let disconnectAllWebrtcPeers = () => 0;
 
   if (webrtc) {
     try {
@@ -691,6 +704,15 @@ export async function runHeadless(options = {}) {
       });
       if (typeof webrtcServer.getTelemetrySnapshot === 'function') {
         getWebrtcTelemetry = () => webrtcServer.getTelemetrySnapshot();
+      }
+      if (typeof webrtcServer.getPeerSnapshot === 'function') {
+        getWebrtcPeerSnapshot = () => webrtcServer.getPeerSnapshot();
+      }
+      if (typeof webrtcServer.disconnectPeersByAddr === 'function') {
+        disconnectWebrtcPeersByAddr = (addr, reason) => webrtcServer.disconnectPeersByAddr(addr, reason);
+      }
+      if (typeof webrtcServer.disconnectAllPeers === 'function') {
+        disconnectAllWebrtcPeers = (reason) => webrtcServer.disconnectAllPeers(reason);
       }
 
       out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/ (send cap: ${webrtcOutputFpsSafe > 0 ? `${webrtcOutputFpsSafe}fps` : 'off'})`);
