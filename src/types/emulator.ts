@@ -51,7 +51,7 @@ export interface WASMExports {
   c64_insertDisk(ptr: number, len: number): void;
 
   // Loading
-  c64_loadPRG(ptr: number, len: number): void;
+  c64_loadPRG(ptr: number, len: number, inject?: number): void;
   c64_loadCartridge(ptr: number, len: number): void;
   c64_removeCartridge(): void;
 

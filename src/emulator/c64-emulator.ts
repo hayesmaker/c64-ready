@@ -143,7 +143,7 @@ export class C64Emulator {
     try {
       switch (options.type) {
         case 'prg':
-          x.c64_loadPRG(ptr, options.data.length);
+          x.c64_loadPRG(ptr, options.data.length, 1);
           break;
         case 'd64':
           x.c64_insertDisk(ptr, options.data.length);

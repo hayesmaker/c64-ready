@@ -117,6 +117,16 @@ describe('C64Emulator', () => {
     expect((wasm as any).free).toHaveBeenCalledWith(16);
   });
 
+  it('loads PRG with inject mode enabled', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.loadGame({ type: 'prg', data: new Uint8Array([1, 2, 3]) });
+
+    expect(exports.c64_loadPRG).toHaveBeenCalledWith(16, 3, 1);
+  });
+
   it('returns a copied framebuffer in getFrameBuffer', async () => {
     const { wasm, heapU8 } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
@@ -129,4 +139,3 @@ describe('C64Emulator', () => {
     expect(frame.data.length).toBe(FRAME_BYTES);
   });
 });
-

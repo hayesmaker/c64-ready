@@ -1,4 +1,5 @@
 import { C64Emulator } from '../emulator/c64-emulator';
+import { domKeyToC64Actions } from '../emulator/input';
 import { parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
@@ -135,6 +136,9 @@ export class C64Player {
     }
     try {
       this.emulator.loadGame({ type, data });
+      if (type === 'prg') {
+        await this.autoRunPrgIfRunning();
+      }
       onProgress?.(100, 'READY!');
       // Notify UI that load succeeded
       window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { url, type } }));
@@ -171,6 +175,9 @@ export class C64Player {
       }
       try {
         this.emulator.loadGame({ type: resolvedType, data });
+        if (resolvedType === 'prg') {
+          await this.autoRunPrgIfRunning();
+        }
         onProgress?.(100, 'READY!');
         window.dispatchEvent(
           new CustomEvent('c64-close-dialog', { detail: { file: file.name, type: resolvedType } }),
@@ -234,6 +241,36 @@ export class C64Player {
   setInputMode(mode: InputMode): void {
     this.inputHandler?.setInputMode(mode);
   }
+
+  private async autoRunPrgIfRunning(): Promise<void> {
+    if (!this.emulator || !this.emulator.isRunning()) return;
+    await waitMs(120);
+    await this.typeCommand('run\n');
+  }
+
+  private async typeCommand(command: string): Promise<void> {
+    if (!this.emulator) return;
+
+    for (const char of command) {
+      const domKey = char === '\n' ? 'enter' : char;
+
+      const down = domKeyToC64Actions(domKey, false, 'keydown');
+      for (const act of down) {
+        if (act.action === 'press') this.emulator.keyDown(act.key);
+        else this.emulator.keyUp(act.key);
+      }
+
+      await waitMs(22);
+
+      const up = domKeyToC64Actions(domKey, false, 'keyup');
+      for (const act of up) {
+        if (act.action === 'press') this.emulator.keyDown(act.key);
+        else this.emulator.keyUp(act.key);
+      }
+
+      await waitMs(22);
+    }
+  }
 }
 
 // CRT format validator — delegates to parseCrtInfo so magic-check logic lives in one place.
@@ -246,4 +283,8 @@ function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
   const suffixStart = label.indexOf(' (');
   const plain = suffixStart > 0 ? label.slice(0, suffixStart) : label;
   return plain.toUpperCase();
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
