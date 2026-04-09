@@ -1,6 +1,7 @@
 import { C64Player } from './player/c64-player';
 import CanvasRenderer from './player/canvas-renderer';
 import UIController from './player/ui-controller';
+import { isSupportedLoadType } from './player/load-formats';
 
 const status = document.getElementById('status')!;
 const renderer = new CanvasRenderer('c64-screen');
@@ -54,10 +55,12 @@ updateFavicon();
 window.addEventListener('c64-load-file', async (e: Event) => {
   const detail = (e as CustomEvent).detail;
   const file: File | undefined = detail.file;
+  const requestedType = detail.type;
+  const loadType = requestedType === 'auto' ? undefined : requestedType;
   if (!file) return;
   try {
     renderer.showLoader();
-    await player.loadFile(file);
+    await player.loadFile(file, isSupportedLoadType(loadType) ? loadType : undefined);
     renderer.hideLoader();
   } catch (err) {
     console.error(err);

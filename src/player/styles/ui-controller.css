@@ -262,6 +262,64 @@
 }
 .c64-menu-header { display:flex; align-items:center; justify-content:space-between; }
 .c64-menu-close { background:none; border:none; color:#888; font-size:20px; cursor:pointer; }
+.c64-settings-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.c64-settings-tab {
+  background: #171729;
+  border: 1px solid #353552;
+  color: #c5c5df;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.c64-settings-tab.active {
+  border-color: #7b71d5;
+  color: #fff;
+  background: #25253d;
+}
+.c64-settings-section {
+  padding-top: 2px;
+}
+.c64-section-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #aaa;
+}
+.c64-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.c64-select {
+  background: #171729;
+  color: #ddd;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: monospace;
+}
+.c64-radio-row {
+  margin-top: 8px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.c64-radio-row-wrap {
+  flex-wrap: wrap;
+}
+.c64-section-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.4;
+}
 .c64-dragarea {
   border: 2px dashed #2a2a3e;
   border-radius: 6px;
@@ -271,16 +329,25 @@
   color: #aaa;
   background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
 }
+.c64-dragarea button {
+  margin-left: 6px;
+}
 .c64-dragarea.dragover { border-color: #7b71d5; color: #fff; }
 .c64-cart-preview { display:flex; gap:12px; align-items:center; margin-top:12px; }
 .c64-cart-icon { width:56px; height:40px; background:#222; border:1px solid #333; display:flex; align-items:center; justify-content:center; border-radius:4px; }
 .c64-cart-filename { font-size:13px; color:#ccc; word-break:break-all; }
+.c64-cart-type { font-size: 11px; color: #888; margin-top: 2px; }
 .c64-file-input { display:none; }
 .c64-menu-actions {
   margin-top:12px;
   display:flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap:8px;
 }
+.c64-system-actions {
+  margin-top: 4px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .c64-btn { background:#222; border:1px solid #444; color:#ddd; padding:6px 10px; border-radius:4px; cursor:pointer; }
-

@@ -6,6 +6,7 @@ import type { InputMode } from '../emulator/input';
 import type CanvasRenderer from './canvas-renderer';
 import { AudioEngine } from './audio-engine';
 import InputHandler from './input-handler';
+import { getLoadTypeLabel, inferLoadTypeFromFilename } from './load-formats';
 
 export type ProgressCallback = (percent: number, label: string) => void;
 
@@ -118,7 +119,7 @@ export class C64Player {
       data = new Uint8Array(await response.arrayBuffer());
     }
 
-    onProgress?.(90, 'INSERTING CARTRIDGE...');
+    onProgress?.(90, `INSERTING ${formatLoadProgressLabel(type)}...`);
     // Basic validation for cartridge files — some malformed .crt files can
     // silently fail inside the WASM loader; catch common format problems here
     if (type === 'crt' && !isValidCRT(data)) {
@@ -149,36 +150,37 @@ export class C64Player {
   }
 
   // Load a game from a File/Blob provided by the user (drag & drop / file input)
-  async loadFile(file: File, type: GameLoadOptions['type'] = 'crt'): Promise<void> {
+  async loadFile(file: File, type?: GameLoadOptions['type']): Promise<void> {
     if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
     const onProgress = this.options.onProgress;
+    const resolvedType = type ?? inferLoadTypeFromFilename(file.name) ?? 'crt';
     try {
       onProgress?.(20, `READING FILE ${file.name}...`);
       const ab = await file.arrayBuffer();
       const data = new Uint8Array(ab);
-      onProgress?.(90, 'INSERTING CARTRIDGE...');
-      if (type === 'crt' && !isValidCRT(data)) {
+      onProgress?.(90, `INSERTING ${formatLoadProgressLabel(resolvedType)}...`);
+      if (resolvedType === 'crt' && !isValidCRT(data)) {
         onProgress?.(0, 'INVALID CRT');
         const err = new Error('Invalid CRT file format');
         console.error(err);
         throw err;
       }
-      if (type === 'crt') {
+      if (resolvedType === 'crt') {
         const info = parseCrtInfo(data, file.name);
         if (info) console.log(info.line);
       }
       try {
-        this.emulator.loadGame({ type, data });
+        this.emulator.loadGame({ type: resolvedType, data });
         onProgress?.(100, 'READY!');
         window.dispatchEvent(
-          new CustomEvent('c64-close-dialog', { detail: { file: file.name, type } }),
+          new CustomEvent('c64-close-dialog', { detail: { file: file.name, type: resolvedType } }),
         );
       } catch (err) {
         onProgress?.(0, 'FAILED');
         console.error('Failed to insert cartridge from file:', err);
         window.dispatchEvent(
           new CustomEvent('c64-load-error', {
-            detail: { error: String(err), file: file.name, type },
+            detail: { error: String(err), file: file.name, type: resolvedType },
           }),
         );
         throw err;
@@ -237,4 +239,11 @@ export class C64Player {
 // CRT format validator — delegates to parseCrtInfo so magic-check logic lives in one place.
 function isValidCRT(data: Uint8Array): boolean {
   return parseCrtInfo(data) !== null;
+}
+
+function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
+  const label = getLoadTypeLabel(type);
+  const suffixStart = label.indexOf(' (');
+  const plain = suffixStart > 0 ? label.slice(0, suffixStart) : label;
+  return plain.toUpperCase();
 }
