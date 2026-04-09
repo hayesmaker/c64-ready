@@ -122,9 +122,28 @@ the full annotated list.
 | `WEBRTC_ENABLED` | `1` | Must be `1` — WebRTC is the only supported streaming mode |
 | `WEBRTC_PORT` | `9002` | Port inside the container for the WebRTC server |
 | `WEBRTC_HOST_PORT` | `9002` | Host-side port mapping for the WebRTC server |
-| `MAX_SPECTATORS` | `5` | Max concurrent spectator connections (players are separate, see below) |
+| `MAX_SPECTATORS` | `3` | Max concurrent spectator connections (players are separate, see below) |
+| `WEBRTC_MIN_BITRATE_KBPS` | `200` | VP8 SDP `x-google-min-bitrate` hint in kbps |
+| `WEBRTC_MAX_BITRATE_KBPS` | `600` | VP8 SDP `x-google-max-bitrate` hint in kbps |
+| `WEBRTC_OUTPUT_FPS` | `40` | Cap outgoing WebRTC video FPS (`0` disables cap) |
+| `C64_ADMIN_TOKEN` | *(empty)* | Shared token required by `c64-admin` (`status`, `kick`) |
 | `WS_PORT` | `9001` | WebSocket input server port inside the container |
 | `WS_HOST_PORT` | `9001` | Host-side port mapping for the input WebSocket |
+
+### Admin CLI
+
+Use `c64-admin` to inspect active players/spectators and run admin actions over the input WebSocket:
+
+```zsh
+# show current room/client state
+c64-admin --token "$C64_ADMIN_TOKEN" status
+
+# kick a specific player slot
+c64-admin --token "$C64_ADMIN_TOKEN" kick --player host
+
+# kick all clients and disconnect all WebRTC peers
+c64-admin --token "$C64_ADMIN_TOKEN" kick --all
+```
 
 #### Spectator limit
 
@@ -520,6 +539,7 @@ On every push to `master`:
 - [ ] Touch controls
 - [ ] Loading more game formats (e.g., .d64 disk images)
 - [ ] Performance optimizations (e.g., offscreen canvas, audio worklets)
+- [ ] Fix creeping video jitter (currently starts at 100ms and grows over time)
 
 ## Changelog & Releases
 
@@ -552,4 +572,3 @@ on every push to `master`. To publish manually:
 ```bash
 ./tools/publish_wiki.sh git@github.com:YOUR_USER/c64-ready.wiki.git
 ```
-

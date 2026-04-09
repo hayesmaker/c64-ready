@@ -21,6 +21,11 @@ import { randomBytes } from 'crypto';
  * @param {boolean}  [opts.verbose]
  * @param {number}   [opts.hostTimeoutMs=300000]
  * @param {Function} [opts.validateKickToken]
+ * @param {Function} [opts.validateAdminToken]
+ * @param {Function} [opts.getRuntimeStats]
+ * @param {Function} [opts.getWebrtcPeerSnapshot]
+ * @param {Function} [opts.disconnectWebrtcPeersByAddr]
+ * @param {Function} [opts.disconnectAllWebrtcPeers]
  * @param {string}   [opts.serverVersion]   Package version string, e.g. '0.7.0'
  * @param {string}   [opts.serverGitHash]   Abbreviated git commit hash, e.g. '16e86cd'
  * @returns {{ wss: WebSocketServer, close: () => Promise<void> }}
@@ -33,8 +38,13 @@ export function createInputServer(opts = {}) {
   const logEvents         = opts.logEvents         ?? false;
   const HOST_TIMEOUT      = opts.hostTimeoutMs     ?? 10 * 60 * 1000;
   const validateKickToken = opts.validateKickToken ?? (() => null);
+  const validateAdminToken = opts.validateAdminToken ?? (() => false);
   const serverVersion     = opts.serverVersion     ?? null;
   const serverGitHash     = opts.serverGitHash     ?? null;
+  const getRuntimeStats   = opts.getRuntimeStats   ?? (() => null);
+  const getWebrtcPeerSnapshot = opts.getWebrtcPeerSnapshot ?? (() => null);
+  const disconnectWebrtcPeersByAddr = opts.disconnectWebrtcPeersByAddr ?? (() => 0);
+  const disconnectAllWebrtcPeers = opts.disconnectAllWebrtcPeers ?? (() => 0);
 
   // ── Input flood instrumentation ───────────────────────────────────────────────
   const _inputStats = {
@@ -47,18 +57,21 @@ export function createInputServer(opts = {}) {
   const _avgLatency = { host: 0, p2: 0 };
   let _latencyLogTimer = null;
   let _inputLogTimer = null;
+  let _networkStatsTimer = null;
   const _networkStats = {
-    host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
-    p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null, pingRtt: null },
+    host: { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null },
+    p2:   { avgLatency: null, lastLatency: null, lastSpikeLatency: null, lastSpikeAt: null },
   };
 
   function broadcastNetworkStats() {
     if (!hostClient && !p2Client) return;
+    const runtime = getRuntimeStats?.() ?? null;
     const payload = JSON.stringify({
       type: 'network-stats',
       serverTime: Date.now(),
       host: { ..._networkStats.host },
       p2:   { ..._networkStats.p2 },
+      ...(runtime ? { server: runtime } : {}),
     });
     if (hostClient && hostClient.readyState === hostClient.OPEN) {
       try { hostClient.send(payload); } catch (_) {}
@@ -76,8 +89,8 @@ export function createInputServer(opts = {}) {
       // Only log if there's been recent activity (within last 10s)
       const h = _inputStats.host.lastMsgTime && (now - _inputStats.host.lastMsgTime < 10000);
       const p = _inputStats.p2.lastMsgTime && (now - _inputStats.p2.lastMsgTime < 10000);
-      if (h || p) {
-        console.error(`[input-flood] host joystick=${_inputStats.host.joystick} key=${_inputStats.host.key} | p2 joystick=${_inputStats.p2.joystick} key=${_inputStats.p2.key}`);
+      if ((h || p) && (logEvents || verbose)) {
+        console.error(`[event] input-flood host-joystick=${_inputStats.host.joystick} host-key=${_inputStats.host.key} p2-joystick=${_inputStats.p2.joystick} p2-key=${_inputStats.p2.key}`);
       }
       // Reset counters after reporting
       _inputStats.host.joystick = 0;
@@ -85,6 +98,13 @@ export function createInputServer(opts = {}) {
       _inputStats.p2.joystick = 0;
       _inputStats.p2.key = 0;
     }, INPUT_LOG_INTERVAL_MS);
+  }
+
+  function _startNetworkStatsTicker() {
+    if (_networkStatsTimer) return;
+    _networkStatsTimer = setInterval(() => {
+      broadcastNetworkStats();
+    }, 5000);
   }
 
   /** Emit a structured event log line — only when --log-events is active.
@@ -157,6 +177,7 @@ export function createInputServer(opts = {}) {
       p2Client.send(JSON.stringify({ type: 'p2-timeout-kick', username: p2Username }));
     }
     const leaving = p2Username;
+    setWsIdentity(p2Client, 'spectator', null);
     p2Client      = null;
     p2Username    = null;
     clearP2Timeout();
@@ -201,6 +222,7 @@ export function createInputServer(opts = {}) {
       hostClient.send(JSON.stringify({ type: 'host-timeout-kick', username: hostUsername }));
     }
     const leaving = hostUsername;
+    setWsIdentity(hostClient, 'spectator', null);
     hostClient    = null;
     hostUsername  = null;
     inviteToken   = null;
@@ -209,6 +231,47 @@ export function createInputServer(opts = {}) {
     // Broadcast host-left with reason so clients can show a contextual notice
     broadcastAll({ type: 'host-left', username: leaving, reason: 'timeout' });
     broadcastAll({ type: 'p2-slot-status', open: false });
+  }
+
+  function kickHostByReason(reason = 'admin-kick') {
+    if (!hostClient) return { kicked: false, username: null, addr: null };
+    const targetWs = hostClient;
+    const targetMeta = clientMeta.get(targetWs);
+    const addr = targetMeta?.addr ?? null;
+    const leaving = hostUsername;
+    clearHostTimeout();
+    clearGrace();
+    if (targetWs.readyState === targetWs.OPEN) {
+      try { targetWs.send(JSON.stringify({ type: 'host-kicked', reason })); } catch (_) {}
+    }
+    hostClient = null;
+    hostUsername = null;
+    inviteToken = null;
+    portsSwapped = false;
+    setWsIdentity(targetWs, 'spectator', null);
+    broadcastAll({ type: 'host-left', username: leaving, reason });
+    broadcastAll({ type: 'p2-slot-status', open: false });
+    if (addr) disconnectWebrtcPeersByAddr(addr, reason);
+    return { kicked: true, username: leaving, addr };
+  }
+
+  function kickP2ByReason(reason = 'admin-kick') {
+    if (!p2Client) return { kicked: false, username: null, addr: null };
+    const targetWs = p2Client;
+    const targetMeta = clientMeta.get(targetWs);
+    const addr = targetMeta?.addr ?? null;
+    const leaving = p2Username;
+    if (targetWs.readyState === targetWs.OPEN) {
+      try { targetWs.send(JSON.stringify({ type: 'kicked', reason })); } catch (_) {}
+    }
+    clearP2Timeout();
+    p2Client = null;
+    p2Username = null;
+    setWsIdentity(targetWs, 'spectator', null);
+    broadcastAll({ type: 'player2-left', username: leaving, reason });
+    broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+    if (addr) disconnectWebrtcPeersByAddr(addr, reason);
+    return { kicked: true, username: leaving, addr };
   }
 
 
@@ -231,17 +294,100 @@ export function createInputServer(opts = {}) {
   }
 
   let clientCount = 0;
+  const clientMeta = new Map(); // Map<WebSocket, { addr: string, role: string, username: string|null }>
+
+  function normalizeAddr(addr) {
+    if (!addr) return '';
+    return String(addr).replace(/^::ffff:/, '');
+  }
+
+  function setWsIdentity(ws, role, username = null) {
+    const meta = clientMeta.get(ws);
+    if (!meta) return;
+    meta.role = role;
+    meta.username = username;
+  }
+
+  function getWebrtcPeerCountByAddr() {
+    const snapshot = getWebrtcPeerSnapshot?.() ?? null;
+    const peers = Array.isArray(snapshot?.peers) ? snapshot.peers : [];
+    const byAddr = new Map();
+    for (const p of peers) {
+      const addr = normalizeAddr(p?.addr);
+      if (!addr) continue;
+      byAddr.set(addr, (byAddr.get(addr) ?? 0) + 1);
+    }
+    return { snapshot, byAddr };
+  }
+
+  function buildAdminStatus() {
+    const hostMeta = hostClient ? clientMeta.get(hostClient) : null;
+    const p2Meta = p2Client ? clientMeta.get(p2Client) : null;
+    const spectators = [];
+    const { snapshot: webrtcSnapshot, byAddr: webrtcByAddr } = getWebrtcPeerCountByAddr();
+    const mappedAddrSet = new Set();
+    if (hostMeta?.addr) mappedAddrSet.add(hostMeta.addr);
+    if (p2Meta?.addr) mappedAddrSet.add(p2Meta.addr);
+    for (const [ws, meta] of clientMeta.entries()) {
+      if (ws === hostClient || ws === p2Client) continue;
+      if (ws.readyState !== ws.OPEN) continue;
+      if (meta.role === 'admin') continue;
+      if (meta.addr) mappedAddrSet.add(meta.addr);
+      spectators.push({
+        addr: meta.addr,
+        role: meta.role ?? 'spectator',
+        username: meta.username ?? null,
+        webrtcPeers: webrtcByAddr.get(meta.addr) ?? 0,
+      });
+    }
+
+    let mappedWebrtcPeers = 0;
+    for (const addr of mappedAddrSet) {
+      mappedWebrtcPeers += webrtcByAddr.get(addr) ?? 0;
+    }
+    const webrtcTotal = Number.isFinite(webrtcSnapshot?.total) ? webrtcSnapshot.total : 0;
+    const anonymousWebrtcPeers = Math.max(0, webrtcTotal - mappedWebrtcPeers);
+
+    return {
+      host: hostClient ? {
+        connected: hostClient.readyState === hostClient.OPEN,
+        username: hostUsername,
+        addr: hostMeta?.addr ?? null,
+        webrtcPeers: hostMeta?.addr ? (webrtcByAddr.get(hostMeta.addr) ?? 0) : 0,
+      } : null,
+      p2: p2Client ? {
+        connected: p2Client.readyState === p2Client.OPEN,
+        username: p2Username,
+        addr: p2Meta?.addr ?? null,
+        webrtcPeers: p2Meta?.addr ? (webrtcByAddr.get(p2Meta.addr) ?? 0) : 0,
+      } : null,
+      spectators,
+      counts: {
+        inputClients: clientCount,
+        spectators: spectators.length,
+        webrtcActive: Number.isFinite(webrtcSnapshot?.active) ? webrtcSnapshot.active : 0,
+        webrtcPending: Number.isFinite(webrtcSnapshot?.pending) ? webrtcSnapshot.pending : 0,
+        webrtcTotal,
+        anonymousWebrtcPeers,
+      },
+      webrtc: webrtcSnapshot,
+      runtime: getRuntimeStats?.() ?? null,
+      sampledAt: Date.now(),
+    };
+  }
 
   wss.on('listening', () => {
     console.error(`[input-server] WebSocket listening on ws://0.0.0.0:${port}`);
     logEv('server-listening', { port });
     // Start input flood logging
     _startInputLog();
+    _startNetworkStatsTicker();
   });
 
   wss.on('connection', (ws, req) => {
     clientCount++;
     const addr = req.socket.remoteAddress;
+    clientMeta.set(ws, { addr: normalizeAddr(addr), role: 'spectator', username: null });
     if (verbose) console.error(`[input-server] client connected from ${addr} (${clientCount} total)`);
     logEv('client-connected', { addr, total: clientCount });
 
@@ -283,6 +429,7 @@ export function createInputServer(opts = {}) {
           clearGrace();
           try { hostClient.send(JSON.stringify({ type: 'host-evicted', reason: 'force-claim' })); } catch (_) {}
           try { hostClient.close(); } catch (_) {}
+          setWsIdentity(hostClient, 'spectator', null);
           hostClient   = null;
           hostUsername = null;
           inviteToken  = null;
@@ -291,6 +438,7 @@ export function createInputServer(opts = {}) {
         if (graceTimer) clearGrace(); // cancel grace regardless of who's claiming
         hostClient   = ws;
         hostUsername = msg.username ?? 'player';
+        setWsIdentity(ws, 'host', hostUsername);
         ws.send(JSON.stringify({
           type: 'host-confirmed', username: hostUsername, joystickPort: hostPort(),
           player2: p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
@@ -329,6 +477,7 @@ export function createInputServer(opts = {}) {
           p2Client       = null;
           const leaving  = p2Username;
           p2Username     = null;
+          setWsIdentity(ws, 'spectator', null);
           if (verbose) console.error(`[input-server] player2 ${leaving} voluntarily left`);
           logEv('p2-left', { username: leaving, reason: 'voluntary' });
           ws.send(JSON.stringify({ type: 'player2-left', username: leaving, voluntary: true }));
@@ -348,6 +497,7 @@ export function createInputServer(opts = {}) {
           hostUsername      = null;
           inviteToken       = null;
           portsSwapped      = false;
+          setWsIdentity(ws, 'spectator', null);
           if (verbose) console.error(`[input-server] host ${leaving} voluntarily left`);
           logEv('host-left', { username: leaving, reason: 'voluntary' });
           ws.send(JSON.stringify({ type: 'host-left', username: leaving, voluntary: true }));
@@ -391,6 +541,7 @@ export function createInputServer(opts = {}) {
         p2Client    = ws;
         p2Username  = msg.username ?? 'player2';
         inviteToken = null;
+        setWsIdentity(ws, 'p2', p2Username);
         ws.send(JSON.stringify({
           type: 'join-p2-confirmed', username: p2Username, joystickPort: p2Port(),
         }));
@@ -417,6 +568,7 @@ export function createInputServer(opts = {}) {
         p2Client    = ws;
         p2Username  = msg.username ?? 'player2';
         inviteToken = null;
+        setWsIdentity(ws, 'p2', p2Username);
         ws.send(JSON.stringify({
           type: 'join-p2-confirmed', username: p2Username, joystickPort: p2Port(),
         }));
@@ -439,6 +591,7 @@ export function createInputServer(opts = {}) {
         clearP2Timeout();
         p2Client      = null;
         p2Username    = null;
+        setWsIdentity(ws, 'spectator', null);
         if (leaving) broadcastAll({ type: 'player2-left', username: leaving });
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
         if (verbose) console.error(`[input-server] p2 revoked by host`);
@@ -446,7 +599,88 @@ export function createInputServer(opts = {}) {
         return;
       }
 
-      // ── Admin kick ────────────────────────────────────────────────────────
+      // ── Admin CLI commands (token-authenticated) ─────────────────────────
+      if (msg.type === 'admin-status') {
+        const valid = validateAdminToken(msg.token ?? '');
+        if (!valid) {
+          ws.send(JSON.stringify({ type: 'admin-error', command: 'status', reason: 'invalid-token' }));
+          return;
+        }
+        setWsIdentity(ws, 'admin', null);
+        ws.send(JSON.stringify({
+          type: 'admin-status-ok',
+          status: buildAdminStatus(),
+        }));
+        return;
+      }
+
+      if (msg.type === 'admin-kick-player') {
+        const valid = validateAdminToken(msg.token ?? '');
+        if (!valid) {
+          ws.send(JSON.stringify({ type: 'admin-error', command: 'kick-player', reason: 'invalid-token' }));
+          return;
+        }
+        setWsIdentity(ws, 'admin', null);
+        const target = msg.target === 'p2' ? 'p2' : (msg.target === 'host' ? 'host' : null);
+        if (!target) {
+          ws.send(JSON.stringify({ type: 'admin-error', command: 'kick-player', reason: 'invalid-target' }));
+          return;
+        }
+        const result = target === 'host'
+          ? kickHostByReason('admin-kick')
+          : kickP2ByReason('admin-kick');
+        if (!result.kicked) {
+          ws.send(JSON.stringify({ type: 'admin-error', command: 'kick-player', reason: 'target-not-present', target }));
+          return;
+        }
+        logEv(target === 'host' ? 'host-kicked' : 'p2-kicked', { username: result.username ?? '-', by: 'admin-cli' });
+        ws.send(JSON.stringify({
+          type: 'admin-kick-player-ok',
+          target,
+          username: result.username,
+          addr: result.addr,
+          status: buildAdminStatus(),
+        }));
+        return;
+      }
+
+      if (msg.type === 'admin-kick-all') {
+        const valid = validateAdminToken(msg.token ?? '');
+        if (!valid) {
+          ws.send(JSON.stringify({ type: 'admin-error', command: 'kick-all', reason: 'invalid-token' }));
+          return;
+        }
+        setWsIdentity(ws, 'admin', null);
+        const kicked = { host: null, p2: null, spectators: 0, webrtcPeers: 0 };
+        const previousHostWs = hostClient;
+        const previousP2Ws = p2Client;
+        const hostResult = kickHostByReason('admin-kick-all');
+        if (hostResult.kicked) kicked.host = hostResult.username;
+        const p2Result = kickP2ByReason('admin-kick-all');
+        if (p2Result.kicked) kicked.p2 = p2Result.username;
+
+        for (const c of wss.clients) {
+          if (c === ws) continue;
+          if (c === previousHostWs || c === previousP2Ws) continue;
+          const meta = clientMeta.get(c);
+          if (meta?.role === 'admin') continue;
+          try {
+            if (c.readyState === c.OPEN) c.send(JSON.stringify({ type: 'kicked', reason: 'admin-kick-all' }));
+            c.close();
+            kicked.spectators++;
+          } catch (_) {}
+        }
+        kicked.webrtcPeers = disconnectAllWebrtcPeers('admin-kick-all');
+        logEv('admin-kick-all', { spectators: kicked.spectators, webrtcPeers: kicked.webrtcPeers });
+        ws.send(JSON.stringify({
+          type: 'admin-kick-all-ok',
+          kicked,
+          status: buildAdminStatus(),
+        }));
+        return;
+      }
+
+      // ── Admin kick (legacy one-time token flow) ───────────────────────────
       if (msg.type === 'admin-kick') {
         const valid = validateKickToken(msg.token ?? '');
         if (!valid) {
@@ -458,29 +692,12 @@ export function createInputServer(opts = {}) {
         const target = valid.target;
         if (target === 'host' && hostClient) {
           if (verbose) console.error(`[input-server] admin kicked host ${hostUsername}`);
-          logEv('host-kicked', { username: hostUsername, by: 'admin' });
-          clearHostTimeout();
-          clearGrace();
-          if (hostClient.readyState === hostClient.OPEN) {
-            hostClient.send(JSON.stringify({ type: 'host-kicked', reason: 'admin' }));
-          }
-          const leaving = hostUsername;
-          hostClient    = null;
-          hostUsername  = null;
-          inviteToken   = null;
-          broadcastAll({ type: 'host-left', username: leaving, reason: 'admin-kick' });
-          broadcastAll({ type: 'p2-slot-status', open: false });
+          const result = kickHostByReason('admin-kick');
+          logEv('host-kicked', { username: result.username ?? '-', by: 'admin' });
         } else if (target === 'p2' && p2Client) {
           if (verbose) console.error(`[input-server] admin kicked player2 ${p2Username}`);
-          logEv('p2-kicked', { username: p2Username, by: 'admin' });
-          if (p2Client.readyState === p2Client.OPEN) {
-            p2Client.send(JSON.stringify({ type: 'kicked', reason: 'admin' }));
-          }
-          const leaving = p2Username;
-          clearP2Timeout();
-          p2Client      = null;
-          p2Username    = null;
-          broadcastAll({ type: 'player2-left', username: leaving });
+          const result = kickP2ByReason('admin-kick');
+          logEv('p2-kicked', { username: result.username ?? '-', by: 'admin' });
         } else {
           ws.send(JSON.stringify({ type: 'admin-kick-error', reason: 'target-not-present' }));
           logEv('error', { kind: 'admin-kick-target-missing', target });
@@ -572,7 +789,9 @@ export function createInputServer(opts = {}) {
                 const p2Avg   = p2Active   ? Number(_avgLatency.p2.toFixed(0))   : null;
                 const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
                 const p2Label   = p2Avg   != null ? `${p2Avg}`   : '--';
-                console.error(`[input-latency] host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
+                if (logEvents || verbose) {
+                  console.error(`[event] input-latency host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
+                }
                 _networkStats.host.avgLatency = hostAvg;
                 _networkStats.p2.avgLatency   = p2Avg;
                 broadcastNetworkStats();
@@ -590,8 +809,10 @@ export function createInputServer(opts = {}) {
               bucket.lastSpikeLatency = latency;
               bucket.lastSpikeAt = now;
             }
-            console.error(`[input-latency] spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
-              `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
+            if (logEvents || verbose) {
+              console.error(`[event] input-latency-spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
+                `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`);
+            }
             }
         }
 
@@ -599,6 +820,11 @@ export function createInputServer(opts = {}) {
         // without input-server needing to know about logEvents details.
         msg._role = role;
         if (onInput) onInput(msg);
+        if (Number.isFinite(msg.inputId) && ws.readyState === ws.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'input-ack', inputId: msg.inputId }));
+          } catch (_) {}
+        }
         return;
       }
 
@@ -612,14 +838,7 @@ export function createInputServer(opts = {}) {
           clientTime: msg.clientTime ?? null,
         };
         try { ws.send(JSON.stringify(payload)); } catch (_) {}
-        if (msg.clientTime) {
-          const rtt = now - msg.clientTime;
-          console.error(`[ping] role=${role} rtt=${rtt}ms`);
-          if (role === 'host' || role === 'p2') {
-            _networkStats[role].pingRtt = rtt;
-            broadcastNetworkStats();
-          }
-        }
+        if (verbose) console.error(`[ping] role=${role} pong pingId=${msg.pingId ?? '-'} `);
         return;
       }
     });
@@ -649,6 +868,7 @@ export function createInputServer(opts = {}) {
         broadcastExcept(ws, { type: 'player2-left', username: leaving });
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
       }
+      clientMeta.delete(ws);
     });
 
     ws.on('error', (err) => {
@@ -687,6 +907,9 @@ export function createInputServer(opts = {}) {
     clearHostTimeout();
     clearP2Timeout();
     clearGrace();
+    if (_inputLogTimer) { clearInterval(_inputLogTimer); _inputLogTimer = null; }
+    if (_latencyLogTimer) { clearInterval(_latencyLogTimer); _latencyLogTimer = null; }
+    if (_networkStatsTimer) { clearInterval(_networkStatsTimer); _networkStatsTimer = null; }
     wss.close(() => resolve());
   });
 

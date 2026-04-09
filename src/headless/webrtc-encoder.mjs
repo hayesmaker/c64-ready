@@ -17,6 +17,13 @@ import wrtc from '@roamhq/wrtc';
 
 const { RTCVideoSource, RTCAudioSource, rgbaToI420 } = wrtc.nonstandard;
 
+const nowMonoMs = () => {
+  if (typeof globalThis.performance !== 'undefined' && typeof globalThis.performance.now === 'function') {
+    return globalThis.performance.now();
+  }
+  return Date.now();
+};
+
 export class WebRTCEncoder {
   /** @type {import('@roamhq/wrtc').nonstandard.RTCVideoSource|null} */
   videoSource = null;
@@ -31,8 +38,8 @@ export class WebRTCEncoder {
   _height = 272;
   _sampleRate = 44100;
 
-  // Wall-clock origin for video timestamps (µs since Unix epoch at init()).
-  // Video timestamps are driven by (Date.now() - _videoOriginMs) * 1000 µs so
+  // Monotonic origin for video timestamps.
+  // Video timestamps are driven by (nowMonoMs() - _videoOriginMs) * 1000 µs so
   // that after any gap (e.g. the ~1300ms c64_loadCartridge() blockage) the
   // next frame's timestamp automatically jumps forward by the real elapsed
   // time.  This keeps the video RTP clock aligned with the audio RTP clock,
@@ -43,7 +50,7 @@ export class WebRTCEncoder {
   // ~1300ms *behind* the audio clock after every cart load.  The browser's
   // AV sync logic then delayed video rendering until the audio clock "caught
   // up", creating the observed ~1–30s of perceived input lag.
-  _videoOriginMs = 0;   // set in init() to Date.now()
+  _videoOriginMs = 0;   // set in init() to nowMonoMs()
   _videoFrameDurationUs = 0; // microseconds per frame, set in setFps() (kept for compatibility)
 
   // RTCAudioSource.onData() requires exactly (sampleRate / 100) samples per call —
@@ -83,7 +90,7 @@ export class WebRTCEncoder {
     this._audioRingRead  = 0;
     this._audioRingCount = 0;
     this._audioInt16  = new Int16Array(this._audioChunkSize);
-    this._videoOriginMs = Date.now();
+    this._videoOriginMs = nowMonoMs();
 
     // Staging buffers with exact byte sizes that rgbaToI420 expects
     this._rgbaBuf = new Uint8ClampedArray(width * height * 4);
@@ -188,7 +195,7 @@ export class WebRTCEncoder {
     // automatically jumps forward by the real elapsed time, keeping the video
     // RTP clock aligned with the audio RTP clock which advances at real-time
     // rate regardless of whether audio frames are pushed.
-    const timestamp = (Date.now() - this._videoOriginMs) * 1000;
+    const timestamp = (nowMonoMs() - this._videoOriginMs) * 1000;
 
     this.videoSource.onFrame({ width, height, data: this._i420Buf, timestamp });
   }
@@ -242,4 +249,3 @@ export class WebRTCEncoder {
   get width() { return this._width; }
   get height() { return this._height; }
 }
-

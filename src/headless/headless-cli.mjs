@@ -6,6 +6,13 @@ import { execSync } from 'child_process';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
 
+const nowMonoMs = () => {
+  if (typeof globalThis.performance !== 'undefined' && typeof globalThis.performance.now === 'function') {
+    return globalThis.performance.now();
+  }
+  return Date.now();
+};
+
 // ── CRT info parser ───────────────────────────────────────────────────────────
 // Inline JS port of src/emulator/crt-info.ts — kept here so headless-cli.mjs
 // runs without a TypeScript build step.
@@ -141,7 +148,11 @@ export async function runHeadless(options = {}) {
   let webrtc = false;
   let webrtcPort = 9002;
   let logEvents = false;
-  let maxSpectators = 5;
+  let maxSpectators = 3;
+  let webrtcMinBitrateKbps = 200;
+  let webrtcMaxBitrateKbps = 600;
+  let webrtcOutputFps = 40;
+  let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
   let logFile = false;
   let logRetainDays = 7;
   for (let i = 0; i < argv.length; i++) {
@@ -166,10 +177,41 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc') webrtc = true;
     else if (a === '--webrtc-port') webrtcPort = Number(argv[++i]);
     else if (a === '--max-spectators') maxSpectators = Number(argv[++i]);
+    else if (a === '--webrtc-min-bitrate-kbps') webrtcMinBitrateKbps = Number(argv[++i]);
+    else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
+    else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
+    else if (a === '--admin-token') adminToken = argv[++i] ?? '';
     else if (a === '--help' || a === '-h') {
       return {ok: false, output: 'help'};
     }
   }
+  const adminTokenSafe = String(adminToken ?? '').trim();
+
+  const webrtcMinBitrateKbpsSafe = Number.isFinite(webrtcMinBitrateKbps) && webrtcMinBitrateKbps > 0
+    ? Math.round(webrtcMinBitrateKbps)
+    : 200;
+  const webrtcMaxBitrateKbpsSafe = Number.isFinite(webrtcMaxBitrateKbps) && webrtcMaxBitrateKbps > 0
+    ? Math.max(webrtcMinBitrateKbpsSafe, Math.round(webrtcMaxBitrateKbps))
+    : Math.max(webrtcMinBitrateKbpsSafe, 600);
+  const webrtcOutputFpsSafe = Number.isFinite(webrtcOutputFps) && webrtcOutputFps > 0
+    ? Math.round(webrtcOutputFps)
+    : 0;
+
+  const runtimeStats = {
+    webrtcSendFps: null,
+    videoFramesSent: 0,
+    videoFramesDroppedLate: 0,
+    videoFramesDroppedCap: 0,
+    webrtcPeerCount: null,
+    webrtcAvgRttMs: null,
+    webrtcSendDelayMsPerPacket: null,
+    webrtcEncodeMsPerFrame: null,
+    webrtcFramesSentPerSec: null,
+    webrtcFramesEncodedPerSec: null,
+    webrtcBytesSentPerSec: null,
+    webrtcQualityLimitation: null,
+    sampledAt: Date.now(),
+  };
 
   // ── Log file setup ────────────────────────────────────────────────────────────
   let logStream = null;
@@ -441,7 +483,8 @@ export async function runHeadless(options = {}) {
         sidRingWrite   = 0;
         sidRingRead    = 0;
         sidRingCount   = 0;
-        sidFrameBuf.fill(0);
+        sidFrameBufMax.fill(0);
+        sidFrameView = sidFrameBufMax.subarray(0, 1);
       }
 
       inputServer = createInputServer({
@@ -449,9 +492,17 @@ export async function runHeadless(options = {}) {
         verbose,
         logEvents,
         validateKickToken,
+        validateAdminToken: (token) => {
+          if (!adminTokenSafe) return false;
+          return token === adminTokenSafe;
+        },
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         serverVersion: _serverVersion,
         serverGitHash: _serverGitHash,
+        getRuntimeStats: () => ({ ...runtimeStats }),
+        getWebrtcPeerSnapshot: () => getWebrtcPeerSnapshot(),
+        disconnectWebrtcPeersByAddr: (addr, reason) => disconnectWebrtcPeersByAddr(addr, reason),
+        disconnectAllWebrtcPeers: (reason) => disconnectAllWebrtcPeers(reason),
         onCommand: (cmd) => {
           if (!exports) return;
           if (cmd.type === 'load-crt') {
@@ -595,6 +646,10 @@ export async function runHeadless(options = {}) {
   // RTCPeerConnection fed by the shared encoder tracks.
   let webrtcEncoder = null;
   let webrtcServer  = null;
+  let getWebrtcTelemetry = () => null;
+  let getWebrtcPeerSnapshot = () => null;
+  let disconnectWebrtcPeersByAddr = () => 0;
+  let disconnectAllWebrtcPeers = () => 0;
 
   if (webrtc) {
     try {
@@ -614,6 +669,8 @@ export async function runHeadless(options = {}) {
         logEvents,
         inputPort: wsPort,
         maxSpectators,
+        minBitrateKbps: webrtcMinBitrateKbpsSafe,
+        maxBitrateKbps: webrtcMaxBitrateKbpsSafe,
         // onOffer fires BEFORE createAnswer() — the right place to addTrack()
         onOffer(pc) {
           const stream = new MediaStream([videoTrack, audioTrack]);
@@ -626,16 +683,17 @@ export async function runHeadless(options = {}) {
           // Reduce video sender bitrate after connection to minimise encode
           // latency. A tight ceiling keeps frame sizes small and predictable,
           // reducing the encoder's internal queue and decode buffer on the
-          // receiving end. 800 kbps is well above lossless for 384×272 @ 50fps.
+          // receiving end.
           try {
             const senders = pc.getSenders();
             for (const sender of senders) {
               if (sender.track && sender.track.kind === 'video') {
                 const params = sender.getParameters();
+                const maxBitrateBps = Math.max(100_000, Math.round(webrtcMaxBitrateKbpsSafe * 1000));
                 if (params.encodings && params.encodings.length > 0) {
-                  params.encodings[0].maxBitrate = 800_000;
+                  params.encodings[0].maxBitrate = maxBitrateBps;
                 } else {
-                  params.encodings = [{ maxBitrate: 800_000 }];
+                  params.encodings = [{ maxBitrate: maxBitrateBps }];
                 }
                 sender.setParameters(params).catch(() => {});
                 break;
@@ -644,8 +702,20 @@ export async function runHeadless(options = {}) {
           } catch (_) {}
         },
       });
+      if (typeof webrtcServer.getTelemetrySnapshot === 'function') {
+        getWebrtcTelemetry = () => webrtcServer.getTelemetrySnapshot();
+      }
+      if (typeof webrtcServer.getPeerSnapshot === 'function') {
+        getWebrtcPeerSnapshot = () => webrtcServer.getPeerSnapshot();
+      }
+      if (typeof webrtcServer.disconnectPeersByAddr === 'function') {
+        disconnectWebrtcPeersByAddr = (addr, reason) => webrtcServer.disconnectPeersByAddr(addr, reason);
+      }
+      if (typeof webrtcServer.disconnectAllPeers === 'function') {
+        disconnectAllWebrtcPeers = (reason) => webrtcServer.disconnectAllPeers(reason);
+      }
 
-      out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/`);
+      out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/ (send cap: ${webrtcOutputFpsSafe > 0 ? `${webrtcOutputFpsSafe}fps` : 'off'})`);
     } catch (e) {
       console.error('[headless] Failed to start WebRTC server:', e && e.message ? e.message : e);
       out.push(`webrtc-server-failed: ${String(e)}`);
@@ -657,6 +727,16 @@ export async function runHeadless(options = {}) {
   let frameCount = 0;
   let ffmpegDied = false; // set to true if ffmpeg exits unexpectedly and we give up
   const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
+  const frameMs = Math.round(1000 / targetFps);
+  const webrtcSendFps = webrtcOutputFpsSafe > 0 ? Math.max(1, Math.min(targetFps, webrtcOutputFpsSafe)) : targetFps;
+  const webrtcSendIntervalMs = 1000 / webrtcSendFps;
+  let nextVideoDueAtMs = nowMonoMs();
+  let videoFramesSent = 0;
+  let videoFramesDroppedLate = 0;
+  let videoFramesDroppedCap = 0;
+  let videoFramesDroppedLateWindow = 0;
+  let videoFramesDroppedCapWindow = 0;
+  runtimeStats.webrtcSendFps = webrtcSendFps;
   // Now that targetFps is known, configure the WebRTC encoder's frame duration
   // so video timestamps are driven by frame count × frame duration (µs) rather
   // than wall clock — making loadCartridge blockages invisible to the receiver.
@@ -672,8 +752,8 @@ export async function runHeadless(options = {}) {
     const EVENT_LOOP_LOG_MS = 5000;
     eventLoopLogTimer = setInterval(() => {
       const lag = eventLoopMonitor ? eventLoopMonitor.min / 1e6 : 0; // ms
-      if (lag > 5) { // only log if >5ms lag
-        console.error(`[input-flood] event-loop-lag min=${lag.toFixed(2)}ms`);
+      if (lag > 5 && (logEvents || verbose)) { // only log if >5ms lag
+        console.error(`[event] event-loop-lag min=${lag.toFixed(2)}ms`);
       }
       if (eventLoopMonitor) eventLoopMonitor.reset();
     }, EVENT_LOOP_LOG_MS);
@@ -683,7 +763,9 @@ export async function runHeadless(options = {}) {
 
   // ── Audio timing ──────────────────────────────────────────────────────────
   const audioSampleRate = 44100;
-  const samplesPerFrame = Math.floor(audioSampleRate / targetFps); // 882 @ 50fps
+  const FALLBACK_DELTA_MS = 1000 / 60;
+  const MAX_DELTA_MS = 100;
+  const MAX_AUDIO_SAMPLES_PER_ITER = Math.ceil((audioSampleRate * MAX_DELTA_MS) / 1000);
   let audioInterval = null;
 
   // SID audio design — two-stage pipeline:
@@ -696,9 +778,9 @@ export async function runHeadless(options = {}) {
   //   Each pull copies the full 4096-sample WASM buffer into a JS-side ring.
   //
   // Stage 2 (JS ring → ffmpeg/WebRTC):
-  //   Every video frame, dequeue exactly samplesPerFrame samples from the JS
-  //   ring into sidFrameBuf. Send that to ffmpeg/WebRTC every frame — no
-  //   bursting, perfectly aligned with the video frame rate, no A/V drift.
+  //   Every loop iteration, dequeue samples based on REAL elapsed wall-clock
+  //   time, not target fps. This keeps audio throughput anchored to 44100 Hz
+  //   even if the loop temporarily runs at 42fps, preventing A/V clock drift.
   //   The ring provides the decoupling: WASM pushes in 4096-sample chunks,
   //   consumers pull in 882-sample chunks.
   //
@@ -712,7 +794,8 @@ export async function runHeadless(options = {}) {
   // Accumulator: how many emulated samples have passed since last WASM pull.
   let   sidSampleAccum = 0;
   // Single staging buffer for per-frame audio delivered to ffmpeg/WebRTC.
-  const sidFrameBuf    = new Float32Array(samplesPerFrame);
+  const sidFrameBufMax = new Float32Array(MAX_AUDIO_SAMPLES_PER_ITER);
+  let sidFrameView     = sidFrameBufMax.subarray(0, 1);
 
   /** Pull one 4096-sample chunk from the WASM SID buffer into the JS ring. */
   function pullSidBuffer() {
@@ -744,20 +827,22 @@ export async function runHeadless(options = {}) {
     }
   }
 
-  /** Dequeue up to n samples from the JS ring into sidFrameBuf. Returns true if enough data. */
-  function dequeueSidFrame() {
+  /** Dequeue n samples from JS ring into sidFrameBufMax and expose sidFrameView. */
+  function dequeueSidFrame(n) {
+    const samplesNeeded = Math.max(1, Math.min(n, MAX_AUDIO_SAMPLES_PER_ITER));
+    sidFrameView = sidFrameBufMax.subarray(0, samplesNeeded);
     // If the ring doesn't have a full frame yet, pad with silence rather than
     // stalling — this can happen on the very first frames before the SID has
     // had time to fill a full 4096-sample chunk.
-    if (sidRingCount < samplesPerFrame) {
-      sidFrameBuf.fill(0);
+    if (sidRingCount < samplesNeeded) {
+      sidFrameBufMax.fill(0, 0, samplesNeeded);
       return false;
     }
-    for (let i = 0; i < samplesPerFrame; i++) {
-      sidFrameBuf[i] = sidRing[(sidRingRead + i) % SID_RING_SIZE];
+    for (let i = 0; i < samplesNeeded; i++) {
+      sidFrameBufMax[i] = sidRing[(sidRingRead + i) % SID_RING_SIZE];
     }
-    sidRingRead  = (sidRingRead + samplesPerFrame) % SID_RING_SIZE;
-    sidRingCount -= samplesPerFrame;
+    sidRingRead  = (sidRingRead + samplesNeeded) % SID_RING_SIZE;
+    sidRingCount -= samplesNeeded;
     return true;
   }
 
@@ -837,8 +922,9 @@ export async function runHeadless(options = {}) {
     ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
     : null;
 
-  let windowStart = Date.now();
+  let windowStart = nowMonoMs();
   let windowCount = 0;
+  let lastStepAt = nowMonoMs();
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
     try {
@@ -846,27 +932,33 @@ export async function runHeadless(options = {}) {
 
       // Capture frame start time BEFORE emulation so sleepMs accounts for
       // ALL work in this iteration (emulation + audio + video push + ffmpeg).
-      const iterStart = Date.now();
-      const frameMs   = Math.round(1000 / targetFps);
+      const iterStart = nowMonoMs();
+      // Drive emulation with real wall-clock delta to avoid long-term A/V drift
+      // when actual loop FPS differs from target FPS.
+      const nowMs = nowMonoMs();
+      let emuDeltaMs = nowMs - lastStepAt;
+      lastStepAt = nowMs;
+      if (!emuDeltaMs || emuDeltaMs > MAX_DELTA_MS) emuDeltaMs = FALLBACK_DELTA_MS;
 
       // Run a single full-frame emulation step.
       // debugger_update() returns truthy when the emulator has completed a full
       // video frame (VSync). c64.js gates its redraw on both this return value
       // AND debugger_isRunning() — we mirror that here so we never push a stale
       // or repeated pixel buffer into WebRTC during boot/reset sequences.
-      const frameReady = !!exports.debugger_update(frameMs);
+      const frameReady = !!exports.debugger_update(emuDeltaMs);
       const isRunning  = !!exports.debugger_isRunning();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
       // audio clock stays continuous — gaps cause desync, not silence.
       if (audio || (webrtc && webrtcEncoder)) {
-        sidSampleAccum += samplesPerFrame;
+        const samplesThisIter = Math.max(1, Math.round((audioSampleRate * emuDeltaMs) / 1000));
+        sidSampleAccum += samplesThisIter;
         while (sidSampleAccum >= SID_BUFFER_SIZE) {
           sidSampleAccum -= SID_BUFFER_SIZE;
           pullSidBuffer();
         }
-        dequeueSidFrame(); // fills sidFrameBuf (or silence if ring not primed yet)
+        dequeueSidFrame(samplesThisIter); // fills sidFrameView (or silence)
       }
 
       // ── WebRTC: push video + audio into the live track ─────────────────
@@ -874,12 +966,27 @@ export async function runHeadless(options = {}) {
         // Only push a video frame when the emulator confirms one is ready and
         // is actively running — mirrors c64.js: if (update && !!debugger_isRunning())
         if (frameReady && isRunning) {
-          const ptr  = exports.c64_getPixelBuffer();
-          const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
-          webrtcEncoder.pushVideoFrame(rgba);
+          const nowVideoMs = nowMonoMs();
+          if (nowVideoMs + 1 < nextVideoDueAtMs) {
+            videoFramesDroppedCap++;
+            videoFramesDroppedCapWindow++;
+          } else {
+            const overdueMs = Math.max(0, nowVideoMs - nextVideoDueAtMs);
+            if (overdueMs >= webrtcSendIntervalMs) {
+              const lateDrops = Math.floor(overdueMs / webrtcSendIntervalMs);
+              videoFramesDroppedLate += lateDrops;
+              videoFramesDroppedLateWindow += lateDrops;
+              nextVideoDueAtMs += lateDrops * webrtcSendIntervalMs;
+            }
+            const ptr  = exports.c64_getPixelBuffer();
+            const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
+            webrtcEncoder.pushVideoFrame(rgba);
+            videoFramesSent++;
+            nextVideoDueAtMs = Math.max(nextVideoDueAtMs + webrtcSendIntervalMs, nowVideoMs + 1);
+          }
         }
 
-        webrtcEncoder.pushAudioFrame(sidFrameBuf);
+        webrtcEncoder.pushAudioFrame(sidFrameView);
       }
 
       // Capture video frame and audio chunk, then write both atomically.
@@ -924,7 +1031,7 @@ export async function runHeadless(options = {}) {
         if (frameReady && isRunning) {
           const ptr = exports.c64_getPixelBuffer();
           const videoFrame = heap.heapU8.subarray(ptr, ptr + frameSize);
-          const audioChunk = audio ? sidFrameBuf : null;
+          const audioChunk = audio ? sidFrameView : null;
           await ffmpegRunner.writeFrame(videoFrame, audioChunk);
         }
       }
@@ -944,7 +1051,8 @@ export async function runHeadless(options = {}) {
       // Worst-case input latency = one full frame (20ms @ 50fps): a keydown
       // that lands just AFTER step 2 waits until the following frame.
       // Average latency = half a frame (~10ms).
-      const sleepMs = Math.max(0, frameMs - (Date.now() - iterStart));
+      const workMs = nowMonoMs() - iterStart;
+      const sleepMs = Math.max(0, frameMs - workMs);
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
       await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
     } catch (_) {
@@ -953,9 +1061,9 @@ export async function runHeadless(options = {}) {
     // diagnostics
     windowCount++;
     if (windowCount >= 50) {
-      const now = Date.now();
+      const now = nowMonoMs();
       const secs = (now - windowStart) / 1000;
-      const actualFps = 50 / secs;
+      const actualFps = windowCount / secs;
       windowStart = now;
       windowCount = 0;
       // Drift reporting: if actual FPS deviates more than 10% from target, warn.
@@ -966,6 +1074,28 @@ export async function runHeadless(options = {}) {
         if (driftPct > 10) {
           console.error(`[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`);
         }
+        if (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0) {
+          console.error(`[event] webrtc-video-drop sent=${videoFramesSent} late=${videoFramesDroppedLateWindow} cap=${videoFramesDroppedCapWindow} totalLate=${videoFramesDroppedLate} totalCap=${videoFramesDroppedCap} fpsCap=${webrtcSendFps}`);
+        }
+      }
+      runtimeStats.videoFramesSent = videoFramesSent;
+      runtimeStats.videoFramesDroppedLate = videoFramesDroppedLate;
+      runtimeStats.videoFramesDroppedCap = videoFramesDroppedCap;
+      const webrtcTelemetry = getWebrtcTelemetry();
+      if (webrtcTelemetry) {
+        runtimeStats.webrtcPeerCount = webrtcTelemetry.peerCount ?? null;
+        runtimeStats.webrtcAvgRttMs = Number.isFinite(webrtcTelemetry.avgRttMs) ? webrtcTelemetry.avgRttMs : null;
+        runtimeStats.webrtcSendDelayMsPerPacket = Number.isFinite(webrtcTelemetry.sendDelayMsPerPacket) ? webrtcTelemetry.sendDelayMsPerPacket : null;
+        runtimeStats.webrtcEncodeMsPerFrame = Number.isFinite(webrtcTelemetry.encodeMsPerFrame) ? webrtcTelemetry.encodeMsPerFrame : null;
+        runtimeStats.webrtcFramesSentPerSec = Number.isFinite(webrtcTelemetry.framesSentPerSec) ? webrtcTelemetry.framesSentPerSec : null;
+        runtimeStats.webrtcFramesEncodedPerSec = Number.isFinite(webrtcTelemetry.framesEncodedPerSec) ? webrtcTelemetry.framesEncodedPerSec : null;
+        runtimeStats.webrtcBytesSentPerSec = Number.isFinite(webrtcTelemetry.bytesSentPerSec) ? webrtcTelemetry.bytesSentPerSec : null;
+        runtimeStats.webrtcQualityLimitation = webrtcTelemetry.qualityLimitation ?? null;
+      }
+      runtimeStats.sampledAt = Date.now();
+      if (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0) {
+        videoFramesDroppedLateWindow = 0;
+        videoFramesDroppedCapWindow = 0;
       }
     }
     if (verify && frameCount % 60 === 0) {
@@ -1063,4 +1193,3 @@ try {
 } catch (e) {
   // ignore errors in CLI wrapper detection
 }
-

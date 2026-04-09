@@ -31,11 +31,13 @@ const { RTCPeerConnection } = wrtc;
  * @param {boolean}  [opts.verbose=false]       Log state changes to stderr
  * @param {number}   [opts.inputPort=9001]      Port the input WebSocket listens on
  *                                               (embedded in the browser page)
- * @param {number}   [opts.maxSpectators=5]     Maximum number of spectator connections
+ * @param {number}   [opts.maxSpectators=3]     Maximum number of spectator connections
  *                                               (not counting the 2 player slots).
  *                                               When the limit is reached, new WebRTC
  *                                               connections are rejected immediately with
  *                                               a { type: 'capacity-full' } message.
+ * @param {number}   [opts.minBitrateKbps=200]  SDP x-google-min-bitrate for VP8 answer
+ * @param {number}   [opts.maxBitrateKbps=600]  SDP x-google-max-bitrate for VP8 answer
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
  *   Called synchronously when an SDP offer arrives, BEFORE createAnswer().
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
@@ -48,7 +50,9 @@ export function createWebRTCServer({
   verbose = false,
   logEvents = false,
   inputPort = 9001,
-  maxSpectators = 5,
+  maxSpectators = 3,
+  minBitrateKbps = 200,
+  maxBitrateKbps = 600,
   onOffer,
   onPeerConnected,
 } = {}) {
@@ -61,6 +65,28 @@ export function createWebRTCServer({
   }
   // Track all active peer connections so forceKeyframe() can reach them all.
   const activePeers = new Set();
+  const peerControllers = new Set();
+  const peerBySession = new Map();
+  const peerStatsPrev = new Map();
+  const senderTelemetry = {
+    sampledAt: Date.now(),
+    peerCount: 0,
+    avgRttMs: null,
+    sendDelayMsPerPacket: null,
+    encodeMsPerFrame: null,
+    framesSentPerSec: null,
+    framesEncodedPerSec: null,
+    bytesSentPerSec: null,
+    qualityLimitation: null,
+  };
+  let lastPressureLogAt = 0;
+  let lastPressureSignature = '';
+  const minBitrateKbpsSafe = Number.isFinite(minBitrateKbps) && minBitrateKbps > 0
+    ? Math.round(minBitrateKbps)
+    : 200;
+  const maxBitrateKbpsSafe = Number.isFinite(maxBitrateKbps) && maxBitrateKbps > 0
+    ? Math.max(minBitrateKbpsSafe, Math.round(maxBitrateKbps))
+    : Math.max(minBitrateKbpsSafe, 600);
 
   // Total capacity = 2 player slots + maxSpectators.
   // We track all in-flight WS connections (including those not yet ICE-connected)
@@ -68,10 +94,246 @@ export function createWebRTCServer({
   const MAX_CONNECTIONS = 2 + maxSpectators;
   let pendingPeers = 0; // WS connections not yet ICE-connected or ICE-failed
 
+  function logLoadSnapshot(tag, extra = {}) {
+    const snapshot = {
+      active: activePeers.size,
+      pending: pendingPeers,
+      total: activePeers.size + pendingPeers,
+      max: MAX_CONNECTIONS,
+      ...extra,
+    };
+    logEv(tag, snapshot);
+    if (verbose) console.error(`[webrtc-load] ${tag} active=${snapshot.active} pending=${snapshot.pending} total=${snapshot.total}/${snapshot.max}`);
+  }
+
+  async function logRouteSnapshot(pc, remoteAddr) {
+    try {
+      const report = await pc.getStats();
+      let selected = null;
+      const localById = new Map();
+      const remoteById = new Map();
+      for (const stat of report.values()) {
+        if (stat.type === 'candidate-pair' && stat.nominated && (stat.state === 'succeeded' || stat.selected)) selected = stat;
+        if (stat.type === 'local-candidate') localById.set(stat.id, stat);
+        if (stat.type === 'remote-candidate') remoteById.set(stat.id, stat);
+      }
+      if (!selected) return;
+      const local = localById.get(selected.localCandidateId);
+      const remote = remoteById.get(selected.remoteCandidateId);
+      const rttMs = Number.isFinite(selected.currentRoundTripTime) ? Math.round(selected.currentRoundTripTime * 1000) : null;
+      logEv('webrtc-route', {
+        addr: remoteAddr,
+        protocol: selected.protocol ?? '-',
+        localType: local?.candidateType ?? '-',
+        remoteType: remote?.candidateType ?? '-',
+        networkType: local?.networkType ?? '-',
+        rttMs: rttMs ?? '-',
+      });
+      if (verbose) {
+        console.error(`[webrtc-route] addr=${remoteAddr} protocol=${selected.protocol ?? '-'} local=${local?.candidateType ?? '-'} remote=${remote?.candidateType ?? '-'} net=${local?.networkType ?? '-'} rtt=${rttMs ?? '-'}ms`);
+      }
+    } catch (_) {
+      // Best-effort diagnostics only
+    }
+  }
+
+  async function sampleSenderTelemetry() {
+    const nowWall = Date.now();
+    let peerCount = 0;
+    let rttSum = 0;
+    let rttCount = 0;
+    let deltaFramesSent = 0;
+    let deltaFramesEncoded = 0;
+    let deltaBytesSent = 0;
+    let deltaPacketsSent = 0;
+    let deltaPacketSendDelay = 0;
+    let deltaEncodeTime = 0;
+    const qualityCounts = {};
+
+    for (const pc of activePeers) {
+      peerCount++;
+      try {
+        const report = await pc.getStats();
+        let selected = null;
+        let outboundVideo = null;
+        for (const stat of report.values()) {
+          if (stat.type === 'candidate-pair' && stat.nominated && (stat.state === 'succeeded' || stat.selected)) {
+            selected = stat;
+          }
+          if (stat.type === 'outbound-rtp' && stat.kind === 'video' && !stat.isRemote) {
+            outboundVideo = stat;
+          }
+        }
+
+        if (selected && Number.isFinite(selected.currentRoundTripTime)) {
+          rttSum += selected.currentRoundTripTime * 1000;
+          rttCount++;
+        }
+        if (!outboundVideo) continue;
+
+        const reason = outboundVideo.qualityLimitationReason ?? 'none';
+        qualityCounts[reason] = (qualityCounts[reason] ?? 0) + 1;
+
+        const current = {
+          timestampMs: Number.isFinite(outboundVideo.timestamp) ? outboundVideo.timestamp : nowWall,
+          framesSent: Number.isFinite(outboundVideo.framesSent) ? outboundVideo.framesSent : null,
+          framesEncoded: Number.isFinite(outboundVideo.framesEncoded) ? outboundVideo.framesEncoded : null,
+          bytesSent: Number.isFinite(outboundVideo.bytesSent) ? outboundVideo.bytesSent : null,
+          packetsSent: Number.isFinite(outboundVideo.packetsSent) ? outboundVideo.packetsSent : null,
+          totalPacketSendDelay: Number.isFinite(outboundVideo.totalPacketSendDelay) ? outboundVideo.totalPacketSendDelay : null,
+          totalEncodeTime: Number.isFinite(outboundVideo.totalEncodeTime) ? outboundVideo.totalEncodeTime : null,
+        };
+
+        const prev = peerStatsPrev.get(pc);
+        peerStatsPrev.set(pc, current);
+        if (!prev) continue;
+
+        if (current.framesSent != null && prev.framesSent != null && current.framesSent >= prev.framesSent) {
+          deltaFramesSent += current.framesSent - prev.framesSent;
+        }
+        if (current.framesEncoded != null && prev.framesEncoded != null && current.framesEncoded >= prev.framesEncoded) {
+          deltaFramesEncoded += current.framesEncoded - prev.framesEncoded;
+        }
+        if (current.bytesSent != null && prev.bytesSent != null && current.bytesSent >= prev.bytesSent) {
+          deltaBytesSent += current.bytesSent - prev.bytesSent;
+        }
+        if (current.packetsSent != null && prev.packetsSent != null && current.packetsSent >= prev.packetsSent) {
+          deltaPacketsSent += current.packetsSent - prev.packetsSent;
+        }
+        if (current.totalPacketSendDelay != null && prev.totalPacketSendDelay != null && current.totalPacketSendDelay >= prev.totalPacketSendDelay) {
+          deltaPacketSendDelay += current.totalPacketSendDelay - prev.totalPacketSendDelay;
+        }
+        if (current.totalEncodeTime != null && prev.totalEncodeTime != null && current.totalEncodeTime >= prev.totalEncodeTime) {
+          deltaEncodeTime += current.totalEncodeTime - prev.totalEncodeTime;
+        }
+      } catch (_) {
+        // best effort only
+      }
+    }
+
+    const sampleIntervalS = 5;
+    senderTelemetry.sampledAt = nowWall;
+    senderTelemetry.peerCount = peerCount;
+    senderTelemetry.avgRttMs = rttCount > 0 ? (rttSum / rttCount) : null;
+    senderTelemetry.sendDelayMsPerPacket = deltaPacketsSent > 0 ? (deltaPacketSendDelay / deltaPacketsSent) * 1000 : null;
+    senderTelemetry.encodeMsPerFrame = deltaFramesEncoded > 0 ? (deltaEncodeTime / deltaFramesEncoded) * 1000 : null;
+    senderTelemetry.framesSentPerSec = deltaFramesSent / sampleIntervalS;
+    senderTelemetry.framesEncodedPerSec = deltaFramesEncoded / sampleIntervalS;
+    senderTelemetry.bytesSentPerSec = deltaBytesSent / sampleIntervalS;
+    senderTelemetry.qualityLimitation = qualityCounts;
+
+    if (peerCount > 0) {
+      const avgRttMs = Number.isFinite(senderTelemetry.avgRttMs)
+        ? senderTelemetry.avgRttMs.toFixed(1)
+        : '-';
+      const encodeMs = Number.isFinite(senderTelemetry.encodeMsPerFrame)
+        ? senderTelemetry.encodeMsPerFrame.toFixed(2)
+        : '-';
+      const sendDelayMs = Number.isFinite(senderTelemetry.sendDelayMsPerPacket)
+        ? senderTelemetry.sendDelayMsPerPacket.toFixed(2)
+        : '-';
+      const fpsOut = Number.isFinite(senderTelemetry.framesSentPerSec)
+        ? senderTelemetry.framesSentPerSec.toFixed(1)
+        : '-';
+      const fpsEncoded = Number.isFinite(senderTelemetry.framesEncodedPerSec)
+        ? senderTelemetry.framesEncodedPerSec.toFixed(1)
+        : '-';
+      const bitrateKbps = Number.isFinite(senderTelemetry.bytesSentPerSec)
+        ? ((senderTelemetry.bytesSentPerSec * 8) / 1000).toFixed(0)
+        : '-';
+      const qualitySummary = Object.entries(qualityCounts)
+        .filter(([, count]) => Number.isFinite(count) && count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([reason, count]) => `${reason}:${count}`)
+        .join('|') || 'none:0';
+
+      logEv('webrtc-sender-telemetry', {
+        peers: peerCount,
+        fpsOut,
+        fpsEncoded,
+        encodeMs,
+        sendDelayMs,
+        bitrateKbps,
+        rttMs: avgRttMs,
+        quality: qualitySummary,
+      });
+
+      const pressureReasons = [];
+      if (Number.isFinite(senderTelemetry.framesSentPerSec) && senderTelemetry.framesSentPerSec < 44) {
+        pressureReasons.push('low-fps-out');
+      }
+      if (Number.isFinite(senderTelemetry.encodeMsPerFrame) && senderTelemetry.encodeMsPerFrame > 12) {
+        pressureReasons.push('slow-encode');
+      }
+      if (Number.isFinite(senderTelemetry.sendDelayMsPerPacket) && senderTelemetry.sendDelayMsPerPacket > 4) {
+        pressureReasons.push('packet-send-delay');
+      }
+      if ((qualityCounts.cpu ?? 0) > 0) pressureReasons.push('quality-cpu');
+      if ((qualityCounts.bandwidth ?? 0) > 0) pressureReasons.push('quality-bandwidth');
+
+      if (pressureReasons.length > 0) {
+        const signature = pressureReasons.join('|');
+        const now = Date.now();
+        const shouldLogPressure = signature !== lastPressureSignature || (now - lastPressureLogAt) >= 30_000;
+        if (shouldLogPressure) {
+          lastPressureSignature = signature;
+          lastPressureLogAt = now;
+          logEv('webrtc-sender-pressure', {
+            reasons: signature,
+            peers: peerCount,
+            fpsOut,
+            encodeMs,
+            sendDelayMs,
+            bitrateKbps,
+            quality: qualitySummary,
+          });
+        }
+      }
+    }
+  }
+
+  function normalizeSessionKey(raw) {
+    if (raw == null) return null;
+    const value = String(raw).trim();
+    if (!value) return null;
+    // Avoid pathological/untrusted values bloating logs/maps.
+    return value.slice(0, 128);
+  }
+
+  function bindControllerSession(controller, rawSession, source = 'offer') {
+    const sessionKey = normalizeSessionKey(rawSession);
+    if (!sessionKey) return null;
+    if (controller.sessionKey === sessionKey) return sessionKey;
+
+    if (controller.sessionKey) {
+      const mapped = peerBySession.get(controller.sessionKey);
+      if (mapped === controller) peerBySession.delete(controller.sessionKey);
+    }
+
+    const previous = peerBySession.get(sessionKey);
+    if (previous && previous !== controller) {
+      logEv('webrtc-session-replaced', {
+        session: sessionKey,
+        oldAddr: previous.remoteAddr ?? '-',
+        newAddr: controller.remoteAddr ?? '-',
+        source,
+      });
+      try { previous.closePeer?.('session-replaced'); } catch (_) {}
+    }
+
+    peerBySession.set(sessionKey, controller);
+    controller.sessionKey = sessionKey;
+    return sessionKey;
+  }
+
+  const senderTelemetryTimer = setInterval(() => {
+    sampleSenderTelemetry().catch(() => {});
+  }, 5000);
+
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildBrowserHtml(inputPort));
+      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe));
     } else if (req.url === '/favicon.ico') {
       // Return a minimal 1×1 transparent ICO so browsers don't log a 404
       res.writeHead(204);
@@ -112,6 +374,13 @@ export function createWebRTCServer({
     ws._sigAlive = true; // initialise alive flag
     ws.on('pong', () => { ws._sigAlive = true; });
     const remoteAddr = req.socket.remoteAddress;
+    let initialSessionId = null;
+    try {
+      const reqUrl = new URL(req.url || '/', 'http://localhost');
+      initialSessionId = reqUrl.searchParams.get('sid')
+        || reqUrl.searchParams.get('sessionId')
+        || null;
+    } catch (_) {}
 
     // ── Capacity gate ─────────────────────────────────────────────────────────
     // Count active ICE-connected peers + in-flight (pending) connections.
@@ -135,10 +404,21 @@ export function createWebRTCServer({
     pendingPeers++;
     console.error(`[webrtc] peer connected from ${remoteAddr}`);
     logEv('webrtc-peer-connected', { addr: remoteAddr });
+    logLoadSnapshot('webrtc-load-change', { reason: 'peer-connected' });
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     });
+    const controller = {
+      pc,
+      ws,
+      remoteAddr,
+      connected: false,
+      iceState: 'new',
+      sessionKey: null,
+      closePeer: null,
+    };
+    peerControllers.add(controller);
 
     // Grace timer: if ICE goes 'disconnected' we wait up to 6s for self-
     // recovery before treating it as fatal. Many transient causes (brief
@@ -153,14 +433,51 @@ export function createWebRTCServer({
 
     // Track whether this peer has ever reached ICE connected (to manage pendingPeers correctly).
     let everConnected = false;
+    const pendingRemoteCandidates = [];
+
+    async function addRemoteCandidate(candidate, source = 'live') {
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (err) {
+        const hasRemoteDescription = !!pc.remoteDescription;
+        const signalingState = pc.signalingState;
+        const errName = err?.name ?? 'Error';
+        const errMsg = err?.message ?? String(err);
+        console.error(
+          `[webrtc] addIceCandidate failed (${source}) addr=${remoteAddr} hasRemoteDescription=${hasRemoteDescription} signalingState=${signalingState} err=${errName}: ${errMsg}`
+        );
+        logEv('webrtc-ice-candidate-error', {
+          addr: remoteAddr,
+          source,
+          hasRemoteDescription,
+          signalingState,
+          err: errName,
+        });
+      }
+    }
+
+    async function flushRemoteCandidates(source = 'post-offer') {
+      if (!pc.remoteDescription || pendingRemoteCandidates.length === 0) return;
+      const queued = pendingRemoteCandidates.splice(0, pendingRemoteCandidates.length);
+      for (const candidate of queued) {
+        await addRemoteCandidate(candidate, source);
+      }
+    }
 
     function closePeer(reason) {
       clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
+      peerStatsPrev.delete(pc);
+      if (controller.sessionKey) {
+        const mapped = peerBySession.get(controller.sessionKey);
+        if (mapped === controller) peerBySession.delete(controller.sessionKey);
+      }
+      peerControllers.delete(controller);
       // Decrement pendingPeers only if this peer never made it to ICE connected.
       if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
       console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
       logEv('webrtc-peer-closed', { addr: remoteAddr, reason });
+      logLoadSnapshot('webrtc-load-change', { reason: `peer-closed:${reason}` });
       // Tell the browser the stream died so it can reconnect immediately
       // rather than sitting on a frozen frame.
       if (ws.readyState === ws.OPEN) {
@@ -168,6 +485,8 @@ export function createWebRTCServer({
       }
       pc.close();
     }
+    controller.closePeer = closePeer;
+    bindControllerSession(controller, initialSessionId, 'query');
 
     // ── Trickle ICE: forward server-side candidates to the browser ───────
     pc.onicecandidate = ({ candidate }) => {
@@ -178,6 +497,7 @@ export function createWebRTCServer({
 
     pc.oniceconnectionstatechange = () => {
       const s = pc.iceConnectionState;
+      controller.iceState = s;
       // Always log ICE state changes — they are infrequent and critical for
       // diagnosing stream freezes. This fires regardless of --verbose.
       console.error(`[webrtc] ICE state → ${s} (${remoteAddr})`);
@@ -191,15 +511,20 @@ export function createWebRTCServer({
           if (pendingPeers > 0) pendingPeers--;
           everConnected = true;
         }
+        controller.connected = true;
         activePeers.add(pc);
         logEv('webrtc-ice-connected', { addr: remoteAddr, state: s });
+        logLoadSnapshot('webrtc-load-change', { reason: `ice-${s}` });
+        logRouteSnapshot(pc, remoteAddr);
         onPeerConnected?.(pc);
       } else if (s === 'disconnected') {
         // Transient — remove from active peers so we stop pushing frames to
         // a peer that may not be receiving them, but do NOT close yet.
         // Give ICE 6 seconds to self-recover before treating it as fatal.
         activePeers.delete(pc);
+        controller.connected = false;
         logEv('webrtc-ice-disconnected', { addr: remoteAddr, grace: 6000 });
+        logLoadSnapshot('webrtc-load-change', { reason: 'ice-disconnected' });
         disconnectTimer = setTimeout(() => {
           console.error(`[webrtc] ICE 'disconnected' grace expired (${remoteAddr}) — closing`);
           logEv('webrtc-ice-grace-expired', { addr: remoteAddr });
@@ -225,7 +550,9 @@ export function createWebRTCServer({
 
       try {
         if (msg.type === 'offer') {
+          bindControllerSession(controller, msg.sessionId ?? msg.sid ?? msg.clientSessionId ?? null, 'offer');
           await pc.setRemoteDescription(msg);
+          await flushRemoteCandidates('post-offer');
 
           // ── CRITICAL: tracks must be added BEFORE createAnswer() ─────────
           // onOffer is called synchronously here so the caller can addTrack().
@@ -247,7 +574,9 @@ export function createWebRTCServer({
             sdp = sdp.replace(
               /(a=rtpmap:(\d+) VP8\/\d+\r?\n)/,
               (match, line, pt) => {
-                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=200;x-google-max-bitrate=800\r\n`;
+                const minKbps = Math.max(50, minBitrateKbpsSafe);
+                const maxKbps = Math.max(minKbps, maxBitrateKbpsSafe);
+                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\r\n`;
                 return line + fmtp;
               }
             );
@@ -262,7 +591,14 @@ export function createWebRTCServer({
           if (verbose) console.error(`[webrtc] answered offer from ${remoteAddr}`);
 
         } else if (msg.type === 'candidate' && msg.candidate) {
-          await pc.addIceCandidate(msg.candidate);
+          if (!pc.remoteDescription) {
+            pendingRemoteCandidates.push(msg.candidate);
+            if (verbose) {
+              console.error(`[webrtc] queued remote candidate (${pendingRemoteCandidates.length}) pending offer (${remoteAddr})`);
+            }
+          } else {
+            await addRemoteCandidate(msg.candidate, 'live');
+          }
         } else if (msg.type === 'ping') {
           // Browser-side heartbeat — reply immediately so the browser knows
           // the connection is alive and resets its own reconnect timer.
@@ -325,16 +661,65 @@ export function createWebRTCServer({
       }
       if (verbose) console.error(`[webrtc] forceKeyframe: triggered on ${count} sender(s)`);
     },
+    getTelemetrySnapshot() {
+      return { ...senderTelemetry };
+    },
+    getPeerSnapshot() {
+      const peers = [];
+      for (const c of peerControllers) {
+        peers.push({
+          addr: c.remoteAddr,
+          session: c.sessionKey,
+          iceState: c.iceState,
+          connected: c.connected,
+          wsOpen: c.ws && c.ws.readyState === c.ws.OPEN,
+        });
+      }
+      return {
+        active: activePeers.size,
+        pending: pendingPeers,
+        total: activePeers.size + pendingPeers,
+        max: MAX_CONNECTIONS,
+        peers,
+      };
+    },
+    disconnectPeersByAddr(addr, reason = 'admin-kick') {
+      if (!addr) return 0;
+      let closed = 0;
+      const addrNorm = String(addr).replace(/^::ffff:/, '');
+      for (const c of Array.from(peerControllers)) {
+        const peerAddrNorm = String(c.remoteAddr ?? '').replace(/^::ffff:/, '');
+        if (peerAddrNorm !== addrNorm) continue;
+        try {
+          c.closePeer?.(reason);
+          closed++;
+        } catch (_) {}
+      }
+      return closed;
+    },
+    disconnectAllPeers(reason = 'admin-kick-all') {
+      let closed = 0;
+      for (const c of Array.from(peerControllers)) {
+        try {
+          c.closePeer?.(reason);
+          closed++;
+        } catch (_) {}
+      }
+      return closed;
+    },
     close: () =>
       new Promise((resolve) => {
         clearInterval(pingInterval);
+        clearInterval(senderTelemetryTimer);
         wss.close(() => httpServer.close(() => resolve()));
       }),
   };
 }
 
 // ─── Embedded browser-side player page ──────────────────────────────────────
-function buildBrowserHtml(inputPort) {
+function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600) {
+  const minKbps = Math.max(50, Math.round(minBitrateKbps));
+  const maxKbps = Math.max(minKbps, Math.round(maxBitrateKbps));
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -591,8 +976,62 @@ function buildBrowserHtml(inputPort) {
 
       setBadge(videoBadge, 'video: connecting…', 'dim');
 
-      sigWs = new WebSocket('ws://' + location.host);
+      function getOrCreateSessionId() {
+        try {
+          const key = 'c64live.webrtcSessionId';
+          const existing = localStorage.getItem(key);
+          if (existing) return existing;
+          const created = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+            ? globalThis.crypto.randomUUID()
+            : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
+          localStorage.setItem(key, created);
+          return created;
+        } catch (_) {
+          return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+        }
+      }
+      const rtcSessionId = getOrCreateSessionId();
+      const sigUrl = new URL('ws://' + location.host);
+      sigUrl.searchParams.set('sid', rtcSessionId);
+      sigWs = new WebSocket(sigUrl.toString());
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      let offerSent = false;
+      const pendingLocalCandidates = [];
+      const pendingRemoteCandidates = [];
+
+      function sendSignal(msg) {
+        if (!sigWs || sigWs.readyState !== WebSocket.OPEN) return;
+        sigWs.send(JSON.stringify(msg));
+      }
+
+      function flushLocalCandidates() {
+        if (!offerSent || !sigWs || sigWs.readyState !== WebSocket.OPEN) return;
+        while (pendingLocalCandidates.length > 0) {
+          const candidate = pendingLocalCandidates.shift();
+          if (!candidate) continue;
+          sendSignal({ type: 'candidate', candidate });
+        }
+      }
+
+      async function addRemoteCandidate(candidate, source) {
+        try {
+          await pc.addIceCandidate(candidate);
+        } catch (err) {
+          const hasRemoteDescription = !!pc.remoteDescription;
+          const signalingState = pc.signalingState;
+          const errName = err && err.name ? err.name : 'Error';
+          const errMsg = err && err.message ? err.message : String(err);
+          console.warn('[WebRTC] addIceCandidate failed (' + source + ') hasRemoteDescription=' + hasRemoteDescription + ' signalingState=' + signalingState + ' err=' + errName + ': ' + errMsg);
+        }
+      }
+
+      async function flushRemoteCandidates() {
+        if (!pc.remoteDescription || pendingRemoteCandidates.length === 0) return;
+        const queued = pendingRemoteCandidates.splice(0, pendingRemoteCandidates.length);
+        for (const candidate of queued) {
+          await addRemoteCandidate(candidate, 'post-answer');
+        }
+      }
 
       pc.ontrack = (e) => {
         if (e.streams && e.streams[0]) {
@@ -605,8 +1044,14 @@ function buildBrowserHtml(inputPort) {
       };
 
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate && sigWs && sigWs.readyState === WebSocket.OPEN)
-          sigWs.send(JSON.stringify({ type: 'candidate', candidate }));
+        if (!candidate) return;
+        if (!offerSent) {
+          pendingLocalCandidates.push(candidate);
+          return;
+        }
+        if (sigWs && sigWs.readyState === WebSocket.OPEN) {
+          sendSignal({ type: 'candidate', candidate });
+        }
       };
 
       pc.oniceconnectionstatechange = () => {
@@ -653,20 +1098,32 @@ function buildBrowserHtml(inputPort) {
         if (offer.sdp) {
           offer.sdp = offer.sdp.replace(
             /(a=rtpmap:(\\d+) VP8\\/\\d+\\r?\\n)/,
-            function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=200;x-google-max-bitrate=800\\r\\n'; }
+            function(m, line, pt) { return line + 'a=fmtp:' + pt + ' x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\\r\\n'; }
           );
         }
         await pc.setLocalDescription(offer);
-        sigWs.send(JSON.stringify(pc.localDescription));
+        const local = pc.localDescription;
+        if (!local || !local.type || !local.sdp) {
+          throw new Error('Local offer description missing type/sdp');
+        }
+        sendSignal({ type: local.type, sdp: local.sdp, sessionId: rtcSessionId });
+        offerSent = true;
+        flushLocalCandidates();
       };
 
       sigWs.onmessage = async ({ data }) => {
         const msg = JSON.parse(data);
         if (msg.type === 'answer') {
           await pc.setRemoteDescription(msg);
+          await flushRemoteCandidates();
           applyMinLatency();
         } else if (msg.type === 'candidate') {
-          await pc.addIceCandidate(msg.candidate).catch(() => {});
+          if (!msg.candidate) return;
+          if (!pc.remoteDescription) {
+            pendingRemoteCandidates.push(msg.candidate);
+            return;
+          }
+          await addRemoteCandidate(msg.candidate, 'live');
         } else if (msg.type === 'pong') {
           // Server acknowledged our keepalive ping — connection is healthy.
         } else if (msg.type === 'peer-closed') {
