@@ -433,6 +433,36 @@ export function createWebRTCServer({
 
     // Track whether this peer has ever reached ICE connected (to manage pendingPeers correctly).
     let everConnected = false;
+    const pendingRemoteCandidates = [];
+
+    async function addRemoteCandidate(candidate, source = 'live') {
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (err) {
+        const hasRemoteDescription = !!pc.remoteDescription;
+        const signalingState = pc.signalingState;
+        const errName = err?.name ?? 'Error';
+        const errMsg = err?.message ?? String(err);
+        console.error(
+          `[webrtc] addIceCandidate failed (${source}) addr=${remoteAddr} hasRemoteDescription=${hasRemoteDescription} signalingState=${signalingState} err=${errName}: ${errMsg}`
+        );
+        logEv('webrtc-ice-candidate-error', {
+          addr: remoteAddr,
+          source,
+          hasRemoteDescription,
+          signalingState,
+          err: errName,
+        });
+      }
+    }
+
+    async function flushRemoteCandidates(source = 'post-offer') {
+      if (!pc.remoteDescription || pendingRemoteCandidates.length === 0) return;
+      const queued = pendingRemoteCandidates.splice(0, pendingRemoteCandidates.length);
+      for (const candidate of queued) {
+        await addRemoteCandidate(candidate, source);
+      }
+    }
 
     function closePeer(reason) {
       clearDisconnectTimer();
@@ -522,6 +552,7 @@ export function createWebRTCServer({
         if (msg.type === 'offer') {
           bindControllerSession(controller, msg.sessionId ?? msg.sid ?? msg.clientSessionId ?? null, 'offer');
           await pc.setRemoteDescription(msg);
+          await flushRemoteCandidates('post-offer');
 
           // ── CRITICAL: tracks must be added BEFORE createAnswer() ─────────
           // onOffer is called synchronously here so the caller can addTrack().
@@ -560,7 +591,14 @@ export function createWebRTCServer({
           if (verbose) console.error(`[webrtc] answered offer from ${remoteAddr}`);
 
         } else if (msg.type === 'candidate' && msg.candidate) {
-          await pc.addIceCandidate(msg.candidate);
+          if (!pc.remoteDescription) {
+            pendingRemoteCandidates.push(msg.candidate);
+            if (verbose) {
+              console.error(`[webrtc] queued remote candidate (${pendingRemoteCandidates.length}) pending offer (${remoteAddr})`);
+            }
+          } else {
+            await addRemoteCandidate(msg.candidate, 'live');
+          }
         } else if (msg.type === 'ping') {
           // Browser-side heartbeat — reply immediately so the browser knows
           // the connection is alive and resets its own reconnect timer.
@@ -957,6 +995,43 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
       sigUrl.searchParams.set('sid', rtcSessionId);
       sigWs = new WebSocket(sigUrl.toString());
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      let offerSent = false;
+      const pendingLocalCandidates = [];
+      const pendingRemoteCandidates = [];
+
+      function sendSignal(msg) {
+        if (!sigWs || sigWs.readyState !== WebSocket.OPEN) return;
+        sigWs.send(JSON.stringify(msg));
+      }
+
+      function flushLocalCandidates() {
+        if (!offerSent || !sigWs || sigWs.readyState !== WebSocket.OPEN) return;
+        while (pendingLocalCandidates.length > 0) {
+          const candidate = pendingLocalCandidates.shift();
+          if (!candidate) continue;
+          sendSignal({ type: 'candidate', candidate });
+        }
+      }
+
+      async function addRemoteCandidate(candidate, source) {
+        try {
+          await pc.addIceCandidate(candidate);
+        } catch (err) {
+          const hasRemoteDescription = !!pc.remoteDescription;
+          const signalingState = pc.signalingState;
+          const errName = err && err.name ? err.name : 'Error';
+          const errMsg = err && err.message ? err.message : String(err);
+          console.warn('[WebRTC] addIceCandidate failed (' + source + ') hasRemoteDescription=' + hasRemoteDescription + ' signalingState=' + signalingState + ' err=' + errName + ': ' + errMsg);
+        }
+      }
+
+      async function flushRemoteCandidates() {
+        if (!pc.remoteDescription || pendingRemoteCandidates.length === 0) return;
+        const queued = pendingRemoteCandidates.splice(0, pendingRemoteCandidates.length);
+        for (const candidate of queued) {
+          await addRemoteCandidate(candidate, 'post-answer');
+        }
+      }
 
       pc.ontrack = (e) => {
         if (e.streams && e.streams[0]) {
@@ -969,8 +1044,14 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
       };
 
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate && sigWs && sigWs.readyState === WebSocket.OPEN)
-          sigWs.send(JSON.stringify({ type: 'candidate', candidate }));
+        if (!candidate) return;
+        if (!offerSent) {
+          pendingLocalCandidates.push(candidate);
+          return;
+        }
+        if (sigWs && sigWs.readyState === WebSocket.OPEN) {
+          sendSignal({ type: 'candidate', candidate });
+        }
       };
 
       pc.oniceconnectionstatechange = () => {
@@ -1021,16 +1102,28 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
           );
         }
         await pc.setLocalDescription(offer);
-        sigWs.send(JSON.stringify({ ...pc.localDescription, sessionId: rtcSessionId }));
+        const local = pc.localDescription;
+        if (!local || !local.type || !local.sdp) {
+          throw new Error('Local offer description missing type/sdp');
+        }
+        sendSignal({ type: local.type, sdp: local.sdp, sessionId: rtcSessionId });
+        offerSent = true;
+        flushLocalCandidates();
       };
 
       sigWs.onmessage = async ({ data }) => {
         const msg = JSON.parse(data);
         if (msg.type === 'answer') {
           await pc.setRemoteDescription(msg);
+          await flushRemoteCandidates();
           applyMinLatency();
         } else if (msg.type === 'candidate') {
-          await pc.addIceCandidate(msg.candidate).catch(() => {});
+          if (!msg.candidate) return;
+          if (!pc.remoteDescription) {
+            pendingRemoteCandidates.push(msg.candidate);
+            return;
+          }
+          await addRemoteCandidate(msg.candidate, 'live');
         } else if (msg.type === 'pong') {
           // Server acknowledged our keepalive ping — connection is healthy.
         } else if (msg.type === 'peer-closed') {
