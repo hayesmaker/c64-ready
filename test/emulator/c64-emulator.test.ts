@@ -28,6 +28,7 @@ describe('C64Emulator', () => {
       sid_dumpBuffer: vi.fn(() => 2),
       c64_loadPRG: vi.fn(),
       c64_insertDisk: vi.fn(),
+      c64_setDriveEnabled: vi.fn(),
       c64_loadCartridge: vi.fn(),
       c64_loadSnapshot: vi.fn(),
       c64_ramRead: vi.fn(() => 0xab),
@@ -125,6 +126,17 @@ describe('C64Emulator', () => {
     emulator.loadGame({ type: 'prg', data: new Uint8Array([1, 2, 3]) });
 
     expect(exports.c64_loadPRG).toHaveBeenCalledWith(16, 3, 1);
+  });
+
+  it('enables drive before inserting a D64 image', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.loadGame({ type: 'd64', data: new Uint8Array([1, 2, 3, 4]) });
+
+    expect(exports.c64_setDriveEnabled).toHaveBeenCalledWith(1);
+    expect(exports.c64_insertDisk).toHaveBeenCalledWith(16, 4);
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {

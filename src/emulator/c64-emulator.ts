@@ -146,6 +146,7 @@ export class C64Emulator {
           x.c64_loadPRG(ptr, options.data.length, 1);
           break;
         case 'd64':
+          x.c64_setDriveEnabled(1);
           x.c64_insertDisk(ptr, options.data.length);
           break;
         case 'crt':
