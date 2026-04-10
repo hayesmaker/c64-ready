@@ -15,8 +15,8 @@ export const LOAD_FORMAT_OPTIONS: LoadFormatOption[] = [
   { type: 'd64', label: 'Disk image (.d64)', extensions: ['.d64'] },
   {
     type: 'snapshot',
-    label: 'Snapshot (.snapshot, .vsf, .s64)',
-    extensions: ['.snapshot', '.vsf', '.s64'],
+    label: 'Snapshot (.snapshot, .vsf, .c64, .s64)',
+    extensions: ['.snapshot', '.vsf', '.c64', '.s64'],
   },
 ];
 
