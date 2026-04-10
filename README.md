@@ -102,8 +102,11 @@ docker compose restart headless
 GAME_PATH=/app/public/games/cartridges/legend-of-wilf.crt docker compose up
 ```
 
-You can also drag-and-drop a `.crt` file onto the player page at any time to load it
-without restarting the container.
+You can also drag-and-drop game files onto the player page at any time to load without
+restarting the container. Supported browser-side formats are `.crt`, `.prg`, `.d64`,
+and native snapshots (`.c64`, `.snapshot`, `.s64`).
+
+Note: VICE `.vsf` snapshots are currently disabled in the browser runtime.
 
 ### Environment variables
 

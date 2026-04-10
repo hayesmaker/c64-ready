@@ -1,4 +1,5 @@
 import { C64Emulator } from '../emulator/c64-emulator';
+import { domKeyToC64Actions } from '../emulator/input';
 import { parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
@@ -6,6 +7,7 @@ import type { InputMode } from '../emulator/input';
 import type CanvasRenderer from './canvas-renderer';
 import { AudioEngine } from './audio-engine';
 import InputHandler from './input-handler';
+import { getLoadTypeLabel, inferLoadTypeFromFilename } from './load-formats';
 
 export type ProgressCallback = (percent: number, label: string) => void;
 
@@ -38,7 +40,9 @@ export class C64Player {
     this.inputHandler.attach();
     renderer.attachTo(this.emulator);
 
-    await this.loadGame(gameUrl, gameType, onProgress);
+    if (gameUrl && gameUrl !== 'null') {
+      await this.loadGame(gameUrl, gameType, onProgress);
+    }
 
     this.emulator.start();
 
@@ -118,7 +122,7 @@ export class C64Player {
       data = new Uint8Array(await response.arrayBuffer());
     }
 
-    onProgress?.(90, 'INSERTING CARTRIDGE...');
+    onProgress?.(90, `INSERTING ${formatLoadProgressLabel(type)}...`);
     // Basic validation for cartridge files — some malformed .crt files can
     // silently fail inside the WASM loader; catch common format problems here
     if (type === 'crt' && !isValidCRT(data)) {
@@ -132,8 +136,13 @@ export class C64Player {
       const info = parseCrtInfo(data, filename);
       if (info) console.log(info.line);
     }
+    this.assertSnapshotFormatSupported(data, type, url);
+    this.emitSnapshotLoadInfo(type, url);
     try {
       this.emulator.loadGame({ type, data });
+      if (type === 'prg') {
+        await this.autoRunPrgIfRunning();
+      }
       onProgress?.(100, 'READY!');
       // Notify UI that load succeeded
       window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { url, type } }));
@@ -149,36 +158,42 @@ export class C64Player {
   }
 
   // Load a game from a File/Blob provided by the user (drag & drop / file input)
-  async loadFile(file: File, type: GameLoadOptions['type'] = 'crt'): Promise<void> {
+  async loadFile(file: File, type?: GameLoadOptions['type']): Promise<void> {
     if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
     const onProgress = this.options.onProgress;
+    const resolvedType = type ?? inferLoadTypeFromFilename(file.name) ?? 'crt';
     try {
       onProgress?.(20, `READING FILE ${file.name}...`);
       const ab = await file.arrayBuffer();
       const data = new Uint8Array(ab);
-      onProgress?.(90, 'INSERTING CARTRIDGE...');
-      if (type === 'crt' && !isValidCRT(data)) {
+      onProgress?.(90, `INSERTING ${formatLoadProgressLabel(resolvedType)}...`);
+      if (resolvedType === 'crt' && !isValidCRT(data)) {
         onProgress?.(0, 'INVALID CRT');
         const err = new Error('Invalid CRT file format');
         console.error(err);
         throw err;
       }
-      if (type === 'crt') {
+      if (resolvedType === 'crt') {
         const info = parseCrtInfo(data, file.name);
         if (info) console.log(info.line);
       }
+      this.assertSnapshotFormatSupported(data, resolvedType, file.name);
+      this.emitSnapshotLoadInfo(resolvedType, file.name);
       try {
-        this.emulator.loadGame({ type, data });
+        this.emulator.loadGame({ type: resolvedType, data });
+        if (resolvedType === 'prg') {
+          await this.autoRunPrgIfRunning();
+        }
         onProgress?.(100, 'READY!');
         window.dispatchEvent(
-          new CustomEvent('c64-close-dialog', { detail: { file: file.name, type } }),
+          new CustomEvent('c64-close-dialog', { detail: { file: file.name, type: resolvedType } }),
         );
       } catch (err) {
         onProgress?.(0, 'FAILED');
         console.error('Failed to insert cartridge from file:', err);
         window.dispatchEvent(
           new CustomEvent('c64-load-error', {
-            detail: { error: String(err), file: file.name, type },
+            detail: { error: String(err), file: file.name, type: resolvedType },
           }),
         );
         throw err;
@@ -232,9 +247,93 @@ export class C64Player {
   setInputMode(mode: InputMode): void {
     this.inputHandler?.setInputMode(mode);
   }
+
+  private async autoRunPrgIfRunning(): Promise<void> {
+    if (!this.emulator || !this.emulator.isRunning()) return;
+    await waitMs(120);
+    await this.typeCommand('run\n');
+  }
+
+  private async typeCommand(command: string): Promise<void> {
+    if (!this.emulator) return;
+
+    for (const char of command) {
+      const domKey = char === '\n' ? 'enter' : char;
+
+      const down = domKeyToC64Actions(domKey, false, 'keydown');
+      for (const act of down) {
+        if (act.action === 'press') this.emulator.keyDown(act.key);
+        else this.emulator.keyUp(act.key);
+      }
+
+      await waitMs(22);
+
+      const up = domKeyToC64Actions(domKey, false, 'keyup');
+      for (const act of up) {
+        if (act.action === 'press') this.emulator.keyDown(act.key);
+        else this.emulator.keyUp(act.key);
+      }
+
+      await waitMs(22);
+    }
+  }
+
+  private emitSnapshotLoadInfo(type: GameLoadOptions['type'], source: string): void {
+    if (type !== 'snapshot') return;
+
+    const mode = 'native';
+    const message = `Loading native LVL snapshot (${source})`;
+
+    console.info(`[snapshot] mode=${mode} source=${source}`);
+    window.dispatchEvent(new CustomEvent('c64-load-info', { detail: { mode, source, message } }));
+  }
+
+  private assertSnapshotFormatSupported(
+    data: Uint8Array,
+    type: GameLoadOptions['type'],
+    source: string,
+  ): void {
+    if (type !== 'snapshot') return;
+    if (!hasViceSnapshotMagic(data)) return;
+
+    const err = new Error(
+      `Unsupported snapshot format for ${source}. VICE .vsf snapshots are disabled for now; use LVLLVL/native snapshots (.c64, .snapshot, .s64).`,
+    );
+    console.error(err);
+    window.dispatchEvent(
+      new CustomEvent('c64-load-info', {
+        detail: {
+          mode: 'warning',
+          source,
+          message: 'Snapshot must be LVLLVL/native format (.c64, .snapshot, .s64).',
+        },
+      }),
+    );
+    throw err;
+  }
 }
 
 // CRT format validator — delegates to parseCrtInfo so magic-check logic lives in one place.
 function isValidCRT(data: Uint8Array): boolean {
   return parseCrtInfo(data) !== null;
+}
+
+function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
+  const label = getLoadTypeLabel(type);
+  const suffixStart = label.indexOf(' (');
+  const plain = suffixStart > 0 ? label.slice(0, suffixStart) : label;
+  return plain.toUpperCase();
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasViceSnapshotMagic(data: Uint8Array): boolean {
+  const magic = 'VICE Snapshot File\x1a';
+  if (data.length < magic.length) return false;
+  for (let i = 0; i < magic.length; i++) {
+    if (data[i] !== magic.charCodeAt(i)) return false;
+  }
+  return true;
 }

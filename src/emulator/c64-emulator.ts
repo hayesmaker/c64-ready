@@ -143,16 +143,17 @@ export class C64Emulator {
     try {
       switch (options.type) {
         case 'prg':
-          x.c64_loadPRG(ptr, options.data.length);
+          x.c64_loadPRG(ptr, options.data.length, 1);
           break;
         case 'd64':
+          x.c64_setDriveEnabled(1);
           x.c64_insertDisk(ptr, options.data.length);
           break;
         case 'crt':
           x.c64_loadCartridge(ptr, options.data.length);
           break;
         case 'snapshot':
-          x.c64_loadSnapshot(ptr, options.data.length);
+          this.loadSnapshotData(ptr, options.data.length);
           break;
       }
     } finally {
@@ -291,6 +292,13 @@ export class C64Emulator {
     const snap = this.wasm.heap.heapU8.slice(ptr, ptr + size);
     x.free(ptr);
     return snap;
+  }
+
+  private loadSnapshotData(ptr: number, len: number): void {
+    const x = this.wasm.exports;
+    if (!x) throw new Error('WASM not ready');
+    x.c64_loadSnapshot(ptr, len);
+    this.frameCount = 0;
   }
 
   // ---------------------------------------------------------------------------

@@ -11,6 +11,9 @@ describe('C64Player', () => {
     return {
       loadGame: vi.fn(),
       start: vi.fn(),
+      isRunning: vi.fn(() => true),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
       setSampleRate: vi.fn(),
     } as any;
   }
@@ -75,6 +78,56 @@ describe('C64Player', () => {
     expect(onProgress).toHaveBeenCalledWith(100, 'READY!');
   });
 
+  it('auto-types RUN after loading a PRG file', async () => {
+    vi.useFakeTimers();
+    try {
+      const emulator = makeFakeEmulator();
+      vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+      stubFetchForGame();
+
+      const player = new C64Player({
+        wasmUrl: '/c64.wasm',
+        gameUrl: '/games/test.crt',
+        renderer: makeFakeRenderer(),
+      });
+
+      await player.start();
+
+      const prg = {
+        name: 'demo.prg',
+        arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer),
+      } as unknown as File;
+
+      const loadPromise = player.loadFile(prg, 'prg');
+      await vi.advanceTimersByTimeAsync(1500);
+      await loadPromise;
+
+      expect(emulator.loadGame).toHaveBeenCalledWith({
+        type: 'prg',
+        data: expect.any(Uint8Array),
+      });
+      expect(emulator.keyDown).toHaveBeenCalled();
+      expect(emulator.keyUp).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts emulator without autoload when gameUrl is empty', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+
+    expect(emulator.loadGame).not.toHaveBeenCalled();
+    expect(emulator.start).toHaveBeenCalledOnce();
+  });
+
   // ...additional tests omitted for brevity
 });
-

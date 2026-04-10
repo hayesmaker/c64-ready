@@ -11,6 +11,13 @@ const CONTROLS = [
 
 import type { C64Player } from './c64-player';
 import type { JoystickPort } from '../emulator/constants';
+import {
+  LOAD_FORMAT_OPTIONS,
+  getAcceptForLoadTypeSelection,
+  getLoadTypeLabel,
+  resolveLoadTypeSelection,
+  type LoadTypeSelection,
+} from './load-formats';
 
 export default class UIController {
   private helpOverlay: HTMLElement | null = null;
@@ -149,6 +156,18 @@ export default class UIController {
       if (e.target === overlay) this.closeMenu();
     });
 
+    const sections = [
+      { id: 'load', label: 'Load' },
+      { id: 'input', label: 'Input' },
+      { id: 'display', label: 'Display' },
+      { id: 'audio', label: 'Audio' },
+      { id: 'system', label: 'System' },
+    ] as const;
+
+    const loadTypeOptions = LOAD_FORMAT_OPTIONS.map(
+      (format) => `<option value="${format.type}">${format.label}</option>`,
+    ).join('');
+
     const panel = document.createElement('div');
     panel.className = 'c64-menu-panel';
     panel.innerHTML = `
@@ -157,51 +176,83 @@ export default class UIController {
         <button class="c64-menu-close">&times;</button>
       </div>
       <div class="c64-menu-body">
-        <label style="font-size:13px;color:#aaa">Input</label>
-        <div style="margin-top:8px; display:flex; gap:12px; align-items:center;">
-          <label><input type="radio" name="c64-joy-port" value="1" /> Port 1</label>
-          <label><input type="radio" name="c64-joy-port" value="2" checked /> Port 2</label>
-        </div>
-        <div style="height:8px"></div>
-        <label style="font-size:13px;color:#aaa">Input Mode</label>
-        <div style="margin-top:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-          <label><input type="radio" name="c64-input-mode" value="joystick" checked /> Joystick</label>
-          <label><input type="radio" name="c64-input-mode" value="keyboard" /> Keyboard</label>
-          <label><input type="radio" name="c64-input-mode" value="mixed" /> Mixed</label>
-        </div>
-        <div style="height:4px"></div>
-        <div id="c64-input-mode-hint" style="font-size:11px;color:#888;line-height:1.4">
-          Arrows + Ctrl = joystick
-        </div>
-        <div style="height:8px"></div>
-        <label style="font-size:13px;color:#aaa">Display</label>
-        <div style="margin-top:8px; display:flex; gap:12px; align-items:center;">
-          <label><input type="radio" name="c64-display-mode" value="standard" checked /> Standard</label>
-          <label><input type="radio" name="c64-display-mode" value="full" /> Full</label>
-          <label><input type="radio" name="c64-display-mode" value="stretch" /> Stretch</label>
-        </div>
-        <div style="height:8px"></div>
-        <label style="font-size:13px;color:#aaa">Load cartridge (.crt)</label>
-        <div class="c64-dragarea" id="c64-dragarea">Drop a .crt file here or <button class="c64-btn" id="c64-browse">Browse</button></div>
-        <input class="c64-file-input" id="c64-file-input" type="file" accept=".crt" />
-        <div class="c64-cart-preview" id="c64-cart-preview" style="display:none">
-          <div class="c64-cart-icon" id="c64-cart-icon" aria-hidden="true">
-            <!-- simple C64 cart SVG -->
-            <svg width="48" height="32" viewBox="0 0 48 32" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="44" height="24" rx="3" fill="#222" stroke="#555"/><rect x="6" y="8" width="36" height="12" fill="#2b2b3d"/></svg>
-          </div>
-          <div class="c64-cart-filename" id="c64-cart-filename"></div>
-        </div>
-        <div class="c64-menu-actions">
-          <div>
-           <button class="c64-btn" id="c64-load-btn">Load</button>
-            <button class="c64-btn" id="c64-close-menu">Close</button>
-          </div>
-          <div style="margin-top:12px; display:flex; gap:8px;">
-            <button class="c64-btn" id="c64-detach-btn">Detach Cartridge</button>
-            <button class="c64-btn" id="c64-reset-btn">Hard Reset</button>
-          </div>
+        <div class="c64-settings-tabs" role="tablist" aria-label="Settings sections">
+          ${sections
+            .map(
+              (section, i) =>
+                `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
+                  i === 0 ? 'true' : 'false'
+                }">${section.label}</button>`,
+            )
+            .join('')}
         </div>
 
+        <div class="c64-settings-sections">
+          <section class="c64-settings-section" data-settings-section="load">
+            <label class="c64-section-label">Load Game</label>
+            <div class="c64-form-row">
+              <label for="c64-load-format">Format</label>
+              <select id="c64-load-format" class="c64-select">
+                <option value="auto">Auto detect (recommended)</option>
+                ${loadTypeOptions}
+              </select>
+            </div>
+            <div class="c64-dragarea" id="c64-dragarea">
+              <span id="c64-dragarea-copy">Drop a game file here or</span>
+              <button class="c64-btn" id="c64-browse">Browse</button>
+            </div>
+            <input class="c64-file-input" id="c64-file-input" type="file" />
+            <div class="c64-cart-preview" id="c64-cart-preview" hidden>
+              <div class="c64-cart-icon" id="c64-cart-icon" aria-hidden="true">
+                <svg width="48" height="32" viewBox="0 0 48 32" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="44" height="24" rx="3" fill="#222" stroke="#555"/><rect x="6" y="8" width="36" height="12" fill="#2b2b3d"/></svg>
+              </div>
+              <div>
+                <div class="c64-cart-filename" id="c64-cart-filename"></div>
+                <div class="c64-cart-type" id="c64-cart-type"></div>
+              </div>
+            </div>
+            <div class="c64-menu-actions">
+              <button class="c64-btn" id="c64-load-btn">Load</button>
+              <button class="c64-btn" id="c64-close-menu">Close</button>
+            </div>
+          </section>
+
+          <section class="c64-settings-section" data-settings-section="input" hidden>
+            <label class="c64-section-label">Input Port</label>
+            <div class="c64-radio-row">
+              <label><input type="radio" name="c64-joy-port" value="1" /> Port 1</label>
+              <label><input type="radio" name="c64-joy-port" value="2" checked /> Port 2</label>
+            </div>
+            <label class="c64-section-label">Input Mode</label>
+            <div class="c64-radio-row c64-radio-row-wrap">
+              <label><input type="radio" name="c64-input-mode" value="joystick" checked /> Joystick</label>
+              <label><input type="radio" name="c64-input-mode" value="keyboard" /> Keyboard</label>
+              <label><input type="radio" name="c64-input-mode" value="mixed" /> Mixed</label>
+            </div>
+            <div id="c64-input-mode-hint" class="c64-section-hint">Arrows + Ctrl = joystick</div>
+          </section>
+
+          <section class="c64-settings-section" data-settings-section="display" hidden>
+            <label class="c64-section-label">Display Mode</label>
+            <div class="c64-radio-row">
+              <label><input type="radio" name="c64-display-mode" value="standard" checked /> Standard</label>
+              <label><input type="radio" name="c64-display-mode" value="full" /> Full</label>
+              <label><input type="radio" name="c64-display-mode" value="stretch" /> Stretch</label>
+            </div>
+          </section>
+
+          <section class="c64-settings-section" data-settings-section="audio" hidden>
+            <div id="c64-audio-section-anchor"></div>
+          </section>
+
+          <section class="c64-settings-section" data-settings-section="system" hidden>
+            <label class="c64-section-label">System Actions</label>
+            <div class="c64-system-actions">
+              <button class="c64-btn" id="c64-detach-btn">Detach Cartridge</button>
+              <button class="c64-btn" id="c64-reset-btn">Hard Reset</button>
+            </div>
+          </section>
+        </div>
       </div>
     `;
 
@@ -213,18 +264,59 @@ export default class UIController {
     // The settings overlay is the overlay we just created
     this.settingsOverlay = overlay;
 
+    const tabButtons = panel.querySelectorAll('[data-settings-tab]') as NodeListOf<HTMLButtonElement>;
+    const sectionEls = panel.querySelectorAll(
+      '[data-settings-section]'
+    ) as NodeListOf<HTMLElement>;
+
+    const activateSection = (sectionId: string) => {
+      tabButtons.forEach((tab) => {
+        const active = tab.dataset.settingsTab === sectionId;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      sectionEls.forEach((section) => {
+        section.hidden = section.dataset.settingsSection !== sectionId;
+      });
+    };
+
+    tabButtons.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const sectionId = tab.dataset.settingsTab;
+        if (sectionId) activateSection(sectionId);
+      });
+    });
+
     // wire up file input and drag/drop
     this.fileInput = panel.querySelector('#c64-file-input') as HTMLInputElement;
     const dragarea = panel.querySelector('#c64-dragarea') as HTMLElement;
+    const dragareaCopy = panel.querySelector('#c64-dragarea-copy') as HTMLElement;
     const browse = panel.querySelector('#c64-browse') as HTMLButtonElement;
+    const loadTypeSelect = panel.querySelector('#c64-load-format') as HTMLSelectElement;
     const preview = panel.querySelector('#c64-cart-preview') as HTMLElement;
     const previewName = panel.querySelector('#c64-cart-filename') as HTMLElement;
+    const previewType = panel.querySelector('#c64-cart-type') as HTMLElement;
+
+    const updateLoadChooser = () => {
+      const selection = (loadTypeSelect.value as LoadTypeSelection) ?? 'auto';
+      this.fileInput!.accept = getAcceptForLoadTypeSelection(selection);
+      if (selection === 'auto') {
+        dragareaCopy.textContent = 'Drop a game file here or';
+      } else {
+        dragareaCopy.textContent = `Drop a ${getLoadTypeLabel(selection)} file here or`;
+      }
+    };
+    updateLoadChooser();
+    loadTypeSelect.addEventListener('change', updateLoadChooser);
 
     const handleFile = (file: File) => {
-      preview.style.display = 'flex';
+      const selection = (loadTypeSelect.value as LoadTypeSelection) ?? 'auto';
+      const loadType = resolveLoadTypeSelection(selection, file.name);
+      preview.hidden = false;
       previewName.textContent = file.name;
+      previewType.textContent = getLoadTypeLabel(loadType);
       // dispatch event for main code to pick up
-      const ev = new CustomEvent('c64-load-file', { detail: { file } });
+      const ev = new CustomEvent('c64-load-file', { detail: { file, type: loadType } });
       window.dispatchEvent(ev);
     };
 
@@ -255,7 +347,7 @@ export default class UIController {
       else this.fileInput?.click();
     });
 
-    const section = document.querySelector('.c64-menu-actions');
+    const section = panel.querySelector('[data-settings-section="system"]');
     // Detach cartridge / hard reset controls
     const detachBtn = section?.querySelector('#c64-detach-btn') as HTMLButtonElement | null;
     const resetBtn = section?.querySelector('#c64-reset-btn') as HTMLButtonElement | null;
@@ -284,7 +376,8 @@ export default class UIController {
     }
 
     // ── Audio section ─────────────────────────────────────────────────────
-    this.createAudioSection(panel.querySelector('.c64-menu-body')!);
+    const audioContainer = panel.querySelector('#c64-audio-section-anchor') as HTMLElement;
+    this.createAudioSection(audioContainer);
 
     // ── Input section wiring ───────────────────────────────────────────────
     const joyRadios = panel.querySelectorAll(

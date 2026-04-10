@@ -51,7 +51,7 @@ export interface WASMExports {
   c64_insertDisk(ptr: number, len: number): void;
 
   // Loading
-  c64_loadPRG(ptr: number, len: number): void;
+  c64_loadPRG(ptr: number, len: number, inject?: number): void;
   c64_loadCartridge(ptr: number, len: number): void;
   c64_removeCartridge(): void;
 
@@ -81,6 +81,7 @@ export interface WASMExports {
   c64_setRegX(v: number): void;
   c64_setRegY(v: number): void;
   c64_setRegA(v: number): void;
+  c64_setSP?(v: number): void;
   c64_getCycleCount(): number;
 
   // CPU flags
