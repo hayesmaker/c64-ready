@@ -1,6 +1,7 @@
 import { C64Emulator } from '../emulator/c64-emulator';
 import { domKeyToC64Actions } from '../emulator/input';
 import { parseCrtInfo } from '../emulator/crt-info';
+import { isViceSnapshot } from '../emulator/vsf-snapshot';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
 import type { InputMode } from '../emulator/input';
@@ -134,6 +135,7 @@ export class C64Player {
       const info = parseCrtInfo(data, filename);
       if (info) console.log(info.line);
     }
+    this.emitSnapshotLoadInfo(data, type, url);
     try {
       this.emulator.loadGame({ type, data });
       if (type === 'prg') {
@@ -173,6 +175,7 @@ export class C64Player {
         const info = parseCrtInfo(data, file.name);
         if (info) console.log(info.line);
       }
+      this.emitSnapshotLoadInfo(data, resolvedType, file.name);
       try {
         this.emulator.loadGame({ type: resolvedType, data });
         if (resolvedType === 'prg') {
@@ -270,6 +273,23 @@ export class C64Player {
 
       await waitMs(22);
     }
+  }
+
+  private emitSnapshotLoadInfo(
+    data: Uint8Array,
+    type: GameLoadOptions['type'],
+    source: string,
+  ): void {
+    if (type !== 'snapshot') return;
+
+    const vice = isViceSnapshot(data);
+    const mode = vice ? 'vice-best-effort' : 'native';
+    const message = vice
+      ? `Loading VICE snapshot via best-effort restore (${source})`
+      : `Loading native LVL snapshot (${source})`;
+
+    console.info(`[snapshot] mode=${mode} source=${source}`);
+    window.dispatchEvent(new CustomEvent('c64-load-info', { detail: { mode, source, message } }));
   }
 }
 

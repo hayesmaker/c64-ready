@@ -81,6 +81,7 @@ export interface WASMExports {
   c64_setRegX(v: number): void;
   c64_setRegY(v: number): void;
   c64_setRegA(v: number): void;
+  c64_setSP?(v: number): void;
   c64_getCycleCount(): number;
 
   // CPU flags

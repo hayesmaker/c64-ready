@@ -14,6 +14,7 @@
 import { C64WASM } from './c64-wasm';
 import type { C64Config, FrameBuffer, AudioBuffer, GameLoadOptions, InputEvent } from '../types';
 import type { JoystickPort, JoystickInput } from './constants';
+import { tryParseViceSnapshot } from './vsf-snapshot';
 
 const FRAME_WIDTH = 384;
 const FRAME_HEIGHT = 272;
@@ -153,7 +154,7 @@ export class C64Emulator {
           x.c64_loadCartridge(ptr, options.data.length);
           break;
         case 'snapshot':
-          x.c64_loadSnapshot(ptr, options.data.length);
+          this.loadSnapshotData(options.data, ptr, options.data.length);
           break;
       }
     } finally {
@@ -292,6 +293,53 @@ export class C64Emulator {
     const snap = this.wasm.heap.heapU8.slice(ptr, ptr + size);
     x.free(ptr);
     return snap;
+  }
+
+  private loadSnapshotData(data: Uint8Array, ptr: number, len: number): void {
+    const x = this.wasm.exports;
+    if (!x) throw new Error('WASM not ready');
+
+    const vice = tryParseViceSnapshot(data);
+    if (!vice) {
+      console.info('[snapshot] loader=native-lvl format=lvl');
+      x.c64_loadSnapshot(ptr, len);
+      return;
+    }
+
+    console.info(`[snapshot] loader=vice-best-effort machine=${vice.machine}`);
+
+    x.c64_reset();
+
+    // Restore C64 RAM image.
+    for (let addr = 0; addr < 65536; addr++) {
+      x.c64_ramWrite(addr, vice.ram[addr]);
+    }
+
+    // Restore CPU I/O port direction/data bytes ($0000/$0001), then registers.
+    x.c64_cpuWrite(0x0000, vice.cpuDir);
+    x.c64_cpuWrite(0x0001, vice.cpuData);
+
+    x.c64_setRegA(vice.cpu.a);
+    x.c64_setRegX(vice.cpu.x);
+    x.c64_setRegY(vice.cpu.y);
+    if (typeof x.c64_setSP === 'function') {
+      x.c64_setSP(vice.cpu.sp);
+    } else {
+      console.warn('[snapshot] c64_setSP unavailable; skipping SP restore in best-effort mode');
+    }
+    x.c64_setPC(vice.cpu.pc);
+
+    const p = vice.cpu.status;
+    x.c64_setFlagN((p >> 7) & 1);
+    x.c64_setFlagV((p >> 6) & 1);
+    x.c64_setFlagU((p >> 5) & 1);
+    x.c64_setFlagB((p >> 4) & 1);
+    x.c64_setFlagD((p >> 3) & 1);
+    x.c64_setFlagI((p >> 2) & 1);
+    x.c64_setFlagZ((p >> 1) & 1);
+    x.c64_setFlagC(p & 1);
+
+    this.frameCount = 0;
   }
 
   // ---------------------------------------------------------------------------

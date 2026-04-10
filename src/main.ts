@@ -81,3 +81,13 @@ window.addEventListener('c64-load-error', (e: Event) => {
   status.textContent = `Load error: ${msg}`;
   status.style.color = '#f44';
 });
+
+window.addEventListener('c64-load-info', (e: Event) => {
+  const detail = (e as CustomEvent).detail as
+    | { mode?: string; source?: string; message?: string }
+    | undefined;
+  if (!detail?.message) return;
+  status.textContent = detail.message;
+  status.style.color = detail.mode === 'vice-best-effort' ? '#f9c74f' : '#9ecbff';
+  console.info('C64 load info event:', detail);
+});
