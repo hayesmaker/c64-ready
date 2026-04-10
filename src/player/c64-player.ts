@@ -1,7 +1,6 @@
 import { C64Emulator } from '../emulator/c64-emulator';
 import { domKeyToC64Actions } from '../emulator/input';
 import { parseCrtInfo } from '../emulator/crt-info';
-import { isViceSnapshot } from '../emulator/vsf-snapshot';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
 import type { InputMode } from '../emulator/input';
@@ -137,7 +136,8 @@ export class C64Player {
       const info = parseCrtInfo(data, filename);
       if (info) console.log(info.line);
     }
-    this.emitSnapshotLoadInfo(data, type, url);
+    this.assertSnapshotFormatSupported(data, type, url);
+    this.emitSnapshotLoadInfo(type, url);
     try {
       this.emulator.loadGame({ type, data });
       if (type === 'prg') {
@@ -177,7 +177,8 @@ export class C64Player {
         const info = parseCrtInfo(data, file.name);
         if (info) console.log(info.line);
       }
-      this.emitSnapshotLoadInfo(data, resolvedType, file.name);
+      this.assertSnapshotFormatSupported(data, resolvedType, file.name);
+      this.emitSnapshotLoadInfo(resolvedType, file.name);
       try {
         this.emulator.loadGame({ type: resolvedType, data });
         if (resolvedType === 'prg') {
@@ -277,21 +278,38 @@ export class C64Player {
     }
   }
 
-  private emitSnapshotLoadInfo(
+  private emitSnapshotLoadInfo(type: GameLoadOptions['type'], source: string): void {
+    if (type !== 'snapshot') return;
+
+    const mode = 'native';
+    const message = `Loading native LVL snapshot (${source})`;
+
+    console.info(`[snapshot] mode=${mode} source=${source}`);
+    window.dispatchEvent(new CustomEvent('c64-load-info', { detail: { mode, source, message } }));
+  }
+
+  private assertSnapshotFormatSupported(
     data: Uint8Array,
     type: GameLoadOptions['type'],
     source: string,
   ): void {
     if (type !== 'snapshot') return;
+    if (!hasViceSnapshotMagic(data)) return;
 
-    const vice = isViceSnapshot(data);
-    const mode = vice ? 'vice-best-effort' : 'native';
-    const message = vice
-      ? `Loading VICE snapshot via best-effort restore (${source})`
-      : `Loading native LVL snapshot (${source})`;
-
-    console.info(`[snapshot] mode=${mode} source=${source}`);
-    window.dispatchEvent(new CustomEvent('c64-load-info', { detail: { mode, source, message } }));
+    const err = new Error(
+      `Unsupported snapshot format for ${source}. VICE .vsf snapshots are disabled for now; use LVLLVL/native snapshots (.c64, .snapshot, .s64).`,
+    );
+    console.error(err);
+    window.dispatchEvent(
+      new CustomEvent('c64-load-info', {
+        detail: {
+          mode: 'warning',
+          source,
+          message: 'Snapshot must be LVLLVL/native format (.c64, .snapshot, .s64).',
+        },
+      }),
+    );
+    throw err;
   }
 }
 
@@ -309,4 +327,13 @@ function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasViceSnapshotMagic(data: Uint8Array): boolean {
+  const magic = 'VICE Snapshot File\x1a';
+  if (data.length < magic.length) return false;
+  for (let i = 0; i < magic.length; i++) {
+    if (data[i] !== magic.charCodeAt(i)) return false;
+  }
+  return true;
 }

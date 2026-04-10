@@ -10,7 +10,8 @@ describe('load-formats', () => {
     expect(inferLoadTypeFromFilename('demo.CRT')).toBe('crt');
     expect(inferLoadTypeFromFilename('intro.prg')).toBe('prg');
     expect(inferLoadTypeFromFilename('disk.d64')).toBe('d64');
-    expect(inferLoadTypeFromFilename('state.vsf')).toBe('snapshot');
+    expect(inferLoadTypeFromFilename('state.c64')).toBe('snapshot');
+    expect(inferLoadTypeFromFilename('state.vsf')).toBeNull();
     expect(inferLoadTypeFromFilename('unknown.bin')).toBeNull();
   });
 

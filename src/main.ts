@@ -107,6 +107,6 @@ window.addEventListener('c64-load-info', (e: Event) => {
     | undefined;
   if (!detail?.message) return;
   status.textContent = detail.message;
-  status.style.color = detail.mode === 'vice-best-effort' ? '#f9c74f' : '#9ecbff';
+  status.style.color = detail.mode === 'warning' ? '#f9c74f' : '#9ecbff';
   console.info('C64 load info event:', detail);
 });
