@@ -306,7 +306,9 @@ export class C64Emulator {
       return;
     }
 
-    console.info(`[snapshot] loader=vice-best-effort machine=${vice.machine}`);
+    console.info(
+      `[snapshot] loader=vice-best-effort machine=${vice.machine} maincpu=${vice.debug.mainCpuVersion} c64mem=${vice.debug.c64memVersion} payload=${vice.debug.c64memPayloadLength} ramOffset=${vice.debug.ramOffset} trailing=${vice.debug.trailingBytes}`,
+    );
 
     x.c64_reset();
 

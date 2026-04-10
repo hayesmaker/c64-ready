@@ -41,7 +41,9 @@ export class C64Player {
     this.inputHandler.attach();
     renderer.attachTo(this.emulator);
 
-    await this.loadGame(gameUrl, gameType, onProgress);
+    if (gameUrl && gameUrl !== 'null') {
+      await this.loadGame(gameUrl, gameType, onProgress);
+    }
 
     this.emulator.start();
 

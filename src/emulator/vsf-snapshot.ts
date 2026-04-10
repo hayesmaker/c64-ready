@@ -13,6 +13,13 @@ export interface ViceSnapshotState {
   cpuDir: number;
   ram: Uint8Array;
   cpu: ViceCpuState;
+  debug: {
+    mainCpuVersion: string;
+    c64memVersion: string;
+    c64memPayloadLength: number;
+    ramOffset: number;
+    trailingBytes: number;
+  };
 }
 
 interface ViceModule {
@@ -40,11 +47,18 @@ export function tryParseViceSnapshot(data: Uint8Array): ViceSnapshotState | null
   if (!mainCpu) throw new Error('VICE snapshot missing MAINCPU module');
   if (!c64mem) throw new Error('VICE snapshot missing C64MEM module');
 
-  if (mainCpu.payload.length < 11) {
-    throw new Error('VICE MAINCPU module too small');
+  if (mainCpu.major < 1) {
+    throw new Error(`Unsupported MAINCPU module version ${mainCpu.major}.${mainCpu.minor}`);
   }
-  if (c64mem.payload.length < 4 + 65536) {
-    throw new Error('VICE C64MEM module too small');
+  if (mainCpu.payload.length < 11) {
+    throw new Error(
+      `VICE MAINCPU module too small for version ${mainCpu.major}.${mainCpu.minor}`,
+    );
+  }
+  if (c64mem.payload.length < 65536) {
+    throw new Error(
+      `VICE C64MEM module too small for version ${c64mem.major}.${c64mem.minor}`,
+    );
   }
 
   const cpu: ViceCpuState = {
@@ -58,9 +72,29 @@ export function tryParseViceSnapshot(data: Uint8Array): ViceSnapshotState | null
 
   const cpuData = c64mem.payload[0];
   const cpuDir = c64mem.payload[1];
-  const ram = c64mem.payload.slice(4, 4 + 65536);
+  const ramOffset = 4;
+  if (c64mem.payload.length < ramOffset + 65536) {
+    throw new Error(
+      `VICE C64MEM payload too short for RAM image (${c64mem.payload.length})`,
+    );
+  }
+  const trailingBytes = c64mem.payload.length - (ramOffset + 65536);
+  const ram = c64mem.payload.slice(ramOffset, ramOffset + 65536);
 
-  return { machine, cpuData, cpuDir, ram, cpu };
+  return {
+    machine,
+    cpuData,
+    cpuDir,
+    ram,
+    cpu,
+    debug: {
+      mainCpuVersion: `${mainCpu.major}.${mainCpu.minor}`,
+      c64memVersion: `${c64mem.major}.${c64mem.minor}`,
+      c64memPayloadLength: c64mem.payload.length,
+      ramOffset,
+      trailingBytes,
+    },
+  };
 }
 
 export function isViceSnapshot(data: Uint8Array): boolean {

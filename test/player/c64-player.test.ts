@@ -113,5 +113,21 @@ describe('C64Player', () => {
     }
   });
 
+  it('starts emulator without autoload when gameUrl is empty', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+
+    expect(emulator.loadGame).not.toHaveBeenCalled();
+    expect(emulator.start).toHaveBeenCalledOnce();
+  });
+
   // ...additional tests omitted for brevity
 });

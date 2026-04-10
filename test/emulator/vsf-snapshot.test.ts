@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isViceSnapshot, tryParseViceSnapshot } from '../../src/emulator/vsf-snapshot';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 function asciiPadded(text: string, size: number): Uint8Array {
   const out = new Uint8Array(size);
@@ -85,5 +87,31 @@ describe('vsf-snapshot', () => {
     expect(parsed!.ram[0]).toBe(0x10);
     expect(parsed!.ram[0x1234]).toBe(0x77);
     expect(parsed!.ram[0xffff]).toBe(0xee);
+    expect(parsed!.debug.ramOffset).toBe(4);
+    expect(parsed!.debug.trailingBytes).toBe(0);
+    expect(parsed!.debug.mainCpuVersion).toBe('1.1');
+    expect(parsed!.debug.c64memVersion).toBe('0.0');
+  });
+
+  it('parses real VICE 2.4 snapshot C64MEM layout', () => {
+    const file = resolve(process.cwd(), 'temp/snapshots/VICE2-4%APOLLO18.vsf');
+    if (!existsSync(file)) return;
+    const parsed = tryParseViceSnapshot(new Uint8Array(readFileSync(file)));
+    expect(parsed).toBeTruthy();
+    expect(parsed!.debug.c64memPayloadLength).toBe(65543);
+    expect(parsed!.debug.ramOffset).toBe(4);
+    expect(parsed!.debug.trailingBytes).toBe(3);
+    expect(parsed!.ram.length).toBe(65536);
+  });
+
+  it('parses real VICE 3.10 snapshot C64MEM layout', () => {
+    const file = resolve(process.cwd(), 'temp/snapshots/VICE3.10%ELEVATOR.vsf');
+    if (!existsSync(file)) return;
+    const parsed = tryParseViceSnapshot(new Uint8Array(readFileSync(file)));
+    expect(parsed).toBeTruthy();
+    expect(parsed!.debug.c64memPayloadLength).toBe(65555);
+    expect(parsed!.debug.ramOffset).toBe(4);
+    expect(parsed!.debug.trailingBytes).toBe(15);
+    expect(parsed!.ram.length).toBe(65536);
   });
 });

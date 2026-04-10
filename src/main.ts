@@ -1,16 +1,31 @@
 import { C64Player } from './player/c64-player';
 import CanvasRenderer from './player/canvas-renderer';
 import UIController from './player/ui-controller';
-import { isSupportedLoadType } from './player/load-formats';
+import { inferLoadTypeFromFilename, isSupportedLoadType } from './player/load-formats';
 
 const status = document.getElementById('status')!;
 const renderer = new CanvasRenderer('c64-screen');
 const base = import.meta.env.BASE_URL;
+const params = new URLSearchParams(window.location.search);
+
+function resolveGameFromParam(raw: string | null, baseUrl: string): string {
+  if (!raw) return `${baseUrl}games/cartridges/legend-of-wilf.crt`;
+  const value = raw.trim();
+  if (!value) return `${baseUrl}games/cartridges/legend-of-wilf.crt`;
+  if (value.toLowerCase() === 'null') return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith('/')) return value;
+  return `${baseUrl}${value.replace(/^\/+/, '')}`;
+}
+
+const gameUrl = resolveGameFromParam(params.get('game'), base);
+const gameType = inferLoadTypeFromFilename(gameUrl || '') ?? 'crt';
 
 // Create player and keep in outer scope so UI can trigger file loads
 const player = new C64Player({
   wasmUrl: `${base}c64.wasm`,
-  gameUrl: `${base}games/cartridges/legend-of-wilf.crt`,
+  gameUrl,
+  gameType,
   renderer,
   onProgress: (pct, label) => renderer.setProgress(pct, label),
 });
@@ -21,6 +36,10 @@ new UIController().init(player);
 player
   .start()
   .then(() => {
+    if (!gameUrl) {
+      status.textContent = 'Autoload disabled (?game=null)';
+      status.style.color = '#9ecbff';
+    }
     renderer.hideLoader();
   })
   .catch((err) => {
