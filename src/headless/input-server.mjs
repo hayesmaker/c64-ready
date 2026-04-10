@@ -706,6 +706,36 @@ export function createInputServer(opts = {}) {
       }
 
       // ── Emulator commands (host only) ─────────────────────────────────────
+      if (msg.type === 'load-file') {
+        if (ws !== hostClient) return;
+        const loadFilename = msg.filename ?? '';
+        const fileType = msg.fileType ?? 'crt';
+        if (verbose) console.error(`[input-server] load-file: ${loadFilename || '?'} (${fileType})`);
+        logEv('cmd-load-file', {
+          filename: loadFilename || '?',
+          fileType,
+          dataLen: (msg.data ?? '').length,
+        });
+        broadcastAll({ type: 'cart-loading', filename: loadFilename });
+        Promise.resolve()
+          .then(() => onCommand({ type: 'load-file', filename: loadFilename, fileType, data: msg.data ?? '' }))
+          .then(() => {
+            currentCartFilename = loadFilename || null;
+            broadcastAll({ type: 'cart-loaded', filename: loadFilename });
+          })
+          .catch((e) => {
+            broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
+            if (verbose) console.error('[input-server] load-file error:', e);
+            logEv('error', {
+              kind: 'load-file-failed',
+              filename: loadFilename,
+              fileType,
+              err: String(e?.message ?? e),
+            });
+          });
+        return;
+      }
+
       if (msg.type === 'load-crt') {
         if (ws !== hostClient) return;
         if (verbose) console.error(`[input-server] load-crt: ${msg.filename ?? '?'}`);
@@ -713,7 +743,7 @@ export function createInputServer(opts = {}) {
         const loadFilename = msg.filename ?? '';
         broadcastAll({ type: 'cart-loading', filename: loadFilename });
         Promise.resolve()
-          .then(() => onCommand({ type: 'load-crt', filename: loadFilename, data: msg.data ?? '' }))
+          .then(() => onCommand({ type: 'load-file', filename: loadFilename, fileType: 'crt', data: msg.data ?? '' }))
           .then(() => {
             currentCartFilename = loadFilename || null;
             broadcastAll({ type: 'cart-loaded', filename: loadFilename });
