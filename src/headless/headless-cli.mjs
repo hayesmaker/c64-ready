@@ -96,6 +96,46 @@ function parseCrtInfo(data, filename) {
   return { line, hwType, hwName, exrom, game, bankConfig, cartName, chipCount, totalRomBytes };
 }
 
+function inferLoadType(filename = '') {
+  const lower = String(filename).toLowerCase();
+  if (lower.endsWith('.crt')) return 'crt';
+  if (lower.endsWith('.prg')) return 'prg';
+  if (lower.endsWith('.d64')) return 'd64';
+  if (lower.endsWith('.snapshot') || lower.endsWith('.c64') || lower.endsWith('.s64')) return 'snapshot';
+  return 'crt';
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function typeCommandText(exports, text, opts = {}) {
+  if (!exports) return;
+  const settleMs = Number.isFinite(opts.settleMs) ? opts.settleMs : 120;
+  const keyDelayMs = Number.isFinite(opts.keyDelayMs) ? opts.keyDelayMs : 22;
+
+  if (settleMs > 0) await sleepMs(settleMs);
+
+  for (const ch of text) {
+    const key = ch === '\n' ? 'Enter' : ch;
+    const down = domKeyToC64Actions(key, false, 'keydown');
+    for (const act of down) {
+      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+      else exports.keyboard_keyReleased(act.key);
+    }
+    if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
+    if (keyDelayMs > 0) await sleepMs(keyDelayMs);
+
+    const up = domKeyToC64Actions(key, false, 'keyup');
+    for (const act of up) {
+      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+      else exports.keyboard_keyReleased(act.key);
+    }
+    if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
+    if (keyDelayMs > 0) await sleepMs(keyDelayMs);
+  }
+}
+
 // ── Build info ────────────────────────────────────────────────────────────────
 // Read once at module load so every createInputServer call gets the same values.
 const _repoRootForBuildInfo = path.resolve(new URL('../../', import.meta.url).pathname);
@@ -505,7 +545,8 @@ export async function runHeadless(options = {}) {
         disconnectAllWebrtcPeers: (reason) => disconnectAllWebrtcPeers(reason),
         onCommand: (cmd) => {
           if (!exports) return;
-          if (cmd.type === 'load-crt') {
+          if (cmd.type === 'load-file' || cmd.type === 'load-crt') {
+              const requestedType = cmd.type === 'load-crt' ? 'crt' : (cmd.fileType ?? inferLoadType(cmd.filename));
               // Decode base64 → Uint8Array immediately and release the large
               // base64 string from the cmd object as soon as possible so GC
               // can reclaim it during the subsequent async gap.
@@ -523,19 +564,37 @@ export async function runHeadless(options = {}) {
               // Return a Promise so input-server waits before broadcasting
               // cart-loaded — ensuring clients are told only after load succeeds.
               return new Promise((resolve, reject) => {
-                setImmediate(() => {
+                setImmediate(async () => {
                   try {
                     const gapStart = Date.now();
-                    exports.c64_removeCartridge();
-                    exports.c64_reset();           // clean slate before loading new cart
-                    const cartInfo = parseCrtInfo(arr, filename);
-                    if (cartInfo) console.error(cartInfo.line);
+                    const loadType = requestedType;
+                    // For cartridge loads, reset first so bank state does not leak.
+                    if (loadType === 'crt') {
+                      exports.c64_removeCartridge();
+                      exports.c64_reset();
+                    }
                     const ptr = c64wasm.allocAndWrite(arr);
                     c64wasm.updateHeapViews();
                     heap = c64wasm.heap;
-                    exports.c64_loadCartridge(ptr, byteLen);
-                    // free(ptr), debugger_set_speed and debugger_play intentionally
-                    // omitted: c64_loadCartridge internally resets and resumes.
+                    try {
+                      if (loadType === 'crt') {
+                        const cartInfo = parseCrtInfo(arr, filename);
+                        if (cartInfo) console.error(cartInfo.line);
+                        exports.c64_loadCartridge(ptr, byteLen);
+                      } else if (loadType === 'prg') {
+                        exports.c64_loadPRG(ptr, byteLen, 1);
+                        await typeCommandText(exports, 'run\n');
+                      } else if (loadType === 'd64') {
+                        exports.c64_setDriveEnabled(1);
+                        exports.c64_insertDisk(ptr, byteLen);
+                      } else if (loadType === 'snapshot') {
+                        exports.c64_loadSnapshot(ptr, byteLen);
+                      } else {
+                        throw new Error(`Unsupported load-file type: ${loadType}`);
+                      }
+                    } finally {
+                      c64wasm.free(ptr);
+                    }
                     const gapMs = Date.now() - gapStart;
                     //
                     // ── Audio RTP re-sync after blocking gap ─────────────────────
@@ -556,8 +615,8 @@ export async function runHeadless(options = {}) {
                       if (verbose) console.error(`[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`);
                     }
                     if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
-                    if (verbose) console.error(`[headless] cart loaded: ${filename} (${byteLen} bytes, gap=${gapMs}ms)`);
-                    else if (logEvents) console.error(`[event] cart-loaded filename=${filename} bytes=${byteLen} gap=${gapMs}ms`);
+                    if (verbose) console.error(`[headless] file loaded: ${filename} (${loadType}, ${byteLen} bytes, gap=${gapMs}ms)`);
+                    else if (logEvents) console.error(`[event] cart-loaded filename=${filename} type=${loadType} bytes=${byteLen} gap=${gapMs}ms`);
                     resolve();
                   } catch (err) {
                     if (verbose) console.error('[headless] cart load (deferred) error:', err);
@@ -580,14 +639,9 @@ export async function runHeadless(options = {}) {
               if (verbose) console.error('[headless] cart detached');
               else if (logEvents) console.error(`[event] cart-detached gap=${gapMs}ms`);
             } else if (cmd.type === 'hard-reset') {
-              // Instant hard reset: detach cart and soft-reset the machine.
-              // c64_removeCartridge() is ~0ms; c64_reset() with no cart is ~110ms
-              // and runs synchronously inline — no setImmediate deferral needed
-              // since there is no loadCartridge call to block the event loop.
-              // The game is intentionally NOT reloaded: hard reset returns to
-              // the BASIC prompt / blank screen, matching real C64 behaviour.
+              // Instant hard reset: reset machine state but keep current media
+              // attached (cartridge/disk), matching offline player behavior.
               const gapStart = Date.now();
-              exports.c64_removeCartridge();
               exports.c64_reset();
               const gapMs = Date.now() - gapStart;
               resetSidRing();
