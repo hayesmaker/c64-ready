@@ -585,8 +585,6 @@ export async function runHeadless(options = {}) {
                         exports.c64_loadPRG(ptr, byteLen, 1);
                         await typeCommandText(exports, 'run\n');
                       } else if (loadType === 'd64') {
-                        exports.c64_removeCartridge();
-                        exports.c64_reset();
                         exports.c64_setDriveEnabled(1);
                         exports.c64_insertDisk(ptr, byteLen);
                       } else if (loadType === 'snapshot') {
