@@ -6,9 +6,27 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v0.11.0 - 2026-04-11T10:48:07+01:00
+
+- chore(release): 0.11.0 (1f4ff40)
+- Merge pull request #38 from hayesmaker/feature/live-settings-parity-backend (8fdb739)
+- feat(input): support host-defined joystick port overrides (86701b2)
+- fix(prg): make headless autorun typing deterministic (d55ca16)
+- feat(headless): support typed load-file command and reset-only hard reset (1b575b2)
+- Merge pull request #37 from hayesmaker/feature/add-prg-support (b883c3e)
+- feat: added keyboard test prg and snapshots (7325ffa)
+- revert(snapshot): disable VICE .vsf support in browser runtime (5911735)
+- feat(runtime): add ?game override and refine VICE snapshot parsing (69a38b6)
+- feat(snapshot): add VICE best-effort loader and runtime load diagnostics (9330bfa)
+- feat: lvllvl snapshot support (eb2fe61)
+- fix(d64): enable 1541 drive before disk insert (9835894)
+- fix(prg): auto-run after load and use inject mode (373615f)
+- feat(ui): split settings into tabs and add format-aware loading (3df4373)
+- Merge pull request #36 from hayesmaker/chore/deploy-and-release (3e5d444)
+
 ## v0.10.0 - 2026-04-09T09:24:54+01:00
 
-- chore(release): 0.10.0 (470bc73)
+- chore(release): 0.10.0 (6716e49)
 
 ## v0.9.0 - 2026-04-09T09:24:36+01:00
 
