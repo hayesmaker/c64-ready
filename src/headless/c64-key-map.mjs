@@ -212,6 +212,7 @@ export function domKeyToC64Actions(domKey, shiftKey, eventType) {
     case 'control':   main(C64_KEY.COMMODORE);   break;   // Ctrl → CBM key
     case 'capslock':  main(C64_KEY.COMMODORE);   break;   // CapsLock → CBM key
     case 'home':      main(C64_KEY.CLEAR_HOME);  break;
+    case 'pageup':    main(C64_KEY.RESTORE);     break;
 
     // ── Function keys ────────────────────────────────────────────────────────
     case 'f1':  main(C64_KEY.F1); break;
@@ -251,4 +252,3 @@ export function domKeyToC64Actions(domKey, shiftKey, eventType) {
 
   return actions;
 }
-

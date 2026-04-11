@@ -21,7 +21,7 @@ export const JOYSTICK_KEY_CODES: Array<keyof typeof KEY_TO_JOYSTICK> = Object.ke
 
 /**
  * Input modes:
- * - 'joystick'  — arrow keys + ControlLeft map to joystick only (default)
+ * - 'joystick'  — arrow keys + ControlLeft map to joystick only
  * - 'keyboard'  — all keys route to the C64 keyboard matrix; no joystick
  * - 'mixed'     — arrow keys + Z + ControlLeft drive the joystick AND all
  *                 other keys route to the C64 keyboard matrix
@@ -414,6 +414,9 @@ export function domKeyToC64Actions(
     case 'home':
       main(C64_KEY.CLEAR_HOME);
       break;
+    case 'pageup':
+      main(C64_KEY.RESTORE);
+      break;
 
     // ── Function keys ────────────────────────────────────────────────────────
     case 'f1':
@@ -482,7 +485,7 @@ export class EmulatorInput {
   private readonly target: EventTarget;
   // Which joystick port keyboard events map to (1 or 2). Default is port 2.
   private keyboardJoystickPort: JoystickPort;
-  private inputMode: InputMode = 'joystick';
+  private inputMode: InputMode = 'mixed';
   private readonly pressedControls = new Set<MappedControl>();
   private readonly keyDownHandler = (event: KeyboardEvent): void => {
     this.handleKeyDown(event);

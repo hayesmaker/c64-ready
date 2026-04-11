@@ -204,6 +204,24 @@ export class C64Player {
     }
   }
 
+  async loadTool(url: string, type?: GameLoadOptions['type']): Promise<void> {
+    if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
+    const onProgress = this.options.onProgress;
+    const resolvedType = type ?? inferLoadTypeFromFilename(url) ?? 'prg';
+
+    onProgress?.(10, 'PREPARING TOOL...');
+    try {
+      this.emulator.removeCartridge();
+    } catch {
+      // ignore if no cartridge is mounted
+    }
+    this.emulator.reset();
+    this.emulator.start();
+    await waitMs(120);
+
+    await this.loadGame(url, resolvedType, onProgress);
+  }
+
   // Expose cartridge / reset controls for UI
   detachCartridge(): void {
     if (!this.emulator) return;
@@ -250,7 +268,7 @@ export class C64Player {
 
   private async autoRunPrgIfRunning(): Promise<void> {
     if (!this.emulator || !this.emulator.isRunning()) return;
-    await waitMs(120);
+    await waitMs(220);
     await this.typeCommand('run\n');
   }
 

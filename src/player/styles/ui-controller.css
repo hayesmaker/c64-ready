@@ -91,6 +91,21 @@
   list-style: none;
   font-size: 13px;
 }
+.c64-help-special {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.c64-help-special li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid #2a2a3e;
+}
+.c64-help-special li:last-child {
+  border-bottom: none;
+}
 .c64-help-controls li {
   display: flex;
   justify-content: space-between;
@@ -304,6 +319,15 @@
   border-radius: 4px;
   padding: 4px 8px;
   font-family: monospace;
+}
+.c64-tool-select {
+  flex: 1;
+  min-width: 180px;
+}
+.c64-tools-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #2a2a3e;
 }
 .c64-radio-row {
   margin-top: 8px;

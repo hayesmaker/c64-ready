@@ -62,8 +62,8 @@ describe('UIController', () => {
     const items = document.querySelectorAll('.c64-help-controls li');
     expect(items.length).toBe(5);
 
-    const keys = Array.from(document.querySelectorAll('.c64-help-key')).map((el) => el.textContent);
-    expect(keys).toEqual(['↑', '↓', '←', '→', 'Left Ctrl']);
+    const keys = Array.from(document.querySelectorAll('.c64-help-controls .c64-help-key')).map((el) => el.textContent);
+    expect(keys).toEqual(['↑', '↓', '←', '→', 'Z or Left Ctrl']);
   });
 
   it('contains a link to the GitHub repo', () => {
@@ -85,4 +85,3 @@ describe('UIController', () => {
     expect(styles.length).toBe(1);
   });
 });
-

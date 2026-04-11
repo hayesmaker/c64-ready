@@ -6,7 +6,23 @@ const CONTROLS = [
   ['Move Down', '↓'],
   ['Move Left', '←'],
   ['Move Right', '→'],
-  ['Fire', 'Left Ctrl'],
+  ['Fire', 'Z or Left Ctrl'],
+];
+
+const SPECIAL_KEYS = [
+  ['Run/Stop', 'Esc'],
+  ['Restore', 'Page Up'],
+  ['Insert/Delete', 'Backspace or Delete'],
+  ['Clear/Home', 'Home'],
+  ['Commodore', 'Ctrl or Caps Lock'],
+  ['Control', 'Tab'],
+  ['Arrow Left glyph', '`'],
+  ['Arrow Up glyph', '^ or ~'],
+  ['Pound', '\\'],
+  ['Colon / Semicolon', ': ; [ ]'],
+  ['Slash', '/ ?'],
+  ['Comma / Period', ', . < >'],
+  ['C64 function keys', 'F1-F8'],
 ];
 
 import type { C64Player } from './c64-player';
@@ -15,7 +31,9 @@ import {
   LOAD_FORMAT_OPTIONS,
   getAcceptForLoadTypeSelection,
   getLoadTypeLabel,
+  inferLoadTypeFromFilename,
   resolveLoadTypeSelection,
+  type LoadType,
   type LoadTypeSelection,
 } from './load-formats';
 
@@ -66,6 +84,10 @@ export default class UIController {
       ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
     ).join('');
 
+    const specialItems = SPECIAL_KEYS.map(
+      ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
+    ).join('');
+
     overlay.innerHTML = `
       <div class="c64-help-dialog">
         <button class="c64-help-close">&times;</button>
@@ -74,6 +96,8 @@ export default class UIController {
         <p><a href="https://github.com/hayesmaker/c64-ready" target="_blank" rel="noopener">Source code on GitHub</a> · <a href="#" id="c64-view-changelog">View changelog</a></p>
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
+        <h2>SPECIAL KEYS</h2>
+        <ul class="c64-help-special">${specialItems}</ul>
         <div class="c64-version">${
           'v' +
           (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
@@ -215,6 +239,16 @@ export default class UIController {
               <button class="c64-btn" id="c64-load-btn">Load</button>
               <button class="c64-btn" id="c64-close-menu">Close</button>
             </div>
+            <div class="c64-tools-section">
+              <label class="c64-section-label">Tools</label>
+              <div class="c64-form-row">
+                <select id="c64-tool-select" class="c64-select c64-tool-select" disabled>
+                  <option value="">No tools found</option>
+                </select>
+                <button class="c64-btn" id="c64-load-tool-btn" disabled>Load Tool</button>
+              </div>
+              <div class="c64-section-hint" id="c64-tools-status">Loading tools…</div>
+            </div>
           </section>
 
           <section class="c64-settings-section" data-settings-section="input" hidden>
@@ -225,11 +259,11 @@ export default class UIController {
             </div>
             <label class="c64-section-label">Input Mode</label>
             <div class="c64-radio-row c64-radio-row-wrap">
-              <label><input type="radio" name="c64-input-mode" value="joystick" checked /> Joystick</label>
+              <label><input type="radio" name="c64-input-mode" value="joystick" /> Joystick</label>
               <label><input type="radio" name="c64-input-mode" value="keyboard" /> Keyboard</label>
-              <label><input type="radio" name="c64-input-mode" value="mixed" /> Mixed</label>
+              <label><input type="radio" name="c64-input-mode" value="mixed" checked /> Mixed</label>
             </div>
-            <div id="c64-input-mode-hint" class="c64-section-hint">Arrows + Ctrl = joystick</div>
+            <div id="c64-input-mode-hint" class="c64-section-hint">Arrows + Z + Ctrl = joystick &amp; all other keys &rarr; C64 keyboard</div>
           </section>
 
           <section class="c64-settings-section" data-settings-section="display" hidden>
@@ -293,6 +327,9 @@ export default class UIController {
     const dragareaCopy = panel.querySelector('#c64-dragarea-copy') as HTMLElement;
     const browse = panel.querySelector('#c64-browse') as HTMLButtonElement;
     const loadTypeSelect = panel.querySelector('#c64-load-format') as HTMLSelectElement;
+    const toolSelect = panel.querySelector('#c64-tool-select') as HTMLSelectElement;
+    const loadToolBtn = panel.querySelector('#c64-load-tool-btn') as HTMLButtonElement;
+    const toolsStatus = panel.querySelector('#c64-tools-status') as HTMLElement;
     const preview = panel.querySelector('#c64-cart-preview') as HTMLElement;
     const previewName = panel.querySelector('#c64-cart-filename') as HTMLElement;
     const previewType = panel.querySelector('#c64-cart-type') as HTMLElement;
@@ -346,6 +383,90 @@ export default class UIController {
       if (f) handleFile(f);
       else this.fileInput?.click();
     });
+
+    type ToolItem = { name: string; url: string; type: LoadType };
+    let toolItems: ToolItem[] = [];
+
+    const renderToolSelect = () => {
+      toolSelect.innerHTML = '';
+      if (toolItems.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No tools found';
+        toolSelect.appendChild(opt);
+        toolSelect.disabled = true;
+        loadToolBtn.disabled = true;
+        return;
+      }
+      toolItems.forEach((tool, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = tool.name;
+        toolSelect.appendChild(opt);
+      });
+      toolSelect.disabled = false;
+      loadToolBtn.disabled = false;
+    };
+
+    const parseManifest = (raw: unknown): ToolItem[] => {
+      const entries: unknown[] =
+        Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === 'object' && Array.isArray((raw as { tools?: unknown[] }).tools)
+            ? (raw as { tools: unknown[] }).tools
+            : [];
+
+      return entries
+        .map((entry) => {
+          const path =
+            typeof entry === 'string'
+              ? entry
+              : entry && typeof entry === 'object'
+                ? ((entry as { path?: unknown }).path as string | undefined)
+                : undefined;
+          if (!path || typeof path !== 'string') return null;
+          const filename = path.split('/').pop() ?? path;
+          const type = inferLoadTypeFromFilename(filename);
+          if (!type) return null;
+          const encodedPath = path
+            .split('/')
+            .map((part) => encodeURIComponent(part))
+            .join('/');
+          const normalizedPath = encodedPath.replace(/^\/+/, '');
+          const url = `${import.meta.env.BASE_URL}tools/${normalizedPath}`.replace(/([^:]\/)\/+/, '$1');
+          return { name: filename, url, type } satisfies ToolItem;
+        })
+        .filter((v): v is ToolItem => !!v);
+    };
+
+    const loadToolsManifest = async () => {
+      try {
+        const url = `${import.meta.env.BASE_URL}tools/tools.json`.replace(/([^:]\/)\/+/, '$1');
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw = await res.json();
+        toolItems = parseManifest(raw);
+        renderToolSelect();
+        toolsStatus.textContent =
+          toolItems.length > 0
+            ? `Found ${toolItems.length} tool${toolItems.length === 1 ? '' : 's'} in /public/tools`
+            : 'No compatible tools found in manifest';
+      } catch (err) {
+        toolItems = [];
+        renderToolSelect();
+        toolsStatus.textContent = `Unable to load tools manifest: ${String((err as Error)?.message ?? err)}`;
+      }
+    };
+
+    loadToolBtn.addEventListener('click', () => {
+      const idx = Number(toolSelect.value);
+      if (!Number.isFinite(idx)) return;
+      const tool = toolItems[idx];
+      if (!tool) return;
+      window.dispatchEvent(new CustomEvent('c64-load-tool', { detail: tool }));
+    });
+
+    loadToolsManifest().catch(() => {});
 
     const section = panel.querySelector('[data-settings-section="system"]');
     // Detach cartridge / hard reset controls
