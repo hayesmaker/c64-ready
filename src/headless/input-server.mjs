@@ -130,6 +130,10 @@ export function createInputServer(opts = {}) {
 
   // Joystick port swap — when true, host uses port 1, P2 uses port 2
   let portsSwapped  = false;
+  // Optional host-defined override for independent per-role joystick ports.
+  let portOverrideEnabled = false;
+  let overrideHostPort = 2;
+  let overrideP2Port = 1;
 
   // ── Host reconnect grace period ───────────────────────────────────────────
   // When the host disconnects we hold off on promoting P2 for up to
@@ -140,8 +144,12 @@ export function createInputServer(opts = {}) {
   // Seeded from opts.initialCartFilename when a default game is pre-loaded.
   let currentCartFilename = opts.initialCartFilename ?? null;
 
-  function hostPort() { return portsSwapped ? 1 : 2; }
-  function p2Port()   { return portsSwapped ? 2 : 1; }
+  function hostPort() {
+    return portOverrideEnabled ? overrideHostPort : (portsSwapped ? 1 : 2);
+  }
+  function p2Port() {
+    return portOverrideEnabled ? overrideP2Port : (portsSwapped ? 2 : 1);
+  }
 
   // ── Host inactivity timeout ───────────────────────────────────────────────
   let hostTimeoutTimer = null;
@@ -226,6 +234,9 @@ export function createInputServer(opts = {}) {
     hostClient    = null;
     hostUsername  = null;
     inviteToken   = null;
+    portOverrideEnabled = false;
+    overrideHostPort = 2;
+    overrideP2Port = 1;
     clearHostTimeout();
     clearGrace();
     // Broadcast host-left with reason so clients can show a contextual notice
@@ -248,6 +259,9 @@ export function createInputServer(opts = {}) {
     hostUsername = null;
     inviteToken = null;
     portsSwapped = false;
+    portOverrideEnabled = false;
+    overrideHostPort = 2;
+    overrideP2Port = 1;
     setWsIdentity(targetWs, 'spectator', null);
     broadcastAll({ type: 'host-left', username: leaving, reason });
     broadcastAll({ type: 'p2-slot-status', open: false });
@@ -470,6 +484,38 @@ export function createInputServer(opts = {}) {
         });
         return;
       }
+
+      // ── Host-defined independent joystick port override ───────────────────
+      if (msg.type === 'set-port-override') {
+        if (ws !== hostClient) return;
+        const enabled = !!msg.enabled;
+        const hp = Number(msg.hostPort);
+        const pp = Number(msg.p2Port);
+        if (!Number.isFinite(hp) || !Number.isFinite(pp) || (hp !== 1 && hp !== 2) || (pp !== 1 && pp !== 2)) {
+          if (verbose) console.error('[input-server] invalid set-port-override payload');
+          logEv('error', { kind: 'set-port-override-invalid', hostPort: msg.hostPort, p2Port: msg.p2Port });
+          return;
+        }
+        portOverrideEnabled = enabled;
+        overrideHostPort = hp;
+        overrideP2Port = pp;
+        logEv('port-override-updated', {
+          enabled: portOverrideEnabled,
+          hostPort: overrideHostPort,
+          p2Port: overrideP2Port,
+          effectiveHostPort: hostPort(),
+          effectiveP2Port: p2Port(),
+        });
+        broadcastAll({
+          type: 'port-override-updated',
+          enabled: portOverrideEnabled,
+          hostPort: overrideHostPort,
+          p2Port: overrideP2Port,
+          effectiveHostPort: hostPort(),
+          effectiveP2Port: p2Port(),
+        });
+        return;
+      }
       // ── Voluntary player 2 leave ──────────────────────────────────────────
       if (msg.type === 'p2-leave') {
         if (ws === p2Client) {
@@ -497,6 +543,9 @@ export function createInputServer(opts = {}) {
           hostUsername      = null;
           inviteToken       = null;
           portsSwapped      = false;
+          portOverrideEnabled = false;
+          overrideHostPort = 2;
+          overrideP2Port = 1;
           setWsIdentity(ws, 'spectator', null);
           if (verbose) console.error(`[input-server] host ${leaving} voluntarily left`);
           logEv('host-left', { username: leaving, reason: 'voluntary' });
@@ -849,6 +898,9 @@ export function createInputServer(opts = {}) {
         // Tag with role so onInput can include it in logEvents output
         // without input-server needing to know about logEvents details.
         msg._role = role;
+        if (msg.type === 'joystick') {
+          msg.joystickPort = role === 'host' ? hostPort() : p2Port();
+        }
         if (onInput) onInput(msg);
         if (Number.isFinite(msg.inputId) && ws.readyState === ws.OPEN) {
           try {
@@ -885,6 +937,9 @@ export function createInputServer(opts = {}) {
         hostUsername  = null;
         inviteToken   = null;
         portsSwapped  = false;
+        portOverrideEnabled = false;
+        overrideHostPort = 2;
+        overrideP2Port = 1;
         onHostDisconnect(leaving);
       }
 
@@ -921,6 +976,13 @@ export function createInputServer(opts = {}) {
       host:        hostActive ? { username: hostUsername, joystickPort: hostPort() } : null,
       player2:     p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
       p2SlotOpen:  isP2SlotOpen(),
+      portOverride: {
+        enabled: portOverrideEnabled,
+        hostPort: overrideHostPort,
+        p2Port: overrideP2Port,
+        effectiveHostPort: hostPort(),
+        effectiveP2Port: p2Port(),
+      },
       ...(currentCartFilename ? { cartFilename: currentCartFilename } : {}),
       joystickBitmask: { up: 0x1, down: 0x2, left: 0x4, right: 0x8, fire: 0x10 },
       ...(serverVersion  ? { serverVersion }  : {}),
