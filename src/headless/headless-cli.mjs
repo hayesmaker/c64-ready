@@ -105,6 +105,37 @@ function inferLoadType(filename = '') {
   return 'crt';
 }
 
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function typeCommandText(exports, text, opts = {}) {
+  if (!exports) return;
+  const settleMs = Number.isFinite(opts.settleMs) ? opts.settleMs : 120;
+  const keyDelayMs = Number.isFinite(opts.keyDelayMs) ? opts.keyDelayMs : 22;
+
+  if (settleMs > 0) await sleepMs(settleMs);
+
+  for (const ch of text) {
+    const key = ch === '\n' ? 'Enter' : ch;
+    const down = domKeyToC64Actions(key, false, 'keydown');
+    for (const act of down) {
+      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+      else exports.keyboard_keyReleased(act.key);
+    }
+    if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
+    if (keyDelayMs > 0) await sleepMs(keyDelayMs);
+
+    const up = domKeyToC64Actions(key, false, 'keyup');
+    for (const act of up) {
+      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+      else exports.keyboard_keyReleased(act.key);
+    }
+    if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
+    if (keyDelayMs > 0) await sleepMs(keyDelayMs);
+  }
+}
+
 // ── Build info ────────────────────────────────────────────────────────────────
 // Read once at module load so every createInputServer call gets the same values.
 const _repoRootForBuildInfo = path.resolve(new URL('../../', import.meta.url).pathname);
@@ -533,7 +564,7 @@ export async function runHeadless(options = {}) {
               // Return a Promise so input-server waits before broadcasting
               // cart-loaded — ensuring clients are told only after load succeeds.
               return new Promise((resolve, reject) => {
-                setImmediate(() => {
+                setImmediate(async () => {
                   try {
                     const gapStart = Date.now();
                     const loadType = requestedType;
@@ -552,6 +583,7 @@ export async function runHeadless(options = {}) {
                         exports.c64_loadCartridge(ptr, byteLen);
                       } else if (loadType === 'prg') {
                         exports.c64_loadPRG(ptr, byteLen, 1);
+                        await typeCommandText(exports, 'run\n');
                       } else if (loadType === 'd64') {
                         exports.c64_setDriveEnabled(1);
                         exports.c64_insertDisk(ptr, byteLen);
