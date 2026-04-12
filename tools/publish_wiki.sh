@@ -17,6 +17,9 @@ WIKI_DIR="$TMPDIR/wiki"
 echo "Cloning wiki into $WIKI_DIR"
 git clone "$WIKI_URL" "$WIKI_DIR"
 
+echo "Removing stale markdown pages from wiki clone"
+rm -f "$WIKI_DIR"/*.md
+
 echo "Copying docs/*.md into wiki"
 cp docs/*.md "$WIKI_DIR/"
 
@@ -47,8 +50,7 @@ emit_link() {
 [ -f PROJECT_OVERVIEW.md ] && emit_link PROJECT_OVERVIEW.md
 
 # All other docs alphabetically, excluding pinned files
-for f in $(ls ./*.md | sort); do
-  f=$(basename "$f")
+for f in $(printf '%s\n' *.md | sort); do
   [ "$f" = "Home.md" ]             && continue
   [ "$f" = "PROJECT_OVERVIEW.md" ] && continue
   [ "$f" = "CHANGELOG.md" ]        && continue
