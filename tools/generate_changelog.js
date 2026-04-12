@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 const repo = process.env.GITHUB_REPOSITORY;
-const token = process.env.GITHUB_TOKEN;
+const token = process.env.GH_PUBLISH_TOKEN || process.env.GITHUB_TOKEN;
 
 function run(cmd) {
   return execSync(cmd, { encoding: 'utf8' }).trim();
@@ -110,14 +110,14 @@ async function main() {
     run('git add CHANGELOG.md');
     run('git config user.name "github-actions[bot]"');
     run('git config user.email "41898282+github-actions[bot]@users.noreply.github.com"');
-    run('git commit -m "chore: update changelog (auto) [skip ci]"');
+    run('git commit -m "chore: update changelog (auto)"');
 
     // By default we do NOT create a changelog PR. This avoids an automated loop where
     // a changelog PR itself appears in subsequent changelogs. To enable PR creation
     // set the environment variable CREATE_CHANGELOG_PR=true in the workflow that
     // intentionally wants this behavior.
     if (!token || !repo) {
-      console.log('No GITHUB_TOKEN or GITHUB_REPOSITORY provided; skipping push/PR creation.');
+      console.log('No GH_PUBLISH_TOKEN/GITHUB_TOKEN or GITHUB_REPOSITORY provided; skipping push/PR creation.');
       return 0;
     }
 
@@ -162,15 +162,15 @@ async function main() {
     let res = await tryCreatePR(token);
     if (!res.ok) {
       const txt = await res.text();
-      console.error('Failed to create PR with GITHUB_TOKEN:', res.status, txt);
+      console.error('Failed to create PR with primary token:', res.status, txt);
       // If a stronger token is available in GH_PUBLISH_TOKEN, try that as a fallback.
-      const alt = process.env.GH_PUBLISH_TOKEN;
+      const alt = process.env.GH_PUBLISH_TOKEN || process.env.GITHUB_TOKEN;
       if (alt && alt !== token) {
-        console.log('Attempting PR creation with GH_PUBLISH_TOKEN fallback...');
+        console.log('Attempting PR creation with fallback token...');
         res = await tryCreatePR(alt, 'GH_PUBLISH_TOKEN');
         if (!res.ok) {
           const txt2 = await res.text();
-          console.error('Failed to create PR with GH_PUBLISH_TOKEN fallback:', res.status, txt2);
+          console.error('Failed to create PR with fallback token:', res.status, txt2);
           return 1;
         }
       } else {
