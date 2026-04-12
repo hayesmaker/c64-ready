@@ -11,7 +11,7 @@ const CONTROLS = [
 
 const SPECIAL_KEYS = [
   ['Run/Stop', 'Esc'],
-  ['Restore', 'Page Up'],
+  ['Restore', '(currently unsupported)'],
   ['Insert/Delete', 'Backspace or Delete'],
   ['Clear/Home', 'Home'],
   ['Commodore', 'Ctrl or Caps Lock'],
