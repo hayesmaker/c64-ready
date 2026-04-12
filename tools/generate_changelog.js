@@ -127,11 +127,11 @@ async function main() {
     const cliArgs = process.argv.slice(2);
     const cliCreatePr = cliArgs.includes('--create-pr');
     const ghEvent = process.env.GITHUB_EVENT_NAME || '';
-    const allowedEvents = ['release', 'workflow_dispatch', 'repository_dispatch'];
+    const allowedEvents = ['push', 'release', 'workflow_dispatch', 'repository_dispatch'];
     const eventAllowed = allowedEvents.includes(ghEvent);
 
     if (!(process.env.CREATE_CHANGELOG_PR === 'true' && cliCreatePr && eventAllowed)) {
-      console.log('Automatic changelog PR creation disabled. To enable, set CREATE_CHANGELOG_PR=true, pass --create-pr to the script, and trigger from a release or manual workflow.');
+      console.log('Automatic changelog PR creation disabled. To enable, set CREATE_CHANGELOG_PR=true, pass --create-pr to the script, and trigger from push/release/manual workflow.');
       return 0;
     }
 
@@ -190,4 +190,3 @@ async function main() {
 }
 
 main().then((code) => process.exit(code)).catch((err) => { console.error(err); process.exit(2); });
-

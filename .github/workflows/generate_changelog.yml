@@ -23,17 +23,18 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Run changelog generator
+      - name: Run changelog generator (push event)
+        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_PUBLISH_TOKEN: ${{ secrets.GH_PUBLISH_TOKEN }}
-          # Do NOT set CREATE_CHANGELOG_PR for push-triggered runs to avoid auto PRs
+          CREATE_CHANGELOG_PR: true
         run: |
           node --version
           npm ci --no-audit --no-fund || true
-          # On push events we only write the changelog locally (no PR)
-          node tools/generate_changelog.js --local
+          # On push to master, create/update a changelog PR.
+          node tools/generate_changelog.js --create-pr
 
       # For release-triggered events, run the generator in PR-creation mode.
       - name: Run changelog generator (release event)

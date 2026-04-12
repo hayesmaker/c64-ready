@@ -32,6 +32,7 @@ jobs:
 
       - name: Sync docs and generate Home.md
         run: |
+          rm -f wiki/*.md
           cp docs/*.md wiki/
           cp CHANGELOG.md wiki/
           cd wiki
@@ -54,7 +55,7 @@ jobs:
           [ -f PROJECT_OVERVIEW.md ] && emit_link PROJECT_OVERVIEW.md
 
           # All other docs alphabetically, excluding pinned files
-          for f in $(ls *.md | sort); do
+          for f in $(printf '%s\n' *.md | sort); do
             [ "$f" = "Home.md" ]          && continue
             [ "$f" = "PROJECT_OVERVIEW.md" ] && continue
             [ "$f" = "CHANGELOG.md" ]     && continue
