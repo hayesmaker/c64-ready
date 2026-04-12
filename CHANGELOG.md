@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #46 from hayesmaker/chore/update-changelog-2026-04-12T06-55-05-920Z-950b3e8 (6721cff)
+- chore: update changelog (auto) (950b3e8)
 - Merge pull request #45 from hayesmaker/fix/changelog-ci-checks (4ecc113)
 - fix(ci): allow changelog PR checks to run (898a459)
 - Merge pull request #43 from hayesmaker/chore/fix-workflows (2a84b9a)
