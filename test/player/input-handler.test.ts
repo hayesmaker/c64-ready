@@ -13,9 +13,12 @@ describe('InputHandler (capture blocking)', () => {
     const emulator = {
       joystickPush: vi.fn(),
       joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
     } as any;
 
     const input = new InputHandler(emulator, window as any);
+    input.setInputMode('joystick');
     input.attach();
 
     // Show overlay that should block input
@@ -42,9 +45,12 @@ describe('InputHandler (capture blocking)', () => {
     const emulator = {
       joystickPush: vi.fn(),
       joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
     } as any;
 
     const input = new InputHandler(emulator, window as any);
+    input.setInputMode('joystick');
     input.attach();
 
     // Simulate unfocused tab via document.hidden (preferred in our logic)
@@ -66,9 +72,12 @@ describe('InputHandler (capture blocking)', () => {
     const emulator = {
       joystickPush: vi.fn(),
       joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
     } as any;
 
     const input = new InputHandler(emulator, window as any);
+    input.setInputMode('joystick');
     input.attach();
 
     const ev = new KeyboardEvent('keydown', { code: 'KeyA', cancelable: true });
@@ -81,4 +90,3 @@ describe('InputHandler (capture blocking)', () => {
     input.detach();
   });
 });
-

@@ -108,6 +108,13 @@ and native snapshots (`.c64`, `.snapshot`, `.s64`).
 
 Note: VICE `.vsf` snapshots are currently disabled in the browser runtime.
 
+### Keyboard limitations (current WASM build)
+
+- The C64 `RESTORE` key is currently not functional in this build.
+- We verified browser key mapping for `Page Up` is received, but the underlying
+  WASM core does not appear to trigger restore behavior from key input.
+- Treat this as a runtime limitation of the shipped binary for now.
+
 ### Environment variables
 
 All options live in `docker/.env` (copy from `docker/.env.example`). See that file for
@@ -540,9 +547,10 @@ On every push to `master`:
 - [x] Docker headless streaming (RTMP / HTTP-FLV via Node Media Server)
 - [ ] Gamepad support
 - [ ] Touch controls
-- [ ] Loading more game formats (e.g., .d64 disk images)
+- [ ] Mobile Layout
+- [x] Loading more game formats (e.g., .d64 disk images)
 - [ ] Performance optimizations (e.g., offscreen canvas, audio worklets)
-- [ ] Fix creeping video jitter (currently starts at 100ms and grows over time)
+- [ ] Jitter creep - frame timing optimizations for smoother rendering
 
 ## Changelog & Releases
 

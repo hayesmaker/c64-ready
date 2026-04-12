@@ -89,6 +89,26 @@ window.addEventListener('c64-load-file', async (e: Event) => {
   }
 });
 
+window.addEventListener('c64-load-tool', async (e: Event) => {
+  const detail = (e as CustomEvent).detail as
+    | { name?: string; url?: string; type?: string }
+    | undefined;
+  if (!detail?.url) return;
+  const loadType = isSupportedLoadType(detail.type) ? detail.type : undefined;
+  try {
+    status.textContent = `Loading tool: ${detail.name ?? detail.url}`;
+    status.style.color = '#9ecbff';
+    renderer.showLoader();
+    await player.loadTool(detail.url, loadType);
+    renderer.hideLoader();
+  } catch (err) {
+    console.error(err);
+    renderer.setError('LOAD ERROR');
+    status.textContent = `Tool load error: ${err}`;
+    status.style.color = '#f44';
+  }
+});
+
 // Global listener for load errors dispatched by C64Player
 window.addEventListener('c64-load-error', (e: Event) => {
   const detail = (e as CustomEvent).detail as

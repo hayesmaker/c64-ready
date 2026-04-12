@@ -14,6 +14,7 @@ describe('EmulatorInput', () => {
     } as any;
 
     const input = new EmulatorInput(emulator, window);
+    input.setInputMode('joystick');
     input.attach();
 
     const down = new KeyboardEvent('keydown', { code: 'ArrowLeft', cancelable: true });
@@ -36,6 +37,7 @@ describe('EmulatorInput', () => {
     } as any;
 
     const input = new EmulatorInput(emulator, window);
+    input.setInputMode('joystick');
     input.attach();
 
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ControlLeft', cancelable: true }));
@@ -57,6 +59,7 @@ describe('EmulatorInput', () => {
     } as any;
 
     const input = new EmulatorInput(emulator, window);
+    input.setInputMode('joystick');
     input.attach();
 
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp', cancelable: true }));
@@ -68,4 +71,3 @@ describe('EmulatorInput', () => {
     expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
   });
 });
-
