@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #55 from hayesmaker/chore/ghcr-c64-live-workflow (f10e09f)
+- Merge branch 'chore/docker-env-defaults' into chore/ghcr-c64-live-workflow (2f449d3)
+- chore(ci): publish c64-live image to ghcr (595f04d)
+- chore(docker): add headless runtime env defaults (b6ed581)
+- Merge pull request #52 from hayesmaker/chore/docker-ephemeral-headless (c92e065)
+- chore(docker): bake headless runtime and remove dev bind mounts (1bb8803)
+- Merge pull request #50 from hayesmaker/chore/docker-package-link (14c04da)
+- chore: link docker package to repo (81789df)
+- Merge pull request #48 from hayesmaker/fix/changelog-ci-checks (dcd8599)
+- fix(ci): skip changelog workflow on changelog-only pushes (3d7368a)
+- Merge pull request #46 from hayesmaker/chore/update-changelog-2026-04-12T06-55-05-920Z-950b3e8 (6721cff)
+- chore: update changelog (auto) (950b3e8)
 - Merge pull request #45 from hayesmaker/fix/changelog-ci-checks (4ecc113)
 - fix(ci): allow changelog PR checks to run (898a459)
 - Merge pull request #43 from hayesmaker/chore/fix-workflows (2a84b9a)
