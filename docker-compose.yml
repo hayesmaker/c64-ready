@@ -14,7 +14,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
-
   # ── Headless C64 player ─────────────────────────────────────────────────────
   headless:
     build:
@@ -34,18 +33,10 @@ services:
       - path: docker/.env
         required: false
     ports:
-      - "${WS_HOST_PORT:-9001}:9001"              # WebSocket input server
-      - "${WEBRTC_HOST_PORT:-9002}:9002"           # WebRTC player page + signalling
-      - "50000-50100:50000-50100/udp"              # ICE/SRTP UDP port range
-    # Bind-mount the WASM binary and games folder from the host so you can
-    # swap cartridges without rebuilding the image.
-    # src/headless and bin are also bind-mounted so source edits take effect
-    # with `docker compose restart headless` — no rebuild required.
+      - '${WS_HOST_PORT:-9001}:9001' # WebSocket input server
+      - '${WEBRTC_HOST_PORT:-9002}:9002' # WebRTC player page + signalling
+      - '50000-50100:50000-50100/udp' # ICE/SRTP UDP port range
+    # Keep only logs on a bind mount. Runtime code + public assets are baked
+    # into the image by docker/Dockerfile.headless.
     volumes:
-      - ./public/c64.wasm:/app/public/c64.wasm:ro
-      - ./public/games:/app/public/games:ro
-      - ./src/headless:/app/src/headless:ro
-      - ./src/emulator:/app/src/emulator:ro
-      - ./bin:/app/bin:ro
       - ./logs:/app/logs
-
