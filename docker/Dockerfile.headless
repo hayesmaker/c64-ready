@@ -18,6 +18,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:24-slim AS base
 
+LABEL org.opencontainers.image.source=https://github.com/hayesmaker/c64-ready
+
 # ffmpeg is required by the headless CLI for encoding/streaming
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
