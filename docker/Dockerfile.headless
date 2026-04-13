@@ -66,12 +66,25 @@ RUN chmod +x ./entrypoint.sh
 
 # ── Runtime config defaults ───────────────────────────────────────────────────
 # All values can be overridden via environment variables or docker-compose.yml.
+# Defaults mirror docker/.env.example so standalone docker run behaves similarly.
 ENV WASM_PATH=/app/public/c64.wasm
 ENV GAME_PATH=""
 ENV RTMP_URL=rtmp://nms:1935/live/c64
+ENV INPUT_ENABLED=""
 ENV FPS=50
 ENV DURATION=""
 ENV AUDIO=""
 ENV VERBOSE=""
+ENV LOG_EVENTS=1
+ENV LOG_FILE=1
+ENV LOG_RETAIN_DAYS=7
+ENV WEBRTC_ENABLED=1
+ENV WEBRTC_PORT=9002
+ENV WS_PORT=9001
+ENV MAX_SPECTATORS=3
+ENV WEBRTC_MIN_BITRATE_KBPS=200
+ENV WEBRTC_MAX_BITRATE_KBPS=600
+ENV WEBRTC_OUTPUT_FPS=50
+ENV C64_ADMIN_TOKEN=""
 
 ENTRYPOINT ["./entrypoint.sh"]
