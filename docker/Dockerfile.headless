@@ -2,17 +2,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Headless C64 Player
 #
-# Runs bin/headless.mjs inside the repo, streaming RGBA frames over RTMP via
-# ffmpeg.  The WASM binary and optional cartridge are bind-mounted in at
-# runtime (see docker-compose.yml).
+# Runs bin/headless.mjs with runtime code, build artifacts, and all public/
+# assets baked into the image for ephemeral server usage.
 #
 # Build:
 #   docker compose build headless
 #
 # Run standalone (no compose):
 #   docker run --rm \
-#     -v $(pwd)/public:/app/public:ro \
-#     -v $(pwd)/public/games:/app/public/games:ro \
+#     -p 9002:9002 -p 9001:9001 -p 50000-50100:50000-50100/udp \
 #     -e RTMP_URL=rtmp://nms:1935/live/c64 \
 #     c64-ready-headless
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,17 +25,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# ── Install JS dependencies ───────────────────────────────────────────────────
+# ── Runtime dependencies ──────────────────────────────────────────────────────
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# ── Copy source files needed by the headless runner ───────────────────────────
+FROM node:24-slim AS builder
+
+WORKDIR /app
+
+# ── Build dependencies + headless TypeScript build ───────────────────────────
+COPY package.json package-lock.json tsconfig.build.json ./
+COPY src/ ./src/
+RUN npm ci
+RUN npm run headless:build
+
+FROM base AS runtime
+
+WORKDIR /app
+
+# ── Runtime files + baked assets/build output ─────────────────────────────────
 COPY bin/           ./bin/
 COPY src/headless/  ./src/headless/
 COPY src/emulator/  ./src/emulator/
 COPY src/types/     ./src/types/
-# Public assets (wasm + games) are expected to be bind-mounted at runtime.
-# Copy them here as well so the image can run standalone without mounts.
+COPY --from=builder /app/dist-ts/ ./dist-ts/
 COPY public/        ./public/
 
 # ── Bake git hash into the image ──────────────────────────────────────────────
@@ -45,7 +56,7 @@ COPY public/        ./public/
 #   docker compose build --build-arg GIT_HASH=$(git rev-parse --short HEAD)
 # docker-compose.yml passes this automatically via the args block.
 # The hash is written to /app/.git-hash so headless-cli.mjs can read it
-# at runtime without needing git or the .git directory in the container.
+# at runtime without needing git or the .git directory in the image.
 ARG GIT_HASH=unknown
 RUN echo "$GIT_HASH" > /app/.git-hash
 
@@ -64,4 +75,3 @@ ENV AUDIO=""
 ENV VERBOSE=""
 
 ENTRYPOINT ["./entrypoint.sh"]
-
