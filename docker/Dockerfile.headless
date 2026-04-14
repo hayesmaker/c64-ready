@@ -87,4 +87,4 @@ ENV WEBRTC_MAX_BITRATE_KBPS=600
 ENV WEBRTC_OUTPUT_FPS=50
 ENV C64_ADMIN_TOKEN=""
 
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
