@@ -66,6 +66,7 @@ jobs:
             type=sha,format=short,prefix=sha-
 
       - name: Build and push image
+        id: build_push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -79,3 +80,6 @@ jobs:
             GIT_HASH=${{ steps.vars.outputs.short_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Print published digest
+        run: echo "Published digest: ${{ steps.build_push.outputs.digest }}"

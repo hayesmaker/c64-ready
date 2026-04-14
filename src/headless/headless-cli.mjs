@@ -806,7 +806,9 @@ export async function runHeadless(options = {}) {
     const EVENT_LOOP_LOG_MS = 5000;
     eventLoopLogTimer = setInterval(() => {
       const lag = eventLoopMonitor ? eventLoopMonitor.min / 1e6 : 0; // ms
-      if (lag > 5 && (logEvents || verbose)) { // only log if >5ms lag
+      // Keep event-loop lag diagnostics behind --verbose only. These can be
+      // noisy in steady-state and are intended for performance debugging.
+      if (lag > 5 && verbose) { // only log if >5ms lag
         console.error(`[event] event-loop-lag min=${lag.toFixed(2)}ms`);
       }
       if (eventLoopMonitor) eventLoopMonitor.reset();
@@ -1128,7 +1130,8 @@ export async function runHeadless(options = {}) {
         if (driftPct > 10) {
           console.error(`[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`);
         }
-        if (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0) {
+        // Keep per-window drop telemetry behind --verbose only.
+        if (verbose && (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0)) {
           console.error(`[event] webrtc-video-drop sent=${videoFramesSent} late=${videoFramesDroppedLateWindow} cap=${videoFramesDroppedCapWindow} totalLate=${videoFramesDroppedLate} totalCap=${videoFramesDroppedCap} fpsCap=${webrtcSendFps}`);
         }
       }
