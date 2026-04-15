@@ -92,5 +92,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Verify published image by digest
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build_push.outputs.digest }}"
+          REF="ghcr.io/${{ github.repository_owner }}/c64-live@${DIGEST}"
+          echo "Verifying pushed image: ${REF}"
+          docker pull "$REF"
+          docker run --rm --entrypoint sh "$REF" -c '
+            set -e
+            for f in /app/entrypoint.sh /app/bin/admin.mjs /app/bin/headless.mjs /app/bin/serve.mjs; do
+              test -s "$f" || { echo "::error::missing or empty runtime file: $f"; ls -l "$f" || true; exit 1; }
+            done
+            wc -c /app/entrypoint.sh /app/bin/*.mjs
+          '
+
       - name: Print published digest
         run: 'echo "Published digest: ${{ steps.build_push.outputs.digest }}"'
