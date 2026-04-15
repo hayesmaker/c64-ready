@@ -324,5 +324,76 @@ describe('input-server', () => {
     hostWs.close();
     p2Ws.close();
   });
-});
 
+  it('reserves P2 slot during reconnect grace and allows same username to reclaim it', async () => {
+    const port = nextPort();
+
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      p2ReconnectGraceMs: 300,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'grace' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: p2Ws } = await connect(port);
+    send(p2Ws, { type: 'join-p2-open', username: 'heidi' });
+    await nextMsg(p2Ws, (m) => m.type === 'join-p2-confirmed');
+
+    p2Ws.close();
+
+    const { ws: takeoverWs } = await connect(port);
+    send(takeoverWs, { type: 'join-p2-open', username: 'mallory' });
+    const blocked = await nextMsg(takeoverWs, (m) => m.type === 'join-p2-error');
+    expect(blocked.reason).toBe('slot-taken');
+
+    const { ws: p2RejoinWs } = await connect(port);
+    send(p2RejoinWs, { type: 'join-p2-open', username: 'heidi' });
+    const rejoined = await nextMsg(p2RejoinWs, (m) => m.type === 'join-p2-confirmed');
+    expect(rejoined.username).toBe('heidi');
+
+    hostWs.close();
+    takeoverWs.close();
+    p2RejoinWs.close();
+  });
+
+  it('re-opens P2 slot after reconnect grace expires without rejoin', async () => {
+    const port = nextPort();
+
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      p2ReconnectGraceMs: 120,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'grace' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: p2Ws } = await connect(port);
+    send(p2Ws, { type: 'join-p2-open', username: 'heidi' });
+    await nextMsg(p2Ws, (m) => m.type === 'join-p2-confirmed');
+
+    p2Ws.close();
+
+    const { ws: blockedWs } = await connect(port);
+    send(blockedWs, { type: 'join-p2-open', username: 'mallory' });
+    const blocked = await nextMsg(blockedWs, (m) => m.type === 'join-p2-error');
+    expect(blocked.reason).toBe('slot-taken');
+
+    await new Promise((r) => setTimeout(r, 180));
+
+    const { ws: afterGraceWs } = await connect(port);
+    send(afterGraceWs, { type: 'join-p2-open', username: 'mallory' });
+    const joinedAfterGrace = await nextMsg(afterGraceWs, (m) => m.type === 'join-p2-confirmed');
+    expect(joinedAfterGrace.username).toBe('mallory');
+
+    hostWs.close();
+    blockedWs.close();
+    afterGraceWs.close();
+  });
+});
