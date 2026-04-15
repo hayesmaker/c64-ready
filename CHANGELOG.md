@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #69 from hayesmaker/fix/publish-workflow-path-filter (ccde90e)
+- fix: preserve p2 reconnects and default headless audio (bc24059)
+- Merge pull request #68 from hayesmaker/chore/update-changelog-2026-04-15T09-18-20-311Z-2c36723 (6a0dbf7)
+- chore: update changelog (auto) (2c36723)
 - Merge pull request #67 from hayesmaker/fix/publish-workflow-path-filter (1d505cf)
 - fix(ci): skip c64-live publish on changelog-only merges (529f818)
 - Merge pull request #66 from hayesmaker/chore/update-changelog-2026-04-15T08-19-12-836Z-962ea21 (7eff2ba)
