@@ -119,6 +119,7 @@ export function createInputServer(opts = {}) {
 
   const wss = new WebSocketServer({ port });
   const HOST_RECONNECT_GRACE = opts.hostReconnectGraceMs ?? 8_000;
+  const P2_RECONNECT_GRACE = opts.p2ReconnectGraceMs ?? HOST_RECONNECT_GRACE;
 
   // ── Room state ────────────────────────────────────────────────────────────
   let hostClient    = null;
@@ -140,6 +141,8 @@ export function createInputServer(opts = {}) {
   // HOST_RECONNECT_GRACE ms, giving the host a chance to refresh and reclaim.
   let graceTimer          = null;
   let pendingHostUsername = null;  // username of the disconnected host
+  let p2GraceTimer        = null;
+  let pendingP2Username   = null;
   // Currently loaded cartridge filename (for hello message to late joiners).
   // Seeded from opts.initialCartFilename when a default game is pre-loaded.
   let currentCartFilename = opts.initialCartFilename ?? null;
@@ -188,6 +191,7 @@ export function createInputServer(opts = {}) {
     setWsIdentity(p2Client, 'spectator', null);
     p2Client      = null;
     p2Username    = null;
+    clearP2Grace();
     clearP2Timeout();
     broadcastAll({ type: 'player2-left', username: leaving, reason: 'timeout' });
     broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
@@ -197,6 +201,11 @@ export function createInputServer(opts = {}) {
   function clearGrace() {
     if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
     pendingHostUsername = null;
+  }
+
+  function clearP2Grace() {
+    if (p2GraceTimer) { clearTimeout(p2GraceTimer); p2GraceTimer = null; }
+    pendingP2Username = null;
   }
 
   // Called when grace expires without the host reconnecting.
@@ -219,6 +228,24 @@ export function createInputServer(opts = {}) {
     // Tell everyone the host is temporarily gone; P2 should wait before acting.
     broadcastAll({ type: 'host-disconnected', username: leaving, graceMs: HOST_RECONNECT_GRACE });
     graceTimer = setTimeout(expireGrace, HOST_RECONNECT_GRACE);
+  }
+
+  function expireP2Grace() {
+    p2GraceTimer      = null;
+    const leaving     = pendingP2Username;
+    pendingP2Username = null;
+    if (verbose) console.error(`[input-server] p2 grace expired for ${leaving}`);
+    logEv('p2-grace-expired', { username: leaving });
+    broadcastAll({ type: 'player2-left', username: leaving, reason: 'disconnect' });
+    broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+  }
+
+  function onP2Disconnect(leaving) {
+    clearP2Grace();
+    pendingP2Username = leaving;
+    if (verbose) console.error(`[input-server] player2 ${leaving} disconnected — grace ${P2_RECONNECT_GRACE}ms`);
+    logEv('p2-disconnected', { username: leaving, graceMs: P2_RECONNECT_GRACE });
+    p2GraceTimer = setTimeout(expireP2Grace, P2_RECONNECT_GRACE);
   }
 
   function kickHostForInactivity() {
@@ -279,6 +306,7 @@ export function createInputServer(opts = {}) {
       try { targetWs.send(JSON.stringify({ type: 'kicked', reason })); } catch (_) {}
     }
     clearP2Timeout();
+    clearP2Grace();
     p2Client = null;
     p2Username = null;
     setWsIdentity(targetWs, 'spectator', null);
@@ -304,7 +332,8 @@ export function createInputServer(opts = {}) {
   // True when the P2 slot is available for open joining
   function isP2SlotOpen() {
     return !!(hostClient && hostClient.readyState === hostClient.OPEN)
-        && !(p2Client   && p2Client.readyState   === p2Client.OPEN);
+        && !(p2Client   && p2Client.readyState   === p2Client.OPEN)
+        && !p2GraceTimer;
   }
 
   let clientCount = 0;
@@ -559,7 +588,7 @@ export function createInputServer(opts = {}) {
       // ── Host issues a player-2 invite ─────────────────────────────────────
       if (msg.type === 'invite-p2') {
         if (ws !== hostClient) return;
-        if (p2Client && p2Client.readyState === p2Client.OPEN) {
+        if ((p2Client && p2Client.readyState === p2Client.OPEN) || p2GraceTimer) {
           ws.send(JSON.stringify({ type: 'invite-p2-error', reason: 'slot-taken' }));
           logEv('invite-p2-rejected', { reason: 'slot-taken' });
           return;
@@ -583,12 +612,24 @@ export function createInputServer(opts = {}) {
           logEv('p2-join-rejected', { reason: 'slot-taken', username: msg.username ?? 'player2' });
           return;
         }
+        const requestedUsername = msg.username ?? 'player2';
+        const isRejoin = !!p2GraceTimer && pendingP2Username === requestedUsername;
+        if (p2GraceTimer && !isRejoin) {
+          ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'slot-taken' }));
+          logEv('p2-join-rejected', {
+            reason: 'slot-pending-rejoin',
+            username: requestedUsername,
+            pending: pendingP2Username ?? '-',
+          });
+          return;
+        }
+        if (isRejoin) clearP2Grace();
         if (ws === hostClient) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'already-host' }));
           return;
         }
         p2Client    = ws;
-        p2Username  = msg.username ?? 'player2';
+        p2Username  = requestedUsername;
         inviteToken = null;
         setWsIdentity(ws, 'p2', p2Username);
         ws.send(JSON.stringify({
@@ -597,8 +638,14 @@ export function createInputServer(opts = {}) {
         broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: p2Port() });
         // Notify all clients that the slot is now taken
         broadcastAll({ type: 'p2-slot-status', open: false });
-        if (verbose) console.error(`[input-server] player2 open-joined: ${p2Username}`);
-        logEv('p2-joined', { username: p2Username, joystickPort: p2Port(), method: 'open' });
+        if (verbose) {
+          console.error(`[input-server] player2 ${isRejoin ? 're' : ''}joined (open): ${p2Username}`);
+        }
+        logEv(isRejoin ? 'p2-rejoined' : 'p2-joined', {
+          username: p2Username,
+          joystickPort: p2Port(),
+          method: 'open',
+        });
         resetP2Timeout();
         return;
       }
@@ -614,8 +661,20 @@ export function createInputServer(opts = {}) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'slot-taken' }));
           return;
         }
+        const requestedUsername = msg.username ?? 'player2';
+        const isRejoin = !!p2GraceTimer && pendingP2Username === requestedUsername;
+        if (p2GraceTimer && !isRejoin) {
+          ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'slot-taken' }));
+          logEv('p2-join-rejected', {
+            reason: 'slot-pending-rejoin',
+            username: requestedUsername,
+            pending: pendingP2Username ?? '-',
+          });
+          return;
+        }
+        if (isRejoin) clearP2Grace();
         p2Client    = ws;
-        p2Username  = msg.username ?? 'player2';
+        p2Username  = requestedUsername;
         inviteToken = null;
         setWsIdentity(ws, 'p2', p2Username);
         ws.send(JSON.stringify({
@@ -623,8 +682,14 @@ export function createInputServer(opts = {}) {
         }));
         broadcastExcept(ws, { type: 'player2-joined', username: p2Username, joystickPort: p2Port() });
         broadcastAll({ type: 'p2-slot-status', open: false });
-        if (verbose) console.error(`[input-server] player2 joined: ${p2Username}`);
-        logEv('p2-joined', { username: p2Username, joystickPort: p2Port(), method: 'token' });
+        if (verbose) {
+          console.error(`[input-server] player2 ${isRejoin ? 're' : ''}joined (token): ${p2Username}`);
+        }
+        logEv(isRejoin ? 'p2-rejoined' : 'p2-joined', {
+          username: p2Username,
+          joystickPort: p2Port(),
+          method: 'token',
+        });
         resetP2Timeout();
         return;
       }
@@ -637,11 +702,15 @@ export function createInputServer(opts = {}) {
           p2Client.send(JSON.stringify({ type: 'kicked' }));
         }
         const leaving = p2Username;
+        const pendingLeaving = pendingP2Username;
         clearP2Timeout();
+        clearP2Grace();
         p2Client      = null;
         p2Username    = null;
         setWsIdentity(ws, 'spectator', null);
-        if (leaving) broadcastAll({ type: 'player2-left', username: leaving });
+        if (leaving || pendingLeaving) {
+          broadcastAll({ type: 'player2-left', username: leaving ?? pendingLeaving, reason: 'revoked' });
+        }
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
         if (verbose) console.error(`[input-server] p2 revoked by host`);
         logEv('p2-kicked', { username: leaving ?? '?', by: 'host' });
@@ -948,10 +1017,7 @@ export function createInputServer(opts = {}) {
         p2Client     = null;
         const leaving = p2Username;
         p2Username    = null;
-        if (verbose) console.error(`[input-server] player2 ${leaving} disconnected`);
-        logEv('p2-disconnected', { username: leaving, total: clientCount });
-        broadcastExcept(ws, { type: 'player2-left', username: leaving });
-        broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+        onP2Disconnect(leaving);
       }
       clientMeta.delete(ws);
     });
@@ -974,6 +1040,7 @@ export function createInputServer(opts = {}) {
       hostTaken:           hostActive,
       hostPendingRejoin:   !hostActive && !!graceTimer ? { username: pendingHostUsername, graceMs: HOST_RECONNECT_GRACE } : null,
       host:        hostActive ? { username: hostUsername, joystickPort: hostPort() } : null,
+      p2PendingRejoin:     !p2Client && !!p2GraceTimer ? { username: pendingP2Username, graceMs: P2_RECONNECT_GRACE } : null,
       player2:     p2Username ? { username: p2Username, joystickPort: p2Port() } : null,
       p2SlotOpen:  isP2SlotOpen(),
       portOverride: {
@@ -999,6 +1066,7 @@ export function createInputServer(opts = {}) {
     clearHostTimeout();
     clearP2Timeout();
     clearGrace();
+    clearP2Grace();
     if (_inputLogTimer) { clearInterval(_inputLogTimer); _inputLogTimer = null; }
     if (_latencyLogTimer) { clearInterval(_latencyLogTimer); _latencyLogTimer = null; }
     if (_networkStatsTimer) { clearInterval(_networkStatsTimer); _networkStatsTimer = null; }

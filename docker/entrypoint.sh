@@ -23,6 +23,11 @@ if [ "${WEBRTC_ENABLED}" = "1" ] || [ "${WEBRTC_ENABLED}" = "true" ]; then
   echo "[entrypoint] MODE: WebRTC  (player → http://0.0.0.0:${WEBRTC_PORT:-9002}/  input → ws://0.0.0.0:${WS_PORT:-9001}/)"
   ARGS="$ARGS --webrtc"
   ARGS="$ARGS --webrtc-port ${WEBRTC_PORT:-9002}"
+  # Keep --audio explicit in WebRTC mode for compatibility with older
+  # headless builds that only produce SID audio when the flag is set.
+  if [ "${AUDIO}" = "1" ] || [ "${AUDIO}" = "true" ]; then
+    ARGS="$ARGS --audio"
+  fi
   # Input is always enabled in WebRTC mode — the browser page connects to it.
   ARGS="$ARGS --input"
   ARGS="$ARGS --ws-port ${WS_PORT:-9001}"
