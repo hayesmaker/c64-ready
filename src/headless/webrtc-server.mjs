@@ -25,6 +25,54 @@ import wrtc from '@roamhq/wrtc';
 
 const { RTCPeerConnection } = wrtc;
 
+function parseCsvList(raw) {
+  return String(raw ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function buildIceServers({
+  iceStunUrls,
+  iceTurnUrls,
+  iceTurnUsername,
+  iceTurnPassword,
+  verbose = false,
+} = {}) {
+  const stunUrls = parseCsvList(iceStunUrls ?? process.env.ICE_STUN_URLS);
+  const turnUrls = parseCsvList(iceTurnUrls ?? process.env.ICE_TURN_URLS);
+  const turnUsername = String(iceTurnUsername ?? process.env.ICE_TURN_USERNAME ?? '').trim();
+  const turnPassword = String(iceTurnPassword ?? process.env.ICE_TURN_PASSWORD ?? '').trim();
+
+  const iceServers = [];
+  if (stunUrls.length > 0) {
+    iceServers.push({ urls: stunUrls });
+  }
+
+  if (turnUrls.length > 0 && turnUsername && turnPassword) {
+    iceServers.push({
+      urls: turnUrls,
+      username: turnUsername,
+      credential: turnPassword,
+    });
+  } else if (turnUrls.length > 0 && verbose) {
+    console.error('[webrtc] ICE_TURN_URLS provided without ICE_TURN_USERNAME/ICE_TURN_PASSWORD; skipping TURN');
+  }
+
+  if (iceServers.length === 0) {
+    iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
+  }
+
+  if (verbose) {
+    const stunCount = stunUrls.length;
+    const turnCount = turnUrls.length;
+    const turnEnabled = turnUrls.length > 0 && turnUsername && turnPassword;
+    console.error(`[webrtc] ICE config stunUrls=${stunCount} turnUrls=${turnCount} turnEnabled=${turnEnabled ? 'yes' : 'no'}`);
+  }
+
+  return iceServers;
+}
+
 /**
  * @param {object}   opts
  * @param {number}   [opts.port=9002]          HTTP + WS listen port
@@ -38,6 +86,10 @@ const { RTCPeerConnection } = wrtc;
  *                                               a { type: 'capacity-full' } message.
  * @param {number}   [opts.minBitrateKbps=200]  SDP x-google-min-bitrate for VP8 answer
  * @param {number}   [opts.maxBitrateKbps=600]  SDP x-google-max-bitrate for VP8 answer
+ * @param {string|string[]} [opts.iceStunUrls]  Optional STUN URL list
+ * @param {string|string[]} [opts.iceTurnUrls]  Optional TURN URL list
+ * @param {string} [opts.iceTurnUsername]        Optional TURN username
+ * @param {string} [opts.iceTurnPassword]        Optional TURN credential/password
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
  *   Called synchronously when an SDP offer arrives, BEFORE createAnswer().
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
@@ -53,9 +105,21 @@ export function createWebRTCServer({
   maxSpectators = 3,
   minBitrateKbps = 200,
   maxBitrateKbps = 600,
+  iceStunUrls,
+  iceTurnUrls,
+  iceTurnUsername,
+  iceTurnPassword,
   onOffer,
   onPeerConnected,
 } = {}) {
+  const iceServers = buildIceServers({
+    iceStunUrls,
+    iceTurnUrls,
+    iceTurnUsername,
+    iceTurnPassword,
+    verbose,
+  });
+
   /** Emit a structured [event] line — same format as input-server.mjs. */
   function logEv(tag, fields = {}) {
     if (!logEvents) return;
@@ -333,7 +397,7 @@ export function createWebRTCServer({
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe));
+      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe, iceServers));
     } else if (req.url === '/favicon.ico') {
       // Return a minimal 1×1 transparent ICO so browsers don't log a 404
       res.writeHead(204);
@@ -406,9 +470,7 @@ export function createWebRTCServer({
     logEv('webrtc-peer-connected', { addr: remoteAddr });
     logLoadSnapshot('webrtc-load-change', { reason: 'peer-connected' });
 
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const pc = new RTCPeerConnection({ iceServers });
     const controller = {
       pc,
       ws,
@@ -717,9 +779,10 @@ export function createWebRTCServer({
 }
 
 // ─── Embedded browser-side player page ──────────────────────────────────────
-function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600) {
+function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600, iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]) {
   const minKbps = Math.max(50, Math.round(minBitrateKbps));
   const maxKbps = Math.max(minKbps, Math.round(maxBitrateKbps));
+  const iceServersJson = JSON.stringify(iceServers).replace(/</g, '\\u003c');
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -851,6 +914,7 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
     const syncBtn     = document.getElementById('sync-btn');
     const modeBtn     = document.getElementById('mode-btn');
     const fileInput   = document.getElementById('file-input');
+    const ICE_SERVERS = ${iceServersJson};
 
     function setBadge(el, text, cls) {
       el.textContent = text;
@@ -994,7 +1058,7 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600)
       const sigUrl = new URL('ws://' + location.host);
       sigUrl.searchParams.set('sid', rtcSessionId);
       sigWs = new WebSocket(sigUrl.toString());
-      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       let offerSent = false;
       const pendingLocalCandidates = [];
       const pendingRemoteCandidates = [];

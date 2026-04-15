@@ -82,4 +82,4 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Print published digest
-        run: echo "Published digest: ${{ steps.build_push.outputs.digest }}"
+        run: 'echo "Published digest: ${{ steps.build_push.outputs.digest }}"'
