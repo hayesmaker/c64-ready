@@ -3,6 +3,17 @@ name: Publish c64-live image
 on:
   push:
     branches: [master]
+    paths:
+      - 'docker/Dockerfile.headless'
+      - 'docker/entrypoint.sh'
+      - 'bin/**'
+      - 'src/headless/**'
+      - 'src/emulator/**'
+      - 'src/types/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/publish_c64_live_image.yml'
   workflow_dispatch:
 
 permissions:
