@@ -284,6 +284,7 @@ export default class UIController {
             <div class="c64-system-actions">
               <button class="c64-btn" id="c64-detach-btn">Detach Cartridge</button>
               <button class="c64-btn" id="c64-reset-btn">Hard Reset</button>
+              <button class="c64-btn" id="c64-reboot-btn">Reboot Emulator</button>
             </div>
           </section>
         </div>
@@ -298,10 +299,10 @@ export default class UIController {
     // The settings overlay is the overlay we just created
     this.settingsOverlay = overlay;
 
-    const tabButtons = panel.querySelectorAll('[data-settings-tab]') as NodeListOf<HTMLButtonElement>;
-    const sectionEls = panel.querySelectorAll(
-      '[data-settings-section]'
-    ) as NodeListOf<HTMLElement>;
+    const tabButtons = panel.querySelectorAll(
+      '[data-settings-tab]',
+    ) as NodeListOf<HTMLButtonElement>;
+    const sectionEls = panel.querySelectorAll('[data-settings-section]') as NodeListOf<HTMLElement>;
 
     const activateSection = (sectionId: string) => {
       tabButtons.forEach((tab) => {
@@ -409,12 +410,11 @@ export default class UIController {
     };
 
     const parseManifest = (raw: unknown): ToolItem[] => {
-      const entries: unknown[] =
-        Array.isArray(raw)
-          ? raw
-          : raw && typeof raw === 'object' && Array.isArray((raw as { tools?: unknown[] }).tools)
-            ? (raw as { tools: unknown[] }).tools
-            : [];
+      const entries: unknown[] = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === 'object' && Array.isArray((raw as { tools?: unknown[] }).tools)
+          ? (raw as { tools: unknown[] }).tools
+          : [];
 
       return entries
         .map((entry) => {
@@ -433,7 +433,10 @@ export default class UIController {
             .map((part) => encodeURIComponent(part))
             .join('/');
           const normalizedPath = encodedPath.replace(/^\/+/, '');
-          const url = `${import.meta.env.BASE_URL}tools/${normalizedPath}`.replace(/([^:]\/)\/+/, '$1');
+          const url = `${import.meta.env.BASE_URL}tools/${normalizedPath}`.replace(
+            /([^:]\/)\/+/,
+            '$1',
+          );
           return { name: filename, url, type } satisfies ToolItem;
         })
         .filter((v): v is ToolItem => !!v);
@@ -472,6 +475,7 @@ export default class UIController {
     // Detach cartridge / hard reset controls
     const detachBtn = section?.querySelector('#c64-detach-btn') as HTMLButtonElement | null;
     const resetBtn = section?.querySelector('#c64-reset-btn') as HTMLButtonElement | null;
+    const rebootBtn = section?.querySelector('#c64-reboot-btn') as HTMLButtonElement | null;
     if (detachBtn) {
       detachBtn.addEventListener('click', () => {
         if (!this.player) return;
@@ -492,6 +496,27 @@ export default class UIController {
         const statusEl = document.getElementById('status');
         if (statusEl) {
           statusEl.textContent = 'Hard reset performed';
+        }
+      });
+    }
+    if (rebootBtn) {
+      rebootBtn.addEventListener('click', async () => {
+        if (!this.player) return;
+        if (!confirm('Perform full reboot? This re-instantiates the emulator with no game loaded.'))
+          return;
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+          statusEl.textContent = 'Rebooting emulator...';
+        }
+        try {
+          await this.player.reboot();
+          if (statusEl) {
+            statusEl.textContent = 'Emulator rebooted (no game loaded)';
+          }
+        } catch (err) {
+          if (statusEl) {
+            statusEl.textContent = `Reboot failed: ${String((err as Error)?.message ?? err)}`;
+          }
         }
       });
     }

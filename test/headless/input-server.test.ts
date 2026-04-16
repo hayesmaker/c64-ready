@@ -13,7 +13,6 @@ import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 
 // Dynamic import so the ES module resolves in Vitest's Node context.
-// @ts-expect-error — no declaration file for .mjs
 const { createInputServer } = await import('../../src/headless/input-server.mjs');
 
 /** Open a WS connection and return the first message received (the hello). */
@@ -70,7 +69,9 @@ function collectMsgs(ws: WebSocket, windowMs: number): Promise<any[]> {
 
 // Use a unique port per test to avoid bind conflicts when tests run in parallel.
 let portCounter = 19100;
-function nextPort() { return portCounter++; }
+function nextPort() {
+  return portCounter++;
+}
 
 describe('input-server', () => {
   const servers: Array<{ close: () => Promise<void> }> = [];
@@ -92,7 +93,13 @@ describe('input-server', () => {
     expect(hello.protocol).toBe('c64-input');
     expect(hello.version).toBe(1);
     expect(hello.hostTaken).toBe(false);
-    expect(hello.joystickBitmask).toMatchObject({ up: 0x1, down: 0x2, left: 0x4, right: 0x8, fire: 0x10 });
+    expect(hello.joystickBitmask).toMatchObject({
+      up: 0x1,
+      down: 0x2,
+      left: 0x4,
+      right: 0x8,
+      fire: 0x10,
+    });
     ws.close();
   });
 
@@ -106,11 +113,15 @@ describe('input-server', () => {
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (_cmd: any) => new Promise<void>((res) => {
-        // Record when onCommand fires, resolve after a delay.
-        events.push('onCommand-start');
-        setTimeout(() => { events.push('onCommand-done'); res(); }, DELAY_MS);
-      }),
+      onCommand: (_cmd: any) =>
+        new Promise<void>((res) => {
+          // Record when onCommand fires, resolve after a delay.
+          events.push('onCommand-start');
+          setTimeout(() => {
+            events.push('onCommand-done');
+            res();
+          }, DELAY_MS);
+        }),
     });
     servers.push(srv);
 
@@ -150,10 +161,14 @@ describe('input-server', () => {
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (_cmd: any) => new Promise<void>((res) => {
-        events.push('onCommand-start');
-        setTimeout(() => { events.push('onCommand-done'); res(); }, DELAY_MS);
-      }),
+      onCommand: (_cmd: any) =>
+        new Promise<void>((res) => {
+          events.push('onCommand-start');
+          setTimeout(() => {
+            events.push('onCommand-done');
+            res();
+          }, DELAY_MS);
+        }),
     });
     servers.push(srv);
 
@@ -186,10 +201,14 @@ describe('input-server', () => {
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (_cmd: any) => new Promise<void>((res) => {
-        events.push('onCommand-start');
-        setTimeout(() => { events.push('onCommand-done'); res(); }, DELAY_MS);
-      }),
+      onCommand: (_cmd: any) =>
+        new Promise<void>((res) => {
+          events.push('onCommand-start');
+          setTimeout(() => {
+            events.push('onCommand-done');
+            res();
+          }, DELAY_MS);
+        }),
     });
     servers.push(srv);
 
@@ -207,6 +226,44 @@ describe('input-server', () => {
     const resetIdx = events.indexOf('machine-reset-received');
     expect(doneIdx).toBeGreaterThanOrEqual(0);
     expect(resetIdx).toBeGreaterThan(doneIdx);
+
+    hostWs.close();
+    spectWs.close();
+  });
+
+  it('broadcasts machine-rebooted only after the onCommand Promise resolves for reboot', async () => {
+    const port = nextPort();
+    const DELAY_MS = 60;
+    const events: string[] = [];
+
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (_cmd: any) =>
+        new Promise<void>((res) => {
+          events.push('onCommand-start');
+          setTimeout(() => {
+            events.push('onCommand-done');
+            res();
+          }, DELAY_MS);
+        }),
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'charlie' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: spectWs } = await connect(port);
+
+    send(hostWs, { type: 'reboot' });
+    await nextMsg(spectWs, (m) => m.type === 'machine-rebooted');
+    events.push('machine-rebooted-received');
+
+    const doneIdx = events.indexOf('onCommand-done');
+    const rebootedIdx = events.indexOf('machine-rebooted-received');
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(rebootedIdx).toBeGreaterThan(doneIdx);
 
     hostWs.close();
     spectWs.close();
@@ -246,7 +303,10 @@ describe('input-server', () => {
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (cmd: any) => { called.push(cmd.type); return Promise.resolve(); },
+      onCommand: (cmd: any) => {
+        called.push(cmd.type);
+        return Promise.resolve();
+      },
     });
     servers.push(srv);
 
@@ -277,9 +337,10 @@ describe('input-server', () => {
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (_cmd: any) => new Promise<void>((res) => {
-        setTimeout(res, 80);
-      }),
+      onCommand: (_cmd: any) =>
+        new Promise<void>((res) => {
+          setTimeout(res, 80);
+        }),
     });
     servers.push(srv);
 
