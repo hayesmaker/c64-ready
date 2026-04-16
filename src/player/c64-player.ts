@@ -35,10 +35,7 @@ export class C64Player {
 
     onProgress?.(10, 'INITIALISING WASM...');
     this.emulator = await C64Emulator.load(wasmUrl);
-
-    this.inputHandler = new InputHandler(this.emulator);
-    this.inputHandler.attach();
-    renderer.attachTo(this.emulator);
+    this.attachInputAndRenderer(this.emulator, renderer);
 
     if (gameUrl && gameUrl !== 'null') {
       await this.loadGame(gameUrl, gameType, onProgress);
@@ -60,7 +57,6 @@ export class C64Player {
    */
   private initAudio(): void {
     if (!this.emulator) return;
-    const emulator = this.emulator;
 
     // Notify the UI whenever audio state changes
     this.audio.onStateChange = (state) => {
@@ -69,11 +65,12 @@ export class C64Player {
 
     // Fire-and-forget init
     this.audio.init().then((autoplayOk) => {
+      if (!this.emulator) return;
       // Tell the SID what sample rate we're using (matches AudioContext)
-      emulator.setSampleRate(this.audio.sampleRate);
+      this.emulator.setSampleRate(this.audio.sampleRate);
 
       // Give the engine a reader that snapshots the SID circular buffer
-      this.audio.setSidBufferReader(() => emulator.getSidBuffer());
+      this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
 
       if (!autoplayOk) {
         window.dispatchEvent(new CustomEvent('c64-audio-suspended'));
@@ -247,6 +244,22 @@ export class C64Player {
     }
   }
 
+  async reboot(): Promise<void> {
+    if (!this.emulator) return;
+    try {
+      await this.emulator.reboot();
+      this.attachInputAndRenderer(this.emulator, this.options.renderer);
+      this.emulator.start();
+      this.emulator.setSampleRate(this.audio.sampleRate);
+      this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
+      window.dispatchEvent(new CustomEvent('c64-reboot', { detail: {} }));
+      window.dispatchEvent(new CustomEvent('c64-close-menu'));
+    } catch (e) {
+      console.error('Failed to reboot emulator:', e);
+      throw e;
+    }
+  }
+
   /**
    * Change which joystick port keyboard events map to (1 or 2).
    * Delegates to the InputHandler created during start().
@@ -328,6 +341,13 @@ export class C64Player {
       }),
     );
     throw err;
+  }
+
+  private attachInputAndRenderer(emulator: C64Emulator, renderer: CanvasRenderer): void {
+    this.inputHandler?.detach();
+    this.inputHandler = new InputHandler(emulator);
+    this.inputHandler.attach();
+    renderer.attachTo(emulator);
   }
 }
 

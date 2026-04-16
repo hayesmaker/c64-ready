@@ -56,7 +56,9 @@ function buildIceServers({
       credential: turnPassword,
     });
   } else if (turnUrls.length > 0 && verbose) {
-    console.error('[webrtc] ICE_TURN_URLS provided without ICE_TURN_USERNAME/ICE_TURN_PASSWORD; skipping TURN');
+    console.error(
+      '[webrtc] ICE_TURN_URLS provided without ICE_TURN_USERNAME/ICE_TURN_PASSWORD; skipping TURN',
+    );
   }
 
   if (iceServers.length === 0) {
@@ -67,7 +69,9 @@ function buildIceServers({
     const stunCount = stunUrls.length;
     const turnCount = turnUrls.length;
     const turnEnabled = turnUrls.length > 0 && turnUsername && turnPassword;
-    console.error(`[webrtc] ICE config stunUrls=${stunCount} turnUrls=${turnCount} turnEnabled=${turnEnabled ? 'yes' : 'no'}`);
+    console.error(
+      `[webrtc] ICE config stunUrls=${stunCount} turnUrls=${turnCount} turnEnabled=${turnEnabled ? 'yes' : 'no'}`,
+    );
   }
 
   return iceServers;
@@ -124,7 +128,9 @@ export function createWebRTCServer({
   function logEv(tag, fields = {}) {
     if (!logEvents) return;
     const ts = new Date().toISOString();
-    const pairs = Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(' ');
+    const pairs = Object.entries(fields)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ');
     console.error(`[event] ${ts} ${tag}${pairs ? ' ' + pairs : ''}`);
   }
   // Track all active peer connections so forceKeyframe() can reach them all.
@@ -145,12 +151,12 @@ export function createWebRTCServer({
   };
   let lastPressureLogAt = 0;
   let lastPressureSignature = '';
-  const minBitrateKbpsSafe = Number.isFinite(minBitrateKbps) && minBitrateKbps > 0
-    ? Math.round(minBitrateKbps)
-    : 200;
-  const maxBitrateKbpsSafe = Number.isFinite(maxBitrateKbps) && maxBitrateKbps > 0
-    ? Math.max(minBitrateKbpsSafe, Math.round(maxBitrateKbps))
-    : Math.max(minBitrateKbpsSafe, 600);
+  const minBitrateKbpsSafe =
+    Number.isFinite(minBitrateKbps) && minBitrateKbps > 0 ? Math.round(minBitrateKbps) : 200;
+  const maxBitrateKbpsSafe =
+    Number.isFinite(maxBitrateKbps) && maxBitrateKbps > 0
+      ? Math.max(minBitrateKbpsSafe, Math.round(maxBitrateKbps))
+      : Math.max(minBitrateKbpsSafe, 600);
 
   // Total capacity = 2 player slots + maxSpectators.
   // We track all in-flight WS connections (including those not yet ICE-connected)
@@ -167,7 +173,10 @@ export function createWebRTCServer({
       ...extra,
     };
     logEv(tag, snapshot);
-    if (verbose) console.error(`[webrtc-load] ${tag} active=${snapshot.active} pending=${snapshot.pending} total=${snapshot.total}/${snapshot.max}`);
+    if (verbose)
+      console.error(
+        `[webrtc-load] ${tag} active=${snapshot.active} pending=${snapshot.pending} total=${snapshot.total}/${snapshot.max}`,
+      );
   }
 
   async function logRouteSnapshot(pc, remoteAddr) {
@@ -177,14 +186,21 @@ export function createWebRTCServer({
       const localById = new Map();
       const remoteById = new Map();
       for (const stat of report.values()) {
-        if (stat.type === 'candidate-pair' && stat.nominated && (stat.state === 'succeeded' || stat.selected)) selected = stat;
+        if (
+          stat.type === 'candidate-pair' &&
+          stat.nominated &&
+          (stat.state === 'succeeded' || stat.selected)
+        )
+          selected = stat;
         if (stat.type === 'local-candidate') localById.set(stat.id, stat);
         if (stat.type === 'remote-candidate') remoteById.set(stat.id, stat);
       }
       if (!selected) return;
       const local = localById.get(selected.localCandidateId);
       const remote = remoteById.get(selected.remoteCandidateId);
-      const rttMs = Number.isFinite(selected.currentRoundTripTime) ? Math.round(selected.currentRoundTripTime * 1000) : null;
+      const rttMs = Number.isFinite(selected.currentRoundTripTime)
+        ? Math.round(selected.currentRoundTripTime * 1000)
+        : null;
       logEv('webrtc-route', {
         addr: remoteAddr,
         protocol: selected.protocol ?? '-',
@@ -194,7 +210,9 @@ export function createWebRTCServer({
         rttMs: rttMs ?? '-',
       });
       if (verbose) {
-        console.error(`[webrtc-route] addr=${remoteAddr} protocol=${selected.protocol ?? '-'} local=${local?.candidateType ?? '-'} remote=${remote?.candidateType ?? '-'} net=${local?.networkType ?? '-'} rtt=${rttMs ?? '-'}ms`);
+        console.error(
+          `[webrtc-route] addr=${remoteAddr} protocol=${selected.protocol ?? '-'} local=${local?.candidateType ?? '-'} remote=${remote?.candidateType ?? '-'} net=${local?.networkType ?? '-'} rtt=${rttMs ?? '-'}ms`,
+        );
       }
     } catch (_) {
       // Best-effort diagnostics only
@@ -221,7 +239,11 @@ export function createWebRTCServer({
         let selected = null;
         let outboundVideo = null;
         for (const stat of report.values()) {
-          if (stat.type === 'candidate-pair' && stat.nominated && (stat.state === 'succeeded' || stat.selected)) {
+          if (
+            stat.type === 'candidate-pair' &&
+            stat.nominated &&
+            (stat.state === 'succeeded' || stat.selected)
+          ) {
             selected = stat;
           }
           if (stat.type === 'outbound-rtp' && stat.kind === 'video' && !stat.isRemote) {
@@ -241,33 +263,65 @@ export function createWebRTCServer({
         const current = {
           timestampMs: Number.isFinite(outboundVideo.timestamp) ? outboundVideo.timestamp : nowWall,
           framesSent: Number.isFinite(outboundVideo.framesSent) ? outboundVideo.framesSent : null,
-          framesEncoded: Number.isFinite(outboundVideo.framesEncoded) ? outboundVideo.framesEncoded : null,
+          framesEncoded: Number.isFinite(outboundVideo.framesEncoded)
+            ? outboundVideo.framesEncoded
+            : null,
           bytesSent: Number.isFinite(outboundVideo.bytesSent) ? outboundVideo.bytesSent : null,
-          packetsSent: Number.isFinite(outboundVideo.packetsSent) ? outboundVideo.packetsSent : null,
-          totalPacketSendDelay: Number.isFinite(outboundVideo.totalPacketSendDelay) ? outboundVideo.totalPacketSendDelay : null,
-          totalEncodeTime: Number.isFinite(outboundVideo.totalEncodeTime) ? outboundVideo.totalEncodeTime : null,
+          packetsSent: Number.isFinite(outboundVideo.packetsSent)
+            ? outboundVideo.packetsSent
+            : null,
+          totalPacketSendDelay: Number.isFinite(outboundVideo.totalPacketSendDelay)
+            ? outboundVideo.totalPacketSendDelay
+            : null,
+          totalEncodeTime: Number.isFinite(outboundVideo.totalEncodeTime)
+            ? outboundVideo.totalEncodeTime
+            : null,
         };
 
         const prev = peerStatsPrev.get(pc);
         peerStatsPrev.set(pc, current);
         if (!prev) continue;
 
-        if (current.framesSent != null && prev.framesSent != null && current.framesSent >= prev.framesSent) {
+        if (
+          current.framesSent != null &&
+          prev.framesSent != null &&
+          current.framesSent >= prev.framesSent
+        ) {
           deltaFramesSent += current.framesSent - prev.framesSent;
         }
-        if (current.framesEncoded != null && prev.framesEncoded != null && current.framesEncoded >= prev.framesEncoded) {
+        if (
+          current.framesEncoded != null &&
+          prev.framesEncoded != null &&
+          current.framesEncoded >= prev.framesEncoded
+        ) {
           deltaFramesEncoded += current.framesEncoded - prev.framesEncoded;
         }
-        if (current.bytesSent != null && prev.bytesSent != null && current.bytesSent >= prev.bytesSent) {
+        if (
+          current.bytesSent != null &&
+          prev.bytesSent != null &&
+          current.bytesSent >= prev.bytesSent
+        ) {
           deltaBytesSent += current.bytesSent - prev.bytesSent;
         }
-        if (current.packetsSent != null && prev.packetsSent != null && current.packetsSent >= prev.packetsSent) {
+        if (
+          current.packetsSent != null &&
+          prev.packetsSent != null &&
+          current.packetsSent >= prev.packetsSent
+        ) {
           deltaPacketsSent += current.packetsSent - prev.packetsSent;
         }
-        if (current.totalPacketSendDelay != null && prev.totalPacketSendDelay != null && current.totalPacketSendDelay >= prev.totalPacketSendDelay) {
+        if (
+          current.totalPacketSendDelay != null &&
+          prev.totalPacketSendDelay != null &&
+          current.totalPacketSendDelay >= prev.totalPacketSendDelay
+        ) {
           deltaPacketSendDelay += current.totalPacketSendDelay - prev.totalPacketSendDelay;
         }
-        if (current.totalEncodeTime != null && prev.totalEncodeTime != null && current.totalEncodeTime >= prev.totalEncodeTime) {
+        if (
+          current.totalEncodeTime != null &&
+          prev.totalEncodeTime != null &&
+          current.totalEncodeTime >= prev.totalEncodeTime
+        ) {
           deltaEncodeTime += current.totalEncodeTime - prev.totalEncodeTime;
         }
       } catch (_) {
@@ -278,9 +332,11 @@ export function createWebRTCServer({
     const sampleIntervalS = 5;
     senderTelemetry.sampledAt = nowWall;
     senderTelemetry.peerCount = peerCount;
-    senderTelemetry.avgRttMs = rttCount > 0 ? (rttSum / rttCount) : null;
-    senderTelemetry.sendDelayMsPerPacket = deltaPacketsSent > 0 ? (deltaPacketSendDelay / deltaPacketsSent) * 1000 : null;
-    senderTelemetry.encodeMsPerFrame = deltaFramesEncoded > 0 ? (deltaEncodeTime / deltaFramesEncoded) * 1000 : null;
+    senderTelemetry.avgRttMs = rttCount > 0 ? rttSum / rttCount : null;
+    senderTelemetry.sendDelayMsPerPacket =
+      deltaPacketsSent > 0 ? (deltaPacketSendDelay / deltaPacketsSent) * 1000 : null;
+    senderTelemetry.encodeMsPerFrame =
+      deltaFramesEncoded > 0 ? (deltaEncodeTime / deltaFramesEncoded) * 1000 : null;
     senderTelemetry.framesSentPerSec = deltaFramesSent / sampleIntervalS;
     senderTelemetry.framesEncodedPerSec = deltaFramesEncoded / sampleIntervalS;
     senderTelemetry.bytesSentPerSec = deltaBytesSent / sampleIntervalS;
@@ -305,11 +361,12 @@ export function createWebRTCServer({
       const bitrateKbps = Number.isFinite(senderTelemetry.bytesSentPerSec)
         ? ((senderTelemetry.bytesSentPerSec * 8) / 1000).toFixed(0)
         : '-';
-      const qualitySummary = Object.entries(qualityCounts)
-        .filter(([, count]) => Number.isFinite(count) && count > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(([reason, count]) => `${reason}:${count}`)
-        .join('|') || 'none:0';
+      const qualitySummary =
+        Object.entries(qualityCounts)
+          .filter(([, count]) => Number.isFinite(count) && count > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([reason, count]) => `${reason}:${count}`)
+          .join('|') || 'none:0';
 
       logEv('webrtc-sender-telemetry', {
         peers: peerCount,
@@ -323,13 +380,22 @@ export function createWebRTCServer({
       });
 
       const pressureReasons = [];
-      if (Number.isFinite(senderTelemetry.framesSentPerSec) && senderTelemetry.framesSentPerSec < 44) {
+      if (
+        Number.isFinite(senderTelemetry.framesSentPerSec) &&
+        senderTelemetry.framesSentPerSec < 44
+      ) {
         pressureReasons.push('low-fps-out');
       }
-      if (Number.isFinite(senderTelemetry.encodeMsPerFrame) && senderTelemetry.encodeMsPerFrame > 12) {
+      if (
+        Number.isFinite(senderTelemetry.encodeMsPerFrame) &&
+        senderTelemetry.encodeMsPerFrame > 12
+      ) {
         pressureReasons.push('slow-encode');
       }
-      if (Number.isFinite(senderTelemetry.sendDelayMsPerPacket) && senderTelemetry.sendDelayMsPerPacket > 4) {
+      if (
+        Number.isFinite(senderTelemetry.sendDelayMsPerPacket) &&
+        senderTelemetry.sendDelayMsPerPacket > 4
+      ) {
         pressureReasons.push('packet-send-delay');
       }
       if ((qualityCounts.cpu ?? 0) > 0) pressureReasons.push('quality-cpu');
@@ -338,7 +404,8 @@ export function createWebRTCServer({
       if (pressureReasons.length > 0) {
         const signature = pressureReasons.join('|');
         const now = Date.now();
-        const shouldLogPressure = signature !== lastPressureSignature || (now - lastPressureLogAt) >= 30_000;
+        const shouldLogPressure =
+          signature !== lastPressureSignature || now - lastPressureLogAt >= 30_000;
         if (shouldLogPressure) {
           lastPressureSignature = signature;
           lastPressureLogAt = now;
@@ -382,7 +449,9 @@ export function createWebRTCServer({
         newAddr: controller.remoteAddr ?? '-',
         source,
       });
-      try { previous.closePeer?.('session-replaced'); } catch (_) {}
+      try {
+        previous.closePeer?.('session-replaced');
+      } catch (_) {}
     }
 
     peerBySession.set(sessionKey, controller);
@@ -436,14 +505,15 @@ export function createWebRTCServer({
 
   wss.on('connection', (ws, req) => {
     ws._sigAlive = true; // initialise alive flag
-    ws.on('pong', () => { ws._sigAlive = true; });
+    ws.on('pong', () => {
+      ws._sigAlive = true;
+    });
     const remoteAddr = req.socket.remoteAddress;
     let initialSessionId = null;
     try {
       const reqUrl = new URL(req.url || '/', 'http://localhost');
-      initialSessionId = reqUrl.searchParams.get('sid')
-        || reqUrl.searchParams.get('sessionId')
-        || null;
+      initialSessionId =
+        reqUrl.searchParams.get('sid') || reqUrl.searchParams.get('sessionId') || null;
     } catch (_) {}
 
     // ── Capacity gate ─────────────────────────────────────────────────────────
@@ -451,15 +521,23 @@ export function createWebRTCServer({
     // Players take 2 of the MAX_CONNECTIONS slots; remaining slots are spectators.
     const currentTotal = activePeers.size + pendingPeers;
     if (currentTotal >= MAX_CONNECTIONS) {
-      console.error(`[webrtc] capacity full (${currentTotal}/${MAX_CONNECTIONS}) — rejecting ${remoteAddr}`);
-      logEv('webrtc-capacity-full', { addr: remoteAddr, current: currentTotal, max: MAX_CONNECTIONS });
+      console.error(
+        `[webrtc] capacity full (${currentTotal}/${MAX_CONNECTIONS}) — rejecting ${remoteAddr}`,
+      );
+      logEv('webrtc-capacity-full', {
+        addr: remoteAddr,
+        current: currentTotal,
+        max: MAX_CONNECTIONS,
+      });
       try {
-        ws.send(JSON.stringify({
-          type: 'capacity-full',
-          current: currentTotal,
-          max: MAX_CONNECTIONS,
-          maxSpectators,
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'capacity-full',
+            current: currentTotal,
+            max: MAX_CONNECTIONS,
+            maxSpectators,
+          }),
+        );
       } catch (_) {}
       ws.close();
       return;
@@ -490,7 +568,10 @@ export function createWebRTCServer({
     let disconnectTimer = null;
 
     function clearDisconnectTimer() {
-      if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
     }
 
     // Track whether this peer has ever reached ICE connected (to manage pendingPeers correctly).
@@ -506,7 +587,7 @@ export function createWebRTCServer({
         const errName = err?.name ?? 'Error';
         const errMsg = err?.message ?? String(err);
         console.error(
-          `[webrtc] addIceCandidate failed (${source}) addr=${remoteAddr} hasRemoteDescription=${hasRemoteDescription} signalingState=${signalingState} err=${errName}: ${errMsg}`
+          `[webrtc] addIceCandidate failed (${source}) addr=${remoteAddr} hasRemoteDescription=${hasRemoteDescription} signalingState=${signalingState} err=${errName}: ${errMsg}`,
         );
         logEv('webrtc-ice-candidate-error', {
           addr: remoteAddr,
@@ -536,14 +617,18 @@ export function createWebRTCServer({
       }
       peerControllers.delete(controller);
       // Decrement pendingPeers only if this peer never made it to ICE connected.
-      if (!wasActive && !everConnected) { if (pendingPeers > 0) pendingPeers--; }
+      if (!wasActive && !everConnected) {
+        if (pendingPeers > 0) pendingPeers--;
+      }
       console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
       logEv('webrtc-peer-closed', { addr: remoteAddr, reason });
       logLoadSnapshot('webrtc-load-change', { reason: `peer-closed:${reason}` });
       // Tell the browser the stream died so it can reconnect immediately
       // rather than sitting on a frozen frame.
       if (ws.readyState === ws.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'peer-closed', reason })); } catch (_) {}
+        try {
+          ws.send(JSON.stringify({ type: 'peer-closed', reason }));
+        } catch (_) {}
       }
       pc.close();
     }
@@ -612,7 +697,11 @@ export function createWebRTCServer({
 
       try {
         if (msg.type === 'offer') {
-          bindControllerSession(controller, msg.sessionId ?? msg.sid ?? msg.clientSessionId ?? null, 'offer');
+          bindControllerSession(
+            controller,
+            msg.sessionId ?? msg.sid ?? msg.clientSessionId ?? null,
+            'offer',
+          );
           await pc.setRemoteDescription(msg);
           await flushRemoteCandidates('post-offer');
 
@@ -633,15 +722,12 @@ export function createWebRTCServer({
           let sdp = answer.sdp;
           if (sdp) {
             // Find VP8 payload type in the offer and append fmtp constraints
-            sdp = sdp.replace(
-              /(a=rtpmap:(\d+) VP8\/\d+\r?\n)/,
-              (match, line, pt) => {
-                const minKbps = Math.max(50, minBitrateKbpsSafe);
-                const maxKbps = Math.max(minKbps, maxBitrateKbpsSafe);
-                const fmtp = `a=fmtp:${pt} x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\r\n`;
-                return line + fmtp;
-              }
-            );
+            sdp = sdp.replace(/(a=rtpmap:(\d+) VP8\/\d+\r?\n)/, (match, line, pt) => {
+              const minKbps = Math.max(50, minBitrateKbpsSafe);
+              const maxKbps = Math.max(minKbps, maxBitrateKbpsSafe);
+              const fmtp = `a=fmtp:${pt} x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\r\n`;
+              return line + fmtp;
+            });
             answer.sdp = sdp;
           }
 
@@ -651,12 +737,13 @@ export function createWebRTCServer({
             ws.send(JSON.stringify(pc.localDescription));
           }
           if (verbose) console.error(`[webrtc] answered offer from ${remoteAddr}`);
-
         } else if (msg.type === 'candidate' && msg.candidate) {
           if (!pc.remoteDescription) {
             pendingRemoteCandidates.push(msg.candidate);
             if (verbose) {
-              console.error(`[webrtc] queued remote candidate (${pendingRemoteCandidates.length}) pending offer (${remoteAddr})`);
+              console.error(
+                `[webrtc] queued remote candidate (${pendingRemoteCandidates.length}) pending offer (${remoteAddr})`,
+              );
             }
           } else {
             await addRemoteCandidate(msg.candidate, 'live');
@@ -779,7 +866,12 @@ export function createWebRTCServer({
 }
 
 // ─── Embedded browser-side player page ──────────────────────────────────────
-function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600, iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]) {
+function buildBrowserHtml(
+  inputPort,
+  minBitrateKbps = 200,
+  maxBitrateKbps = 600,
+  iceServers = [{ urls: 'stun:stun.l.google.com:19302' }],
+) {
   const minKbps = Math.max(50, Math.round(minBitrateKbps));
   const maxKbps = Math.max(minKbps, Math.round(maxBitrateKbps));
   const iceServersJson = JSON.stringify(iceServers).replace(/</g, '\\u003c');
@@ -888,6 +980,7 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600,
     <button id="load-btn"   title="Load a .crt cartridge file">📂 load .crt</button>
     <button id="detach-btn" title="Eject cartridge → BASIC prompt" disabled>⏏ detach</button>
     <button id="reset-btn"  title="Hard reset (BASIC prompt)" disabled>↺ reset</button>
+    <button id="reboot-btn" title="Re-instantiate emulator with no game loaded">⟲ reboot</button>
     <span class="sep">|</span>
     <button id="sync-btn"   title="Flush video to live edge — use if display feels laggy">⟳ sync</button>
     <span class="sep">|</span>
@@ -911,6 +1004,7 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600,
     const loadBtn     = document.getElementById('load-btn');
     const detachBtn   = document.getElementById('detach-btn');
     const resetBtn    = document.getElementById('reset-btn');
+    const rebootBtn   = document.getElementById('reboot-btn');
     const syncBtn     = document.getElementById('sync-btn');
     const modeBtn     = document.getElementById('mode-btn');
     const fileInput   = document.getElementById('file-input');
@@ -1240,12 +1334,18 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600,
         try {
           const msg = JSON.parse(data);
           // Cart lifecycle
-          if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached') {
+          if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached' || msg.type === 'machine-rebooted') {
             blurAll();
             const cartName = msg.filename ? msg.filename.replace(/\\.crt$/i,'').replace(/[-_]/g,' ') : '';
             if (msg.type === 'cart-loaded')   { setBadge(gameBadge, '🎮 ' + (cartName || 'game loaded'), 'ok');  setLoadStatus('loaded', 'ok');  detachBtn.disabled = false; resetBtn.disabled = false; }
             if (msg.type === 'cart-detached') { setBadge(gameBadge, 'no game', 'dim'); setLoadStatus('', '');    detachBtn.disabled = true; }
             if (msg.type === 'machine-reset') { setLoadStatus('reset', 'warn'); }
+            if (msg.type === 'machine-rebooted') {
+              setBadge(gameBadge, 'no game', 'dim');
+              setLoadStatus('rebooted', 'warn');
+              detachBtn.disabled = true;
+              resetBtn.disabled = true;
+            }
             // Reconnect the RTCPeerConnection entirely — this is the only
             // reliable way to clear the jitter buffer and decoder state that
             // accumulates during the ~1600ms cart-load gap.  Anything less
@@ -1328,6 +1428,7 @@ function buildBrowserHtml(inputPort, minBitrateKbps = 200, maxBitrateKbps = 600,
     });
     detachBtn.addEventListener('click', () => { sendInput({ type: 'detach-crt' }); setLoadStatus('detaching…', 'warn'); blurAll(); });
     resetBtn.addEventListener('click',  () => { sendInput({ type: 'hard-reset' });  setLoadStatus('resetting…', 'warn'); blurAll(); });
+    rebootBtn.addEventListener('click', () => { sendInput({ type: 'reboot' }); setLoadStatus('rebooting…', 'warn'); blurAll(); });
     syncBtn.addEventListener('click', () => {
       const wasMuted = videoEl.muted;
       connectWebRTC();

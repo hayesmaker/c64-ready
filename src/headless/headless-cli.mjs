@@ -1,13 +1,16 @@
 import fs from 'fs/promises';
 import { readFileSync, mkdirSync, createWriteStream, readdirSync, statSync, unlinkSync } from 'fs';
 import path from 'path';
-import {fileURLToPath} from 'url';
+import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
 
 const nowMonoMs = () => {
-  if (typeof globalThis.performance !== 'undefined' && typeof globalThis.performance.now === 'function') {
+  if (
+    typeof globalThis.performance !== 'undefined' &&
+    typeof globalThis.performance.now === 'function'
+  ) {
     return globalThis.performance.now();
   }
   return Date.now();
@@ -19,29 +22,85 @@ const nowMonoMs = () => {
 //
 // Reference: https://vice-emu.sourceforge.io/vice_17.html#SEC380
 const _CRT_HW_TYPES = {
-   0:'Normal cartridge', 1:'Action Replay', 2:'KCS Power Cartridge',
-   3:'Final Cartridge III', 4:'Simons BASIC', 5:'Ocean type 1',
-   6:'Expert Cartridge', 7:'Fun Play, Power Play', 8:'Super Games',
-   9:'Atomic Power', 10:'Epyx Fastload', 11:'Westermann Learning',
-  12:'Rex Utility', 13:'Final Cartridge I', 14:'Magic Formel',
-  15:'C64 Game System (SYSTEM 3)', 16:'Warp Speed', 17:'Dinamic',
-  18:'Zaxxon / Super Zaxxon (SEGA)', 19:'Magic Desk / Domark / HES Australia',
-  20:'Super Snapshot V5', 21:'Comal-80', 22:'Structured BASIC', 23:'Ross',
-  24:'Dela EP64', 25:'Dela EP7x8', 26:'Dela EP256', 27:'Rex EP256',
-  28:'Mikro Assembler', 29:'Final Cartridge Plus', 30:'Action Replay 4',
-  31:'Stardos', 32:'EasyFlash', 33:'EasyFlash Xbank', 34:'Capture',
-  35:'Action Replay 3', 36:'Retro Replay', 37:'MMC64', 38:'MMC Replay',
-  39:'IDE64', 40:'Super Snapshot V4', 41:'IEEE-488', 42:'Game Killer',
-  43:'Prophet64', 44:'EXOS', 45:'Freeze Frame', 46:'Freeze Machine',
-  47:'Snapshot64', 48:'Super Explode V5.0', 49:'Magic Voice',
-  50:'Action Replay 2', 51:'MACH 5', 52:'Diashow-Maker', 53:'Pagefox',
-  54:'Kingsoft', 55:'Silverrock 128K Longshot', 56:'Formel 64', 57:'RGCD',
-  58:'RR-Net MK3', 59:'Easy Calc', 60:'GMod2', 61:'MAX Basic', 62:'GMod3',
-  63:'ZIPP-CODE 48', 64:'Blackbox V8', 65:'Blackbox V3', 66:'Blackbox V4',
-  67:'REX RAM-Floppy', 68:'BIS-Plus', 69:'SD-BOX', 70:'MultiMAX',
-  71:'Blackbox V9', 72:'Lt. Kernal Host Adaptor', 73:'RAMLink', 74:'H.E.R.O.',
-  75:'IEEE Flash! 64', 76:'Turtle Graphics II', 77:'Freeze Frame MK2',
-  78:'Partner 64',
+  0: 'Normal cartridge',
+  1: 'Action Replay',
+  2: 'KCS Power Cartridge',
+  3: 'Final Cartridge III',
+  4: 'Simons BASIC',
+  5: 'Ocean type 1',
+  6: 'Expert Cartridge',
+  7: 'Fun Play, Power Play',
+  8: 'Super Games',
+  9: 'Atomic Power',
+  10: 'Epyx Fastload',
+  11: 'Westermann Learning',
+  12: 'Rex Utility',
+  13: 'Final Cartridge I',
+  14: 'Magic Formel',
+  15: 'C64 Game System (SYSTEM 3)',
+  16: 'Warp Speed',
+  17: 'Dinamic',
+  18: 'Zaxxon / Super Zaxxon (SEGA)',
+  19: 'Magic Desk / Domark / HES Australia',
+  20: 'Super Snapshot V5',
+  21: 'Comal-80',
+  22: 'Structured BASIC',
+  23: 'Ross',
+  24: 'Dela EP64',
+  25: 'Dela EP7x8',
+  26: 'Dela EP256',
+  27: 'Rex EP256',
+  28: 'Mikro Assembler',
+  29: 'Final Cartridge Plus',
+  30: 'Action Replay 4',
+  31: 'Stardos',
+  32: 'EasyFlash',
+  33: 'EasyFlash Xbank',
+  34: 'Capture',
+  35: 'Action Replay 3',
+  36: 'Retro Replay',
+  37: 'MMC64',
+  38: 'MMC Replay',
+  39: 'IDE64',
+  40: 'Super Snapshot V4',
+  41: 'IEEE-488',
+  42: 'Game Killer',
+  43: 'Prophet64',
+  44: 'EXOS',
+  45: 'Freeze Frame',
+  46: 'Freeze Machine',
+  47: 'Snapshot64',
+  48: 'Super Explode V5.0',
+  49: 'Magic Voice',
+  50: 'Action Replay 2',
+  51: 'MACH 5',
+  52: 'Diashow-Maker',
+  53: 'Pagefox',
+  54: 'Kingsoft',
+  55: 'Silverrock 128K Longshot',
+  56: 'Formel 64',
+  57: 'RGCD',
+  58: 'RR-Net MK3',
+  59: 'Easy Calc',
+  60: 'GMod2',
+  61: 'MAX Basic',
+  62: 'GMod3',
+  63: 'ZIPP-CODE 48',
+  64: 'Blackbox V8',
+  65: 'Blackbox V3',
+  66: 'Blackbox V4',
+  67: 'REX RAM-Floppy',
+  68: 'BIS-Plus',
+  69: 'SD-BOX',
+  70: 'MultiMAX',
+  71: 'Blackbox V9',
+  72: 'Lt. Kernal Host Adaptor',
+  73: 'RAMLink',
+  74: 'H.E.R.O.',
+  75: 'IEEE Flash! 64',
+  76: 'Turtle Graphics II',
+  77: 'Freeze Frame MK2',
+  78: 'Partner 64',
 };
 /**
  * Parse a CRT file and return a human-readable summary line plus metadata.
@@ -56,39 +115,46 @@ function parseCrtInfo(data, filename) {
   for (let i = 0; i < 16; i++) magic += String.fromCharCode(data[i]);
   if (!magic.startsWith('C64 CARTRIDGE')) return null;
 
-  const headerLen = ((data[0x10]<<24)|(data[0x11]<<16)|(data[0x12]<<8)|data[0x13])>>>0;
-  const hwType    = ((data[0x16]<<8)|data[0x17])>>>0;
-  const exrom     = data[0x18];
-  const game      = data[0x19];
+  const headerLen =
+    ((data[0x10] << 24) | (data[0x11] << 16) | (data[0x12] << 8) | data[0x13]) >>> 0;
+  const hwType = ((data[0x16] << 8) | data[0x17]) >>> 0;
+  const exrom = data[0x18];
+  const game = data[0x19];
 
   let cartName = '';
   for (let i = 0x20; i < 0x40 && data[i] !== 0; i++) cartName += String.fromCharCode(data[i]);
   cartName = cartName.trim();
 
   let bankConfig;
-  if      (exrom === 0 && game === 0) bankConfig = '16K (ROML+ROMH)';
+  if (exrom === 0 && game === 0) bankConfig = '16K (ROML+ROMH)';
   else if (exrom === 0 && game === 1) bankConfig = '8K (ROML only)';
   else if (exrom === 1 && game === 0) bankConfig = 'Ultimax';
-  else                                bankConfig = 'inactive (pass-through)';
+  else bankConfig = 'inactive (pass-through)';
 
-  let chipCount = 0, totalRomBytes = 0;
+  let chipCount = 0,
+    totalRomBytes = 0;
   let offset = Math.max(headerLen, 0x40);
   while (offset + 16 <= data.length) {
     let cm = '';
     for (let i = 0; i < 4; i++) cm += String.fromCharCode(data[offset + i]);
     if (cm !== 'CHIP') break;
-    const pktLen  = ((data[offset+4]<<24)|(data[offset+5]<<16)|(data[offset+6]<<8)|data[offset+7])>>>0;
+    const pktLen =
+      ((data[offset + 4] << 24) |
+        (data[offset + 5] << 16) |
+        (data[offset + 6] << 8) |
+        data[offset + 7]) >>>
+      0;
     if (pktLen < 16) break;
-    const dataSize = ((data[offset+0x0E]<<8)|data[offset+0x0F])>>>0;
+    const dataSize = ((data[offset + 0x0e] << 8) | data[offset + 0x0f]) >>> 0;
     chipCount++;
     totalRomBytes += dataSize;
     offset += pktLen;
   }
 
-  const hwName    = _CRT_HW_TYPES[hwType] ?? `Unknown(${hwType})`;
+  const hwName = _CRT_HW_TYPES[hwType] ?? `Unknown(${hwType})`;
   const fileLabel = filename ? ` "${filename}"` : '';
-  const namePart  = cartName ? ` name="${cartName}"` : '';
-  const kbActual  = (totalRomBytes / 1024).toFixed(0);
+  const namePart = cartName ? ` name="${cartName}"` : '';
+  const kbActual = (totalRomBytes / 1024).toFixed(0);
   const line =
     `[C64 cart]${fileLabel} loading: hwType=${hwType}(${hwName})` +
     ` | ${bankConfig} flags, ${kbActual}K actual` +
@@ -101,7 +167,8 @@ function inferLoadType(filename = '') {
   if (lower.endsWith('.crt')) return 'crt';
   if (lower.endsWith('.prg')) return 'prg';
   if (lower.endsWith('.d64')) return 'd64';
-  if (lower.endsWith('.snapshot') || lower.endsWith('.c64') || lower.endsWith('.s64')) return 'snapshot';
+  if (lower.endsWith('.snapshot') || lower.endsWith('.c64') || lower.endsWith('.s64'))
+    return 'snapshot';
   return 'crt';
 }
 
@@ -144,7 +211,9 @@ let _serverGitHash = null;
 try {
   const pkg = JSON.parse(readFileSync(path.join(_repoRootForBuildInfo, 'package.json'), 'utf8'));
   _serverVersion = pkg.version ?? null;
-} catch { /* non-fatal */ }
+} catch {
+  /* non-fatal */
+}
 try {
   // Prefer the baked-in build-arg written by the Dockerfile (works in Docker
   // where git is not installed and .git is not present).
@@ -156,11 +225,17 @@ try {
     try {
       _serverGitHash = readFileSync(hashFile, 'utf8').trim() || null;
     } catch {
-      _serverGitHash = execSync('git rev-parse --short HEAD', { cwd: _repoRootForBuildInfo, stdio: ['ignore', 'pipe', 'ignore'] })
-        .toString().trim();
+      _serverGitHash = execSync('git rev-parse --short HEAD', {
+        cwd: _repoRootForBuildInfo,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .toString()
+        .trim();
     }
   }
-} catch { /* non-fatal — git may not be available in some deploy environments */ }
+} catch {
+  /* non-fatal — git may not be available in some deploy environments */
+}
 
 /**
  * Run headless emulator. Exported so tests can inject a fake WebAssembly.instantiate.
@@ -222,20 +297,21 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
     else if (a === '--admin-token') adminToken = argv[++i] ?? '';
     else if (a === '--help' || a === '-h') {
-      return {ok: false, output: 'help'};
+      return { ok: false, output: 'help' };
     }
   }
   const adminTokenSafe = String(adminToken ?? '').trim();
 
-  const webrtcMinBitrateKbpsSafe = Number.isFinite(webrtcMinBitrateKbps) && webrtcMinBitrateKbps > 0
-    ? Math.round(webrtcMinBitrateKbps)
-    : 200;
-  const webrtcMaxBitrateKbpsSafe = Number.isFinite(webrtcMaxBitrateKbps) && webrtcMaxBitrateKbps > 0
-    ? Math.max(webrtcMinBitrateKbpsSafe, Math.round(webrtcMaxBitrateKbps))
-    : Math.max(webrtcMinBitrateKbpsSafe, 600);
-  const webrtcOutputFpsSafe = Number.isFinite(webrtcOutputFps) && webrtcOutputFps > 0
-    ? Math.round(webrtcOutputFps)
-    : 0;
+  const webrtcMinBitrateKbpsSafe =
+    Number.isFinite(webrtcMinBitrateKbps) && webrtcMinBitrateKbps > 0
+      ? Math.round(webrtcMinBitrateKbps)
+      : 200;
+  const webrtcMaxBitrateKbpsSafe =
+    Number.isFinite(webrtcMaxBitrateKbps) && webrtcMaxBitrateKbps > 0
+      ? Math.max(webrtcMinBitrateKbpsSafe, Math.round(webrtcMaxBitrateKbps))
+      : Math.max(webrtcMinBitrateKbpsSafe, 600);
+  const webrtcOutputFpsSafe =
+    Number.isFinite(webrtcOutputFps) && webrtcOutputFps > 0 ? Math.round(webrtcOutputFps) : 0;
 
   const runtimeStats = {
     webrtcSendFps: null,
@@ -307,7 +383,8 @@ export async function runHeadless(options = {}) {
     const _writeLog = (origFn, ...args) => {
       origFn.apply(console, args);
       if (logStream && logStream.writable) {
-        const line = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n';
+        const line =
+          args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ') + '\n';
         logStream.write(line);
       }
     };
@@ -318,7 +395,9 @@ export async function runHeadless(options = {}) {
 
   function _teardownLogFile() {
     if (logStream) {
-      try { logStream.end(); } catch (_) {}
+      try {
+        logStream.end();
+      } catch (_) {}
       logStream = null;
     }
     if (_origConsoleLog) {
@@ -344,8 +423,7 @@ export async function runHeadless(options = {}) {
       try {
         await fs.access(p);
         return p;
-      } catch (_) {
-      }
+      } catch (_) {}
     }
     return null;
   }
@@ -355,7 +433,7 @@ export async function runHeadless(options = {}) {
     const found = await findFirstExisting(defaultWasmPaths);
     if (found) wasmPath = found;
   }
-  if (!wasmPath) return {ok: false, err: 'no-wasm'};
+  if (!wasmPath) return { ok: false, err: 'no-wasm' };
 
   let gamePath = gameArg ?? null;
   // If the user requested no game, ensure we do not load any default cartridge
@@ -368,13 +446,16 @@ export async function runHeadless(options = {}) {
   }
 
   const out = [];
-  out.push(`Starting headless C64 using WASM: ${wasmPath}` + (gamePath ? ` game: ${gamePath}` : ''));
+  out.push(
+    `Starting headless C64 using WASM: ${wasmPath}` + (gamePath ? ` game: ${gamePath}` : ''),
+  );
 
   const wasmBinary = await fs.readFile(wasmPath);
   // runtime state placeholders — hoisted so onCommand handler can access c64wasm
-  let exports  = null;
-  let heap     = null;
-  let c64wasm  = null;   // ← hoisted: needed by onCommand for allocAndWrite
+  let exports = null;
+  let heap = null;
+  let c64wasm = null; // ← hoisted: needed by onCommand for allocAndWrite
+  let C64WASMClass = null;
   let wrapperUsed = false;
   // SID audio constants — hoisted so the SID-cache block and the frame loop
   // both see them regardless of declaration order.
@@ -390,8 +471,8 @@ export async function runHeadless(options = {}) {
   );
   if (typeof instantiateFn === 'function') {
     try {
-      const mem = new WebAssembly.Memory({initial: 256});
-      const importObject = {env: {memory: mem}, wasi_snapshot_preview1: {}};
+      const mem = new WebAssembly.Memory({ initial: 256 });
+      const importObject = { env: { memory: mem }, wasi_snapshot_preview1: {} };
       const res = await instantiateFn(wasmAb, importObject);
       const inst = res && (res.instance ?? res);
       exports = inst.exports ?? inst;
@@ -399,11 +480,17 @@ export async function runHeadless(options = {}) {
       if (exports && !exports.memory) exports.memory = mem;
       if (exports && exports.memory) {
         const buf = exports.memory.buffer;
-        heap = {heapU8: new Uint8Array(buf), heapF32: new Float32Array(buf), heapU32: new Uint32Array(buf)};
+        heap = {
+          heapU8: new Uint8Array(buf),
+          heapF32: new Float32Array(buf),
+          heapU32: new Uint32Array(buf),
+        };
       }
       if (exports && typeof exports.c64_init === 'function') exports.c64_init();
-      if (exports && typeof exports.sid_setSampleRate === 'function') exports.sid_setSampleRate(44100);
-      if (exports && typeof exports.debugger_set_speed === 'function') exports.debugger_set_speed(100);
+      if (exports && typeof exports.sid_setSampleRate === 'function')
+        exports.sid_setSampleRate(44100);
+      if (exports && typeof exports.debugger_set_speed === 'function')
+        exports.debugger_set_speed(100);
       if (exports && typeof exports.debugger_play === 'function') exports.debugger_play();
       wrapperUsed = true;
     } catch (e) {
@@ -437,12 +524,13 @@ export async function runHeadless(options = {}) {
     }
 
     if (!C64WASM) throw new Error('C64WASM wrapper not found (src/headless or dist-ts)');
+    C64WASMClass = C64WASM;
 
     const wasmAb = wasmBinary.buffer.slice(
       wasmBinary.byteOffset,
       wasmBinary.byteOffset + wasmBinary.byteLength,
     );
-    c64wasm = new C64WASM();   // assigns to outer let
+    c64wasm = new C64WASM(); // assigns to outer let
     await c64wasm.instantiate(wasmAb);
 
     exports = c64wasm.exports;
@@ -457,7 +545,7 @@ export async function runHeadless(options = {}) {
     if (gamePath) {
       try {
         const gameData = await fs.readFile(gamePath);
-        const gameArr  = new Uint8Array(gameData);
+        const gameArr = new Uint8Array(gameData);
         const cartInfo = parseCrtInfo(gameArr, path.basename(gamePath));
         if (cartInfo) console.error(cartInfo.line);
         const ptr = c64wasm.allocAndWrite(gameArr);
@@ -479,10 +567,11 @@ export async function runHeadless(options = {}) {
   }
   if (!wrapperUsed) {
     out.push('ERROR: dist-ts wrapper failed to load — cannot run headless');
-    console.error('[headless] FATAL: dist-ts wrapper unavailable. Run: npx tsc -p tsconfig.build2.json');
-    return {ok: false, output: out};
+    console.error(
+      '[headless] FATAL: dist-ts wrapper unavailable. Run: npx tsc -p tsconfig.build2.json',
+    );
+    return { ok: false, output: out };
   }
-
 
   // ── Input server (WebSocket) ──────────────────────────────────────────────
   // Start the embedded WebSocket input server when --input is passed.
@@ -503,10 +592,11 @@ export async function runHeadless(options = {}) {
         const kickTokenUrl = new URL(kickTokenRelPath, import.meta.url).href;
         const kickTokens = await import(kickTokenUrl);
         validateKickToken = kickTokens.validateKickToken;
-      } catch { /* standalone mode — admin kick not available */ }
+      } catch {
+        /* standalone mode — admin kick not available */
+      }
 
       const dirMap = { up: 0x1, down: 0x2, left: 0x4, right: 0x8 };
-
 
       /** Flush all SID ring state after any emulator reset/cart-change.
        *  The WASM SID resets its internal write cursor on c64_reset(), so any
@@ -520,9 +610,9 @@ export async function runHeadless(options = {}) {
        *  game's own startup sound sequence. */
       function resetSidRing() {
         sidSampleAccum = 0;
-        sidRingWrite   = 0;
-        sidRingRead    = 0;
-        sidRingCount   = 0;
+        sidRingWrite = 0;
+        sidRingRead = 0;
+        sidRingCount = 0;
         sidFrameBufMax.fill(0);
         sidFrameView = sidFrameBufMax.subarray(0, 1);
       }
@@ -543,146 +633,184 @@ export async function runHeadless(options = {}) {
         getWebrtcPeerSnapshot: () => getWebrtcPeerSnapshot(),
         disconnectWebrtcPeersByAddr: (addr, reason) => disconnectWebrtcPeersByAddr(addr, reason),
         disconnectAllWebrtcPeers: (reason) => disconnectAllWebrtcPeers(reason),
-        onCommand: (cmd) => {
+        onCommand: async (cmd) => {
           if (!exports) return;
           if (cmd.type === 'load-file' || cmd.type === 'load-crt') {
-              const requestedType = cmd.type === 'load-crt' ? 'crt' : (cmd.fileType ?? inferLoadType(cmd.filename));
-              // Decode base64 → Uint8Array immediately and release the large
-              // base64 string from the cmd object as soon as possible so GC
-              // can reclaim it during the subsequent async gap.
-              const buf = Buffer.from(cmd.data, 'base64');
-              // Slice to own ArrayBuffer — avoids aliasing Node's pooled Buffer
-              // which could span a much larger backing store than the data alone.
-              const arr = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength).slice();
-              cmd.data = null; // release base64 string early
-              const byteLen = arr.length;
-              const filename = cmd.filename;
-              // Defer the blocking WASM work (malloc + copy + cartridge parse)
-              // via setImmediate so the event loop can drain any pending frame
-              // writes / setTimeout callbacks before the synchronous WASM work
-              // begins. This prevents the frame loop from stalling mid-write.
-              // Return a Promise so input-server waits before broadcasting
-              // cart-loaded — ensuring clients are told only after load succeeds.
-              return new Promise((resolve, reject) => {
-                setImmediate(async () => {
-                  try {
-                    const gapStart = Date.now();
-                    const loadType = requestedType;
-                    // For cartridge loads, reset first so bank state does not leak.
-                    if (loadType === 'crt') {
-                      exports.c64_removeCartridge();
-                      exports.c64_reset();
-                    }
-                    const ptr = c64wasm.allocAndWrite(arr);
-                    c64wasm.updateHeapViews();
-                    heap = c64wasm.heap;
-                    try {
-                      if (loadType === 'crt') {
-                        const cartInfo = parseCrtInfo(arr, filename);
-                        if (cartInfo) console.error(cartInfo.line);
-                        exports.c64_loadCartridge(ptr, byteLen);
-                      } else if (loadType === 'prg') {
-                        exports.c64_loadPRG(ptr, byteLen, 1);
-                        await typeCommandText(exports, 'run\n');
-                      } else if (loadType === 'd64') {
-                        exports.c64_setDriveEnabled(1);
-                        exports.c64_insertDisk(ptr, byteLen);
-                      } else if (loadType === 'snapshot') {
-                        exports.c64_loadSnapshot(ptr, byteLen);
-                      } else {
-                        throw new Error(`Unsupported load-file type: ${loadType}`);
-                      }
-                    } finally {
-                      c64wasm.free(ptr);
-                    }
-                    const gapMs = Date.now() - gapStart;
-                    //
-                    // ── Audio RTP re-sync after blocking gap ─────────────────────
-                    // c64_loadCartridge blocks the event loop for ~1300ms. During
-                    // this time the frame loop is frozen so no audio is pushed to
-                    // RTCAudioSource. The video RTP clock (driven by @roamhq/wrtc
-                    // internally via wall-clock) keeps ticking, but the audio RTP
-                    // clock only advances when onData() is called — so audio falls
-                    // ~1300ms behind video. The browser's AV sync logic then holds
-                    // video playback until audio catches up, manifesting as input lag.
-                    //
-                    // Fix: push silence frames totalling the measured gap duration so
-                    // the audio RTP clock jumps forward by the same amount the video
-                    // RTP clock advanced during the blockage.
-                    resetSidRing();
-                    if (webrtcEncoder) {
-                      webrtcEncoder.pushSilenceForGap(gapMs);
-                      if (verbose) console.error(`[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`);
-                    }
-                    if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
-                    if (verbose) console.error(`[headless] file loaded: ${filename} (${loadType}, ${byteLen} bytes, gap=${gapMs}ms)`);
-                    else if (logEvents) console.error(`[event] cart-loaded filename=${filename} type=${loadType} bytes=${byteLen} gap=${gapMs}ms`);
-                    resolve();
-                  } catch (err) {
-                    if (verbose) console.error('[headless] cart load (deferred) error:', err);
-                    else if (logEvents) console.error(`[event] error cart-load-failed filename=${filename} err=${err && err.message ? err.message : err}`);
-                    reject(err);
+            const requestedType =
+              cmd.type === 'load-crt' ? 'crt' : (cmd.fileType ?? inferLoadType(cmd.filename));
+            // Decode base64 → Uint8Array immediately and release the large
+            // base64 string from the cmd object as soon as possible so GC
+            // can reclaim it during the subsequent async gap.
+            const buf = Buffer.from(cmd.data, 'base64');
+            // Slice to own ArrayBuffer — avoids aliasing Node's pooled Buffer
+            // which could span a much larger backing store than the data alone.
+            const arr = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength).slice();
+            cmd.data = null; // release base64 string early
+            const byteLen = arr.length;
+            const filename = cmd.filename;
+            // Defer the blocking WASM work (malloc + copy + cartridge parse)
+            // via setImmediate so the event loop can drain any pending frame
+            // writes / setTimeout callbacks before the synchronous WASM work
+            // begins. This prevents the frame loop from stalling mid-write.
+            // Return a Promise so input-server waits before broadcasting
+            // cart-loaded — ensuring clients are told only after load succeeds.
+            return new Promise((resolve, reject) => {
+              setImmediate(async () => {
+                try {
+                  const gapStart = Date.now();
+                  const loadType = requestedType;
+                  // For cartridge loads, reset first so bank state does not leak.
+                  if (loadType === 'crt') {
+                    exports.c64_removeCartridge();
+                    exports.c64_reset();
                   }
-                });
+                  const ptr = c64wasm.allocAndWrite(arr);
+                  c64wasm.updateHeapViews();
+                  heap = c64wasm.heap;
+                  try {
+                    if (loadType === 'crt') {
+                      const cartInfo = parseCrtInfo(arr, filename);
+                      if (cartInfo) console.error(cartInfo.line);
+                      exports.c64_loadCartridge(ptr, byteLen);
+                    } else if (loadType === 'prg') {
+                      exports.c64_loadPRG(ptr, byteLen, 1);
+                      await typeCommandText(exports, 'run\n');
+                    } else if (loadType === 'd64') {
+                      exports.c64_setDriveEnabled(1);
+                      exports.c64_insertDisk(ptr, byteLen);
+                    } else if (loadType === 'snapshot') {
+                      exports.c64_loadSnapshot(ptr, byteLen);
+                    } else {
+                      throw new Error(`Unsupported load-file type: ${loadType}`);
+                    }
+                  } finally {
+                    c64wasm.free(ptr);
+                  }
+                  const gapMs = Date.now() - gapStart;
+                  //
+                  // ── Audio RTP re-sync after blocking gap ─────────────────────
+                  // c64_loadCartridge blocks the event loop for ~1300ms. During
+                  // this time the frame loop is frozen so no audio is pushed to
+                  // RTCAudioSource. The video RTP clock (driven by @roamhq/wrtc
+                  // internally via wall-clock) keeps ticking, but the audio RTP
+                  // clock only advances when onData() is called — so audio falls
+                  // ~1300ms behind video. The browser's AV sync logic then holds
+                  // video playback until audio catches up, manifesting as input lag.
+                  //
+                  // Fix: push silence frames totalling the measured gap duration so
+                  // the audio RTP clock jumps forward by the same amount the video
+                  // RTP clock advanced during the blockage.
+                  resetSidRing();
+                  if (webrtcEncoder) {
+                    webrtcEncoder.pushSilenceForGap(gapMs);
+                    if (verbose)
+                      console.error(
+                        `[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`,
+                      );
+                  }
+                  if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
+                  if (verbose)
+                    console.error(
+                      `[headless] file loaded: ${filename} (${loadType}, ${byteLen} bytes, gap=${gapMs}ms)`,
+                    );
+                  else if (logEvents)
+                    console.error(
+                      `[event] cart-loaded filename=${filename} type=${loadType} bytes=${byteLen} gap=${gapMs}ms`,
+                    );
+                  resolve();
+                } catch (err) {
+                  if (verbose) console.error('[headless] cart load (deferred) error:', err);
+                  else if (logEvents)
+                    console.error(
+                      `[event] error cart-load-failed filename=${filename} err=${err && err.message ? err.message : err}`,
+                    );
+                  reject(err);
+                }
               });
-            } else if (cmd.type === 'detach-crt') {
-              const gapStart = Date.now();
-              exports.c64_removeCartridge();
-              exports.c64_reset();               // return to clean BASIC prompt
-              const gapMs = Date.now() - gapStart;
-              resetSidRing();
-              if (webrtcEncoder) {
-                webrtcEncoder.pushSilenceForGap(gapMs);
-                if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after detach`);
-              }
-              if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
-              if (verbose) console.error('[headless] cart detached');
-              else if (logEvents) console.error(`[event] cart-detached gap=${gapMs}ms`);
-            } else if (cmd.type === 'hard-reset') {
-              // Instant hard reset: reset machine state but keep current media
-              // attached (cartridge/disk), matching offline player behavior.
-              const gapStart = Date.now();
-              exports.c64_reset();
-              const gapMs = Date.now() - gapStart;
-              resetSidRing();
-              if (webrtcEncoder) {
-                webrtcEncoder.pushSilenceForGap(gapMs);
-                if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after hard reset`);
-              }
-              if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
-              if (verbose) console.error('[headless] hard reset');
-              else if (logEvents) console.error(`[event] hard-reset gap=${gapMs}ms`);
+            });
+          } else if (cmd.type === 'detach-crt') {
+            const gapStart = Date.now();
+            exports.c64_removeCartridge();
+            exports.c64_reset(); // return to clean BASIC prompt
+            const gapMs = Date.now() - gapStart;
+            resetSidRing();
+            if (webrtcEncoder) {
+              webrtcEncoder.pushSilenceForGap(gapMs);
+              if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after detach`);
             }
+            if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
+            if (verbose) console.error('[headless] cart detached');
+            else if (logEvents) console.error(`[event] cart-detached gap=${gapMs}ms`);
+          } else if (cmd.type === 'hard-reset') {
+            // Instant hard reset: reset machine state but keep current media
+            // attached (cartridge/disk), matching offline player behavior.
+            const gapStart = Date.now();
+            exports.c64_reset();
+            const gapMs = Date.now() - gapStart;
+            resetSidRing();
+            if (webrtcEncoder) {
+              webrtcEncoder.pushSilenceForGap(gapMs);
+              if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after hard reset`);
+            }
+            if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
+            if (verbose) console.error('[headless] hard reset');
+            else if (logEvents) console.error(`[event] hard-reset gap=${gapMs}ms`);
+          } else if (cmd.type === 'reboot') {
+            if (!C64WASMClass) throw new Error('C64WASM wrapper unavailable for reboot');
+            const gapStart = Date.now();
+            const next = new C64WASMClass();
+            await next.instantiate(wasmAb);
+            c64wasm = next;
+            exports = c64wasm.exports;
+            heap = c64wasm.heap;
+            exports.c64_init();
+            exports.sid_setSampleRate(44100);
+            exports.debugger_set_speed(100);
+            exports.debugger_play();
+            const gapMs = Date.now() - gapStart;
+            resetSidRing();
+            if (webrtcEncoder) {
+              webrtcEncoder.pushSilenceForGap(gapMs);
+              if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after reboot`);
+            }
+            if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
+            if (verbose) console.error('[headless] emulator rebooted (fresh WASM instance)');
+            else if (logEvents) console.error(`[event] machine-rebooted gap=${gapMs}ms`);
+          }
         },
         onInput: (event) => {
           if (!exports) return;
           if (event.type === 'joystick') {
-            const port = ((event.joystickPort ?? 2) - 1);  // 1-based → 0-based
+            const port = (event.joystickPort ?? 2) - 1; // 1-based → 0-based
             const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
-            const fire = (event.fire || event.fire1) ? 0x10 : 0;
+            const fire = event.fire || event.fire1 ? 0x10 : 0;
             if (event.action === 'release') {
-              if (dir)  exports.c64_joystick_release(port, dir);
+              if (dir) exports.c64_joystick_release(port, dir);
               if (fire) exports.c64_joystick_release(port, fire);
             } else {
-              if (dir)  exports.c64_joystick_push(port, dir);
+              if (dir) exports.c64_joystick_push(port, dir);
               if (fire) exports.c64_joystick_push(port, fire);
             }
             if (verbose) {
               const role = event._role ?? 'unknown';
-              console.error(`[event] input joystick role=${role} port=${event.joystickPort ?? 2} action=${event.action ?? 'press'} dir=${event.direction ?? '-'} fire=${!!(event.fire || event.fire1)}`);
+              console.error(
+                `[event] input joystick role=${role} port=${event.joystickPort ?? 2} action=${event.action ?? 'press'} dir=${event.direction ?? '-'} fire=${!!(event.fire || event.fire1)}`,
+              );
             }
           } else if (event.type === 'key') {
-            const domKey   = String(event.key ?? '');
+            const domKey = String(event.key ?? '');
             const shiftKey = !!event.shiftKey;
-            const evType   = event.action === 'up' ? 'keyup' : 'keydown';
-            const c64acts  = domKeyToC64Actions(domKey, shiftKey, evType);
+            const evType = event.action === 'up' ? 'keyup' : 'keydown';
+            const c64acts = domKeyToC64Actions(domKey, shiftKey, evType);
             for (const act of c64acts) {
               if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-              else                        exports.keyboard_keyReleased(act.key);
+              else exports.keyboard_keyReleased(act.key);
             }
             if (verbose && c64acts.length > 0) {
               const role = event._role ?? 'unknown';
-              console.error(`[input] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`);
+              console.error(
+                `[input] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`,
+              );
             }
           }
         },
@@ -699,7 +827,7 @@ export async function runHeadless(options = {}) {
   // webrtcPort (default 9002). Each connecting browser gets its own
   // RTCPeerConnection fed by the shared encoder tracks.
   let webrtcEncoder = null;
-  let webrtcServer  = null;
+  let webrtcServer = null;
   let getWebrtcTelemetry = () => null;
   let getWebrtcPeerSnapshot = () => null;
   let disconnectWebrtcPeersByAddr = () => 0;
@@ -707,7 +835,7 @@ export async function runHeadless(options = {}) {
 
   if (webrtc) {
     try {
-      const { WebRTCEncoder }      = await import('./webrtc-encoder.mjs');
+      const { WebRTCEncoder } = await import('./webrtc-encoder.mjs');
       const { createWebRTCServer } = await import('./webrtc-server.mjs');
       const wrtcLib = (await import('@roamhq/wrtc')).default;
       const { MediaStream } = wrtcLib;
@@ -743,7 +871,10 @@ export async function runHeadless(options = {}) {
             for (const sender of senders) {
               if (sender.track && sender.track.kind === 'video') {
                 const params = sender.getParameters();
-                const maxBitrateBps = Math.max(100_000, Math.round(webrtcMaxBitrateKbpsSafe * 1000));
+                const maxBitrateBps = Math.max(
+                  100_000,
+                  Math.round(webrtcMaxBitrateKbpsSafe * 1000),
+                );
                 if (params.encodings && params.encodings.length > 0) {
                   params.encodings[0].maxBitrate = maxBitrateBps;
                 } else {
@@ -763,13 +894,16 @@ export async function runHeadless(options = {}) {
         getWebrtcPeerSnapshot = () => webrtcServer.getPeerSnapshot();
       }
       if (typeof webrtcServer.disconnectPeersByAddr === 'function') {
-        disconnectWebrtcPeersByAddr = (addr, reason) => webrtcServer.disconnectPeersByAddr(addr, reason);
+        disconnectWebrtcPeersByAddr = (addr, reason) =>
+          webrtcServer.disconnectPeersByAddr(addr, reason);
       }
       if (typeof webrtcServer.disconnectAllPeers === 'function') {
         disconnectAllWebrtcPeers = (reason) => webrtcServer.disconnectAllPeers(reason);
       }
 
-      out.push(`WebRTC player at http://0.0.0.0:${webrtcPort}/ (send cap: ${webrtcOutputFpsSafe > 0 ? `${webrtcOutputFpsSafe}fps` : 'off'})`);
+      out.push(
+        `WebRTC player at http://0.0.0.0:${webrtcPort}/ (send cap: ${webrtcOutputFpsSafe > 0 ? `${webrtcOutputFpsSafe}fps` : 'off'})`,
+      );
     } catch (e) {
       console.error('[headless] Failed to start WebRTC server:', e && e.message ? e.message : e);
       out.push(`webrtc-server-failed: ${String(e)}`);
@@ -780,9 +914,10 @@ export async function runHeadless(options = {}) {
   // Run state and timing
   let frameCount = 0;
   let ffmpegDied = false; // set to true if ffmpeg exits unexpectedly and we give up
-  const targetFps = (typeof fps === 'number' && !Number.isNaN(fps) && fps > 0) ? fps : 60;
+  const targetFps = typeof fps === 'number' && !Number.isNaN(fps) && fps > 0 ? fps : 60;
   const frameMs = Math.round(1000 / targetFps);
-  const webrtcSendFps = webrtcOutputFpsSafe > 0 ? Math.max(1, Math.min(targetFps, webrtcOutputFpsSafe)) : targetFps;
+  const webrtcSendFps =
+    webrtcOutputFpsSafe > 0 ? Math.max(1, Math.min(targetFps, webrtcOutputFpsSafe)) : targetFps;
   const webrtcSendIntervalMs = 1000 / webrtcSendFps;
   let nextVideoDueAtMs = nowMonoMs();
   let videoFramesSent = 0;
@@ -808,7 +943,8 @@ export async function runHeadless(options = {}) {
       const lag = eventLoopMonitor ? eventLoopMonitor.min / 1e6 : 0; // ms
       // Keep event-loop lag diagnostics behind --verbose only. These can be
       // noisy in steady-state and are intended for performance debugging.
-      if (lag > 5 && verbose) { // only log if >5ms lag
+      if (lag > 5 && verbose) {
+        // only log if >5ms lag
         console.error(`[event] event-loop-lag min=${lag.toFixed(2)}ms`);
       }
       if (eventLoopMonitor) eventLoopMonitor.reset();
@@ -842,24 +978,24 @@ export async function runHeadless(options = {}) {
   //
   // Ring sizing: hold at least 2× SID_BUFFER_SIZE so one full WASM pull
   // never overflows while the consumer hasn't caught up yet.
-  const SID_RING_SIZE  = SID_BUFFER_SIZE * 4;  // 16384 samples of headroom
-  const sidRing        = new Float32Array(SID_RING_SIZE);
-  let   sidRingWrite   = 0;   // next write position in sidRing
-  let   sidRingRead    = 0;   // next read  position in sidRing
-  let   sidRingCount   = 0;   // samples currently in the ring
+  const SID_RING_SIZE = SID_BUFFER_SIZE * 4; // 16384 samples of headroom
+  const sidRing = new Float32Array(SID_RING_SIZE);
+  let sidRingWrite = 0; // next write position in sidRing
+  let sidRingRead = 0; // next read  position in sidRing
+  let sidRingCount = 0; // samples currently in the ring
   // Accumulator: how many emulated samples have passed since last WASM pull.
-  let   sidSampleAccum = 0;
+  let sidSampleAccum = 0;
   // Single staging buffer for per-frame audio delivered to ffmpeg/WebRTC.
   const sidFrameBufMax = new Float32Array(MAX_AUDIO_SAMPLES_PER_ITER);
-  let sidFrameView     = sidFrameBufMax.subarray(0, 1);
+  let sidFrameView = sidFrameBufMax.subarray(0, 1);
 
   /** Pull one 4096-sample chunk from the WASM SID buffer into the JS ring. */
   function pullSidBuffer() {
     if (!exports || !heap || typeof exports.sid_getAudioBuffer !== 'function') return;
     try {
-      const ptr     = exports.sid_getAudioBuffer();
-      const base    = ptr >> 2;
-      const src     = heap.heapF32;
+      const ptr = exports.sid_getAudioBuffer();
+      const base = ptr >> 2;
+      const src = heap.heapF32;
       for (let i = 0; i < SID_BUFFER_SIZE; i++) {
         sidRing[(sidRingWrite + i) % SID_RING_SIZE] = src[base + i];
       }
@@ -897,18 +1033,19 @@ export async function runHeadless(options = {}) {
     for (let i = 0; i < samplesNeeded; i++) {
       sidFrameBufMax[i] = sidRing[(sidRingRead + i) % SID_RING_SIZE];
     }
-    sidRingRead  = (sidRingRead + samplesNeeded) % SID_RING_SIZE;
+    sidRingRead = (sidRingRead + samplesNeeded) % SID_RING_SIZE;
     sidRingCount -= samplesNeeded;
     return true;
   }
-
 
   // Resolve output path once — treat remote URLs verbatim, local file paths
   // should be resolved relative to the current working directory (process.cwd()).
   // If no output provided, fall back to repoRoot/temp as before.
   const isRemoteUrl = (s) => /^[a-zA-Z]+:\/\//.test(s);
   const outPathResolved = output
-    ? (isRemoteUrl(output) ? output : path.resolve(process.cwd(), output))
+    ? isRemoteUrl(output)
+      ? output
+      : path.resolve(process.cwd(), output)
     : path.join(repoRoot, 'temp', `c64-record-${Date.now()}.mp4`);
   const isRtmpOutput = isRemoteUrl(outPathResolved);
 
@@ -928,7 +1065,7 @@ export async function runHeadless(options = {}) {
       raw,
       verbose,
       audio,
-      sampleRate: audioSampleRate
+      sampleRate: audioSampleRate,
     });
     return started;
   }
@@ -940,7 +1077,7 @@ export async function runHeadless(options = {}) {
         const msg = 'ffmpeg-record-failed:start-failed';
         out.push(msg);
         console.error('[headless] ' + msg);
-        return {ok: false, output: out};
+        return { ok: false, output: out };
       } else {
         const msg = `Recording to ${outPathResolved} (${durationSec ? durationSec + 's' : 'endless'} @ ${fps}fps${audio ? ' +audio' : ''})`;
         out.push(msg);
@@ -975,7 +1112,9 @@ export async function runHeadless(options = {}) {
   const runStartTime = Date.now();
   const isStreamingMode = record || webrtc;
   const endTime = isStreamingMode
-    ? (durationSec ? runStartTime + durationSec * 1000 : Infinity)
+    ? durationSec
+      ? runStartTime + durationSec * 1000
+      : Infinity
     : null;
 
   let windowStart = nowMonoMs();
@@ -984,7 +1123,8 @@ export async function runHeadless(options = {}) {
 
   while (isStreamingMode ? Date.now() < endTime : frameCount < frames) {
     try {
-      if (verbose && frameCount % 50 === 0) console.error(`[headless] loop frameCount=${frameCount}`);
+      if (verbose && frameCount % 50 === 0)
+        console.error(`[headless] loop frameCount=${frameCount}`);
 
       // Capture frame start time BEFORE emulation so sleepMs accounts for
       // ALL work in this iteration (emulation + audio + video push + ffmpeg).
@@ -1002,7 +1142,7 @@ export async function runHeadless(options = {}) {
       // AND debugger_isRunning() — we mirror that here so we never push a stale
       // or repeated pixel buffer into WebRTC during boot/reset sequences.
       const frameReady = !!exports.debugger_update(emuDeltaMs);
-      const isRunning  = !!exports.debugger_isRunning();
+      const isRunning = !!exports.debugger_isRunning();
 
       // ── Audio: pull from WASM SID → JS ring → per-frame slice ───────────
       // Audio runs every frame regardless of frameReady/isRunning so the WebRTC
@@ -1034,7 +1174,7 @@ export async function runHeadless(options = {}) {
               videoFramesDroppedLateWindow += lateDrops;
               nextVideoDueAtMs += lateDrops * webrtcSendIntervalMs;
             }
-            const ptr  = exports.c64_getPixelBuffer();
+            const ptr = exports.c64_getPixelBuffer();
             const rgba = heap.heapU8.subarray(ptr, ptr + 384 * 272 * 4);
             webrtcEncoder.pushVideoFrame(rgba);
             videoFramesSent++;
@@ -1111,8 +1251,7 @@ export async function runHeadless(options = {}) {
       const sleepMs = Math.max(0, frameMs - workMs);
       if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
       await new Promise((r) => setImmediate(r)); // drain any remaining I/O callbacks
-    } catch (_) {
-    }
+    } catch (_) {}
     frameCount++;
     // diagnostics
     windowCount++;
@@ -1128,11 +1267,15 @@ export async function runHeadless(options = {}) {
         const drift = actualFps - targetFps;
         const driftPct = Math.abs(drift / targetFps) * 100;
         if (driftPct > 10) {
-          console.error(`[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`);
+          console.error(
+            `[event] drift fps-actual=${actualFps.toFixed(1)} fps-target=${targetFps} drift=${drift > 0 ? '+' : ''}${drift.toFixed(1)} (${driftPct.toFixed(0)}%)`,
+          );
         }
         // Keep per-window drop telemetry behind --verbose only.
         if (verbose && (videoFramesDroppedLateWindow > 0 || videoFramesDroppedCapWindow > 0)) {
-          console.error(`[event] webrtc-video-drop sent=${videoFramesSent} late=${videoFramesDroppedLateWindow} cap=${videoFramesDroppedCapWindow} totalLate=${videoFramesDroppedLate} totalCap=${videoFramesDroppedCap} fpsCap=${webrtcSendFps}`);
+          console.error(
+            `[event] webrtc-video-drop sent=${videoFramesSent} late=${videoFramesDroppedLateWindow} cap=${videoFramesDroppedCapWindow} totalLate=${videoFramesDroppedLate} totalCap=${videoFramesDroppedCap} fpsCap=${webrtcSendFps}`,
+          );
         }
       }
       runtimeStats.videoFramesSent = videoFramesSent;
@@ -1141,12 +1284,28 @@ export async function runHeadless(options = {}) {
       const webrtcTelemetry = getWebrtcTelemetry();
       if (webrtcTelemetry) {
         runtimeStats.webrtcPeerCount = webrtcTelemetry.peerCount ?? null;
-        runtimeStats.webrtcAvgRttMs = Number.isFinite(webrtcTelemetry.avgRttMs) ? webrtcTelemetry.avgRttMs : null;
-        runtimeStats.webrtcSendDelayMsPerPacket = Number.isFinite(webrtcTelemetry.sendDelayMsPerPacket) ? webrtcTelemetry.sendDelayMsPerPacket : null;
-        runtimeStats.webrtcEncodeMsPerFrame = Number.isFinite(webrtcTelemetry.encodeMsPerFrame) ? webrtcTelemetry.encodeMsPerFrame : null;
-        runtimeStats.webrtcFramesSentPerSec = Number.isFinite(webrtcTelemetry.framesSentPerSec) ? webrtcTelemetry.framesSentPerSec : null;
-        runtimeStats.webrtcFramesEncodedPerSec = Number.isFinite(webrtcTelemetry.framesEncodedPerSec) ? webrtcTelemetry.framesEncodedPerSec : null;
-        runtimeStats.webrtcBytesSentPerSec = Number.isFinite(webrtcTelemetry.bytesSentPerSec) ? webrtcTelemetry.bytesSentPerSec : null;
+        runtimeStats.webrtcAvgRttMs = Number.isFinite(webrtcTelemetry.avgRttMs)
+          ? webrtcTelemetry.avgRttMs
+          : null;
+        runtimeStats.webrtcSendDelayMsPerPacket = Number.isFinite(
+          webrtcTelemetry.sendDelayMsPerPacket,
+        )
+          ? webrtcTelemetry.sendDelayMsPerPacket
+          : null;
+        runtimeStats.webrtcEncodeMsPerFrame = Number.isFinite(webrtcTelemetry.encodeMsPerFrame)
+          ? webrtcTelemetry.encodeMsPerFrame
+          : null;
+        runtimeStats.webrtcFramesSentPerSec = Number.isFinite(webrtcTelemetry.framesSentPerSec)
+          ? webrtcTelemetry.framesSentPerSec
+          : null;
+        runtimeStats.webrtcFramesEncodedPerSec = Number.isFinite(
+          webrtcTelemetry.framesEncodedPerSec,
+        )
+          ? webrtcTelemetry.framesEncodedPerSec
+          : null;
+        runtimeStats.webrtcBytesSentPerSec = Number.isFinite(webrtcTelemetry.bytesSentPerSec)
+          ? webrtcTelemetry.bytesSentPerSec
+          : null;
         runtimeStats.webrtcQualityLimitation = webrtcTelemetry.qualityLimitation ?? null;
       }
       runtimeStats.sampledAt = Date.now();
@@ -1157,12 +1316,11 @@ export async function runHeadless(options = {}) {
     }
     if (verify && frameCount % 60 === 0) {
       const cycleCount = exports.c64_getCycleCount ? exports.c64_getCycleCount() : null;
-      out.push(JSON.stringify({pid: process.pid, frame: frameCount, cycles: cycleCount}));
+      out.push(JSON.stringify({ pid: process.pid, frame: frameCount, cycles: cycleCount }));
       try {
         const pc = exports.c64_getPC ? exports.c64_getPC() : null;
         console.error(`[headless] verify: frame=${frameCount} pc=${pc} cycles=${cycleCount}`);
-      } catch (_) {
-      }
+      } catch (_) {}
     }
   }
 
@@ -1219,7 +1377,7 @@ export async function runHeadless(options = {}) {
       out.push(`ffmpeg-stop-failed: ${String(e)}`);
     }
   }
-  return {ok: !ffmpegDied, output: out};
+  return { ok: !ffmpegDied, output: out };
 }
 
 export default runHeadless;

@@ -42,6 +42,11 @@ export class C64Headless {
     this.emulator.loadGame(options);
   }
 
+  async reboot(): Promise<void> {
+    if (!this.emulator) throw new Error('Emulator not initialised — call init() first');
+    await this.emulator.reboot();
+  }
+
   /**
    * Run a single emulation tick/frame and return the captured latest frame/audio.
    * This will start the emulator if it was not running, and restore the previous

@@ -205,4 +205,25 @@ describe('C64Emulator', () => {
 
     expect(emulator.isRunning()).toBe(true);
   });
+
+  it('reboot() re-instantiates WASM and keeps running state', async () => {
+    const first = makeFakeWasm();
+    const second = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValueOnce(first.wasm).mockResolvedValueOnce(second.wasm);
+
+    const emulator = await C64Emulator.load('/custom.wasm');
+    emulator.start();
+    emulator.tick(16);
+    expect(emulator.getFrameCount()).toBe(1);
+
+    await emulator.reboot();
+
+    expect(C64WASM.load).toHaveBeenNthCalledWith(2, '/custom.wasm');
+    expect(second.exports.c64_init).toHaveBeenCalled();
+    expect(emulator.isRunning()).toBe(true);
+    expect(emulator.getFrameCount()).toBe(0);
+
+    emulator.tick(20);
+    expect(second.exports.debugger_update).toHaveBeenCalledWith(20);
+  });
 });

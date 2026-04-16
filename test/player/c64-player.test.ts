@@ -11,6 +11,7 @@ describe('C64Player', () => {
     return {
       loadGame: vi.fn(),
       start: vi.fn(),
+      reboot: vi.fn().mockResolvedValue(undefined),
       isRunning: vi.fn(() => true),
       keyDown: vi.fn(),
       keyUp: vi.fn(),
@@ -36,11 +37,16 @@ describe('C64Player', () => {
       const sig = 'C64 CARTRIDGE   ';
       for (let i = 0; i < 16; i++) data[i] = sig.charCodeAt(i);
       // header length = 0x40
-      data[0x10] = 0; data[0x11] = 0; data[0x12] = 0; data[0x13] = 0x40;
+      data[0x10] = 0;
+      data[0x11] = 0;
+      data[0x12] = 0;
+      data[0x13] = 0x40;
       // hwType = 0
-      data[0x16] = 0; data[0x17] = 0;
+      data[0x16] = 0;
+      data[0x17] = 0;
       // exrom = 1, game = 1
-      data[0x18] = 1; data[0x19] = 1;
+      data[0x18] = 1;
+      data[0x19] = 1;
     }
 
     vi.stubGlobal(
@@ -127,6 +133,29 @@ describe('C64Player', () => {
 
     expect(emulator.loadGame).not.toHaveBeenCalled();
     expect(emulator.start).toHaveBeenCalledOnce();
+  });
+
+  it('reboot() re-instantiates the player runtime and emits c64-reboot', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    stubFetchForGame();
+
+    const renderer = makeFakeRenderer();
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer });
+    const rebootListener = vi.fn();
+    window.addEventListener('c64-reboot', rebootListener);
+
+    try {
+      await player.start();
+      await player.reboot();
+    } finally {
+      window.removeEventListener('c64-reboot', rebootListener);
+    }
+
+    expect(emulator.reboot).toHaveBeenCalledOnce();
+    expect(renderer.attachTo).toHaveBeenCalledTimes(2);
+    expect(emulator.start).toHaveBeenCalledTimes(2);
+    expect(rebootListener).toHaveBeenCalledOnce();
   });
 
   // ...additional tests omitted for brevity

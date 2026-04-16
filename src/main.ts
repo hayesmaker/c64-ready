@@ -130,3 +130,9 @@ window.addEventListener('c64-load-info', (e: Event) => {
   status.style.color = detail.mode === 'warning' ? '#f9c74f' : '#9ecbff';
   console.info('C64 load info event:', detail);
 });
+
+window.addEventListener('c64-reboot', () => {
+  status.textContent = 'Emulator rebooted. Load a cartridge to continue.';
+  status.style.color = '#9ecbff';
+  renderer.hideLoader(0);
+});

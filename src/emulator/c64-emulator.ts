@@ -21,6 +21,7 @@ const DEFAULT_SAMPLE_RATE = 44100;
 
 export class C64Emulator {
   private wasm: C64WASM;
+  private readonly wasmUrl: string;
   private config: C64Config;
   private running: boolean = false;
   private frameCount: number = 0;
@@ -30,8 +31,9 @@ export class C64Emulator {
   /** Called every tick with the latest audio samples */
   onAudio?: (audio: AudioBuffer) => void;
 
-  private constructor(wasm: C64WASM, config: Partial<C64Config> = {}) {
+  private constructor(wasm: C64WASM, wasmUrl: string, config: Partial<C64Config> = {}) {
     this.wasm = wasm;
+    this.wasmUrl = wasmUrl;
     this.config = {
       videoWidth: FRAME_WIDTH,
       videoHeight: FRAME_HEIGHT,
@@ -57,7 +59,7 @@ export class C64Emulator {
     config: Partial<C64Config> = {},
   ): Promise<C64Emulator> {
     const wasm = await C64WASM.load(wasmUrl);
-    const emulator = new C64Emulator(wasm, config);
+    const emulator = new C64Emulator(wasm, wasmUrl, config);
     emulator.init();
     return emulator;
   }
@@ -97,6 +99,20 @@ export class C64Emulator {
   reset(): void {
     this.wasm.exports?.c64_reset();
     this.frameCount = 0;
+  }
+
+  async reboot(): Promise<void> {
+    const wasRunning = this.running;
+    const nextWasm = await C64WASM.load(this.wasmUrl);
+
+    this.running = false;
+    this.wasm = nextWasm;
+    this.frameCount = 0;
+    this.init();
+
+    if (wasRunning) {
+      this.start();
+    }
   }
 
   // ---------------------------------------------------------------------------
