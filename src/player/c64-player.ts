@@ -22,6 +22,7 @@ export interface C64PlayerOptions {
 export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
+  private disableCrtPreloadChecks: boolean = false;
   readonly audio = new AudioEngine();
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -35,6 +36,7 @@ export class C64Player {
 
     onProgress?.(10, 'INITIALISING WASM...');
     this.emulator = await C64Emulator.load(wasmUrl);
+    this.emulator.setCrtPreloadChecksEnabled(!this.disableCrtPreloadChecks);
     this.attachInputAndRenderer(this.emulator, renderer);
 
     if (gameUrl && gameUrl !== 'null') {
@@ -125,7 +127,7 @@ export class C64Player {
     try {
       if (type === 'crt') {
         const filename = url.split('/').pop() ?? url;
-        validateCrtSupportOrThrow(data, filename, onProgress);
+        this.handleCrtPreloadChecks(data, filename, onProgress);
       }
       this.emulator.loadGame({ type, data });
       if (type === 'prg') {
@@ -161,7 +163,7 @@ export class C64Player {
       this.emitSnapshotLoadInfo(resolvedType, file.name);
       try {
         if (resolvedType === 'crt') {
-          validateCrtSupportOrThrow(data, file.name, onProgress);
+          this.handleCrtPreloadChecks(data, file.name, onProgress);
         }
         this.emulator.loadGame({ type: resolvedType, data });
         if (resolvedType === 'prg') {
@@ -269,6 +271,11 @@ export class C64Player {
     this.inputHandler?.setInputMode(mode);
   }
 
+  setCrtPreloadChecksDisabled(disabled: boolean): void {
+    this.disableCrtPreloadChecks = disabled;
+    this.emulator?.setCrtPreloadChecksEnabled(!disabled);
+  }
+
   private async autoRunPrgIfRunning(): Promise<void> {
     if (!this.emulator || !this.emulator.isRunning()) return;
     await waitMs(220);
@@ -338,6 +345,38 @@ export class C64Player {
     this.inputHandler = new InputHandler(emulator);
     this.inputHandler.attach();
     renderer.attachTo(emulator);
+  }
+
+  private handleCrtPreloadChecks(
+    data: Uint8Array,
+    source: string,
+    onProgress?: ProgressCallback,
+  ): void {
+    if (!this.disableCrtPreloadChecks) {
+      validateCrtSupportOrThrow(data, source, onProgress);
+      return;
+    }
+
+    const info = parseCrtInfo(data, source);
+    if (!info) return;
+
+    console.log(info.line);
+    const unsupportedReason = getUnsupportedCrtReason(info);
+    if (!unsupportedReason) return;
+
+    onProgress?.(90, 'UNSAFE CRT LOAD');
+    const message =
+      'Preload checks are disabled. This cartridge is normally flagged as incompatible and may hang the emulator.';
+    console.warn(`${unsupportedReason} Proceeding because preload checks are disabled.`);
+    window.dispatchEvent(
+      new CustomEvent('c64-load-info', {
+        detail: {
+          mode: 'warning',
+          source,
+          message,
+        },
+      }),
+    );
   }
 }
 

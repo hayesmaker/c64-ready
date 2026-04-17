@@ -205,6 +205,17 @@ describe('C64Emulator', () => {
     expect(exports.c64_loadCartridge).toHaveBeenCalledWith(16, 0x40);
   });
 
+  it('allows unsupported CRT when preload checks are disabled', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.setCrtPreloadChecksEnabled(false);
+    emulator.loadGame({ type: 'crt', data: makeCrtData(1, 0, 0) });
+
+    expect(exports.c64_loadCartridge).toHaveBeenCalledWith(16, 0x40);
+  });
+
   it('returns a copied framebuffer in getFrameBuffer', async () => {
     const { wasm, heapU8 } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);

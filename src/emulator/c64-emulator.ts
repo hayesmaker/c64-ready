@@ -26,6 +26,7 @@ export class C64Emulator {
   private config: C64Config;
   private running: boolean = false;
   private frameCount: number = 0;
+  private crtPreloadChecksEnabled: boolean = true;
 
   /** Called every tick with the latest video frame */
   onFrame?: (frame: FrameBuffer) => void;
@@ -116,6 +117,10 @@ export class C64Emulator {
     }
   }
 
+  setCrtPreloadChecksEnabled(enabled: boolean): void {
+    this.crtPreloadChecksEnabled = enabled;
+  }
+
   // ---------------------------------------------------------------------------
   // Frame loop — call once per animation frame (requestAnimationFrame)
   // ---------------------------------------------------------------------------
@@ -167,7 +172,7 @@ export class C64Emulator {
           x.c64_insertDisk(ptr, options.data.length);
           break;
         case 'crt':
-          {
+          if (this.crtPreloadChecksEnabled) {
             const info = parseCrtInfo(options.data);
             if (!info) {
               throw new Error('Invalid CRT file format');

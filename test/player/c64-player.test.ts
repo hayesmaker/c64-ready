@@ -12,6 +12,7 @@ describe('C64Player', () => {
       loadGame: vi.fn(),
       start: vi.fn(),
       reboot: vi.fn().mockResolvedValue(undefined),
+      setCrtPreloadChecksEnabled: vi.fn(),
       isRunning: vi.fn(() => true),
       keyDown: vi.fn(),
       keyUp: vi.fn(),
@@ -215,6 +216,30 @@ describe('C64Player', () => {
     await player.loadGame('/games/legend-of-wilf.crt', 'crt');
 
     expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'crt', data: expect.any(Uint8Array) });
+  });
+
+  it('allows unsupported CRT when preload checks are disabled', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    stubFetchForGame(makeCrtData(1, 0, 0));
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+    player.setCrtPreloadChecksDisabled(true);
+    const infoListener = vi.fn();
+    window.addEventListener('c64-load-info', infoListener);
+    await player.loadGame('/games/billiards.crt', 'crt');
+    window.removeEventListener('c64-load-info', infoListener);
+
+    expect(emulator.setCrtPreloadChecksEnabled).toHaveBeenLastCalledWith(false);
+    expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'crt', data: expect.any(Uint8Array) });
+    expect(infoListener).toHaveBeenCalled();
+    expect(infoListener.mock.calls.some((c) => c[0]?.detail?.mode === 'warning')).toBe(true);
   });
 
   // ...additional tests omitted for brevity
