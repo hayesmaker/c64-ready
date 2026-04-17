@@ -17,7 +17,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.2s, color 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
   z-index: 1000;
 }
 .c64-help-btn:hover {
@@ -155,7 +157,10 @@
   align-items: center;
   justify-content: center;
   z-index: 1010;
-  transition: border-color 0.2s, color 0.2s, opacity 0.3s;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    opacity 0.3s;
   animation: c64-unmute-pulse 2s ease-in-out infinite;
 }
 .c64-unmute-btn:hover {
@@ -167,8 +172,13 @@
   pointer-events: none;
 }
 @keyframes c64-unmute-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
 }
 .c64-audio-section {
   margin-top: 16px;
@@ -199,8 +209,12 @@
   justify-content: center;
   flex-shrink: 0;
 }
-.c64-mute-btn:hover { border-color: #7b71d5; }
-.c64-mute-btn.muted { color: #f44; }
+.c64-mute-btn:hover {
+  border-color: #7b71d5;
+}
+.c64-mute-btn.muted {
+  color: #f44;
+}
 .c64-volume-slider {
   flex: 1;
   -webkit-appearance: none;
@@ -255,7 +269,7 @@
 .c64-menu-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
@@ -265,7 +279,10 @@
   opacity: 0;
   transition: opacity 0.2s ease;
 }
-.c64-menu-overlay.visible { opacity: 1; pointer-events: auto; }
+.c64-menu-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
 .c64-menu-panel {
   background: #0f0f1a;
   border: 2px solid #333;
@@ -275,8 +292,18 @@
   color: #ddd;
   font-family: monospace;
 }
-.c64-menu-header { display:flex; align-items:center; justify-content:space-between; }
-.c64-menu-close { background:none; border:none; color:#888; font-size:20px; cursor:pointer; }
+.c64-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.c64-menu-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+}
 .c64-settings-tabs {
   display: flex;
   gap: 8px;
@@ -351,22 +378,49 @@
   margin-top: 12px;
   text-align: center;
   color: #aaa;
-  background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent);
 }
 .c64-dragarea button {
   margin-left: 6px;
 }
-.c64-dragarea.dragover { border-color: #7b71d5; color: #fff; }
-.c64-cart-preview { display:flex; gap:12px; align-items:center; margin-top:12px; }
-.c64-cart-icon { width:56px; height:40px; background:#222; border:1px solid #333; display:flex; align-items:center; justify-content:center; border-radius:4px; }
-.c64-cart-filename { font-size:13px; color:#ccc; word-break:break-all; }
-.c64-cart-type { font-size: 11px; color: #888; margin-top: 2px; }
-.c64-file-input { display:none; }
+.c64-dragarea.dragover {
+  border-color: #7b71d5;
+  color: #fff;
+}
+.c64-cart-preview {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+.c64-cart-icon {
+  width: 56px;
+  height: 40px;
+  background: #222;
+  border: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.c64-cart-filename {
+  font-size: 13px;
+  color: #ccc;
+  word-break: break-all;
+}
+.c64-cart-type {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+}
+.c64-file-input {
+  display: none;
+}
 .c64-menu-actions {
-  margin-top:12px;
-  display:flex;
+  margin-top: 12px;
+  display: flex;
   flex-wrap: wrap;
-  gap:8px;
+  gap: 8px;
 }
 .c64-system-actions {
   margin-top: 4px;
@@ -374,4 +428,19 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-.c64-btn { background:#222; border:1px solid #444; color:#ddd; padding:6px 10px; border-radius:4px; cursor:pointer; }
+.c64-checkbox-row {
+  margin-top: 10px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: #ccc;
+  font-size: 13px;
+}
+.c64-btn {
+  background: #222;
+  border: 1px solid #444;
+  color: #ddd;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}

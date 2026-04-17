@@ -162,6 +162,13 @@ function parseCrtInfo(data, filename) {
   return { line, hwType, hwName, exrom, game, bankConfig, cartName, chipCount, totalRomBytes };
 }
 
+function getUnsupportedCrtReason(info) {
+  if (info && info.exrom === 1 && info.game === 0 && info.hwType === 0) {
+    return 'Unsupported CRT: Ultimax/MAX cartridges are not supported by this emulator.';
+  }
+  return null;
+}
+
 function inferLoadType(filename = '') {
   const lower = String(filename).toLowerCase();
   if (lower.endsWith('.crt')) return 'crt';
@@ -547,7 +554,13 @@ export async function runHeadless(options = {}) {
         const gameData = await fs.readFile(gamePath);
         const gameArr = new Uint8Array(gameData);
         const cartInfo = parseCrtInfo(gameArr, path.basename(gamePath));
-        if (cartInfo) console.error(cartInfo.line);
+        if (cartInfo) {
+          console.error(cartInfo.line);
+          const unsupportedReason = getUnsupportedCrtReason(cartInfo);
+          if (unsupportedReason) {
+            throw new Error(unsupportedReason);
+          }
+        }
         const ptr = c64wasm.allocAndWrite(gameArr);
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
@@ -670,7 +683,13 @@ export async function runHeadless(options = {}) {
                   try {
                     if (loadType === 'crt') {
                       const cartInfo = parseCrtInfo(arr, filename);
-                      if (cartInfo) console.error(cartInfo.line);
+                      if (cartInfo) {
+                        console.error(cartInfo.line);
+                        const unsupportedReason = getUnsupportedCrtReason(cartInfo);
+                        if (unsupportedReason) {
+                          throw new Error(unsupportedReason);
+                        }
+                      }
                       exports.c64_loadCartridge(ptr, byteLen);
                     } else if (loadType === 'prg') {
                       exports.c64_loadPRG(ptr, byteLen, 1);

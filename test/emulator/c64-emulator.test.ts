@@ -84,6 +84,21 @@ describe('C64Emulator', () => {
     return { wasm, exports, heapU8 };
   }
 
+  function makeCrtData(exrom: number, game: number, hwType: number = 0): Uint8Array {
+    const data = new Uint8Array(0x40);
+    const sig = 'C64 CARTRIDGE   ';
+    for (let i = 0; i < 16; i++) data[i] = sig.charCodeAt(i);
+    data[0x10] = 0;
+    data[0x11] = 0;
+    data[0x12] = 0;
+    data[0x13] = 0x40;
+    data[0x16] = (hwType >> 8) & 0xff;
+    data[0x17] = hwType & 0xff;
+    data[0x18] = exrom;
+    data[0x19] = game;
+    return data;
+  }
+
   it('loads and initializes through C64WASM.load', async () => {
     const { wasm, exports } = makeFakeWasm();
     vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
@@ -167,6 +182,38 @@ describe('C64Emulator', () => {
 
     expect(exports.c64_setDriveEnabled).toHaveBeenCalledWith(1);
     expect(exports.c64_insertDisk).toHaveBeenCalledWith(16, 4);
+  });
+
+  it('rejects Ultimax CRT loads before calling c64_loadCartridge', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    expect(() => emulator.loadGame({ type: 'crt', data: makeCrtData(1, 0) })).toThrow(
+      'Unsupported CRT: Ultimax/MAX cartridges are not supported by this emulator.',
+    );
+    expect(exports.c64_loadCartridge).not.toHaveBeenCalled();
+  });
+
+  it('allows Ultimax-flagged EasyFlash CRT loads', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.loadGame({ type: 'crt', data: makeCrtData(1, 0, 32) });
+
+    expect(exports.c64_loadCartridge).toHaveBeenCalledWith(16, 0x40);
+  });
+
+  it('allows unsupported CRT when preload checks are disabled', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.setCrtPreloadChecksEnabled(false);
+    emulator.loadGame({ type: 'crt', data: makeCrtData(1, 0, 0) });
+
+    expect(exports.c64_loadCartridge).toHaveBeenCalledWith(16, 0x40);
   });
 
   it('returns a copied framebuffer in getFrameBuffer', async () => {

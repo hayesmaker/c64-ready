@@ -1,6 +1,6 @@
 import { C64Emulator } from '../emulator/c64-emulator';
 import { domKeyToC64Actions } from '../emulator/input';
-import { parseCrtInfo } from '../emulator/crt-info';
+import { getUnsupportedCrtReason, parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
 import type { InputMode } from '../emulator/input';
@@ -22,6 +22,7 @@ export interface C64PlayerOptions {
 export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
+  private disableCrtPreloadChecks: boolean = false;
   readonly audio = new AudioEngine();
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -35,6 +36,7 @@ export class C64Player {
 
     onProgress?.(10, 'INITIALISING WASM...');
     this.emulator = await C64Emulator.load(wasmUrl);
+    this.emulator.setCrtPreloadChecksEnabled(!this.disableCrtPreloadChecks);
     this.attachInputAndRenderer(this.emulator, renderer);
 
     if (gameUrl && gameUrl !== 'null') {
@@ -120,22 +122,13 @@ export class C64Player {
     }
 
     onProgress?.(90, `INSERTING ${formatLoadProgressLabel(type)}...`);
-    // Basic validation for cartridge files — some malformed .crt files can
-    // silently fail inside the WASM loader; catch common format problems here
-    if (type === 'crt' && !isValidCRT(data)) {
-      onProgress?.(0, 'INVALID CRT');
-      const err = new Error('Invalid CRT file format');
-      console.error(err);
-      throw err;
-    }
-    if (type === 'crt') {
-      const filename = url.split('/').pop() ?? url;
-      const info = parseCrtInfo(data, filename);
-      if (info) console.log(info.line);
-    }
     this.assertSnapshotFormatSupported(data, type, url);
     this.emitSnapshotLoadInfo(type, url);
     try {
+      if (type === 'crt') {
+        const filename = url.split('/').pop() ?? url;
+        this.handleCrtPreloadChecks(data, filename, onProgress);
+      }
       this.emulator.loadGame({ type, data });
       if (type === 'prg') {
         await this.autoRunPrgIfRunning();
@@ -148,7 +141,9 @@ export class C64Player {
       console.error('Failed to insert cartridge or load game:', err);
       // Surface a global event so UI can react if needed
       window.dispatchEvent(
-        new CustomEvent('c64-load-error', { detail: { error: String(err), url, type } }),
+        new CustomEvent('c64-load-error', {
+          detail: { error: err instanceof Error ? err.message : String(err), url, type },
+        }),
       );
       throw err;
     }
@@ -164,19 +159,12 @@ export class C64Player {
       const ab = await file.arrayBuffer();
       const data = new Uint8Array(ab);
       onProgress?.(90, `INSERTING ${formatLoadProgressLabel(resolvedType)}...`);
-      if (resolvedType === 'crt' && !isValidCRT(data)) {
-        onProgress?.(0, 'INVALID CRT');
-        const err = new Error('Invalid CRT file format');
-        console.error(err);
-        throw err;
-      }
-      if (resolvedType === 'crt') {
-        const info = parseCrtInfo(data, file.name);
-        if (info) console.log(info.line);
-      }
       this.assertSnapshotFormatSupported(data, resolvedType, file.name);
       this.emitSnapshotLoadInfo(resolvedType, file.name);
       try {
+        if (resolvedType === 'crt') {
+          this.handleCrtPreloadChecks(data, file.name, onProgress);
+        }
         this.emulator.loadGame({ type: resolvedType, data });
         if (resolvedType === 'prg') {
           await this.autoRunPrgIfRunning();
@@ -190,7 +178,11 @@ export class C64Player {
         console.error('Failed to insert cartridge from file:', err);
         window.dispatchEvent(
           new CustomEvent('c64-load-error', {
-            detail: { error: String(err), file: file.name, type: resolvedType },
+            detail: {
+              error: err instanceof Error ? err.message : String(err),
+              file: file.name,
+              type: resolvedType,
+            },
           }),
         );
         throw err;
@@ -279,6 +271,11 @@ export class C64Player {
     this.inputHandler?.setInputMode(mode);
   }
 
+  setCrtPreloadChecksDisabled(disabled: boolean): void {
+    this.disableCrtPreloadChecks = disabled;
+    this.emulator?.setCrtPreloadChecksEnabled(!disabled);
+  }
+
   private async autoRunPrgIfRunning(): Promise<void> {
     if (!this.emulator || !this.emulator.isRunning()) return;
     await waitMs(220);
@@ -349,11 +346,60 @@ export class C64Player {
     this.inputHandler.attach();
     renderer.attachTo(emulator);
   }
+
+  private handleCrtPreloadChecks(
+    data: Uint8Array,
+    source: string,
+    onProgress?: ProgressCallback,
+  ): void {
+    if (!this.disableCrtPreloadChecks) {
+      validateCrtSupportOrThrow(data, source, onProgress);
+      return;
+    }
+
+    const info = parseCrtInfo(data, source);
+    if (!info) return;
+
+    console.log(info.line);
+    const unsupportedReason = getUnsupportedCrtReason(info);
+    if (!unsupportedReason) return;
+
+    onProgress?.(90, 'UNSAFE CRT LOAD');
+    const message =
+      'Preload checks are disabled. This cartridge is normally flagged as incompatible and may hang the emulator.';
+    console.warn(`${unsupportedReason} Proceeding because preload checks are disabled.`);
+    window.dispatchEvent(
+      new CustomEvent('c64-load-info', {
+        detail: {
+          mode: 'warning',
+          source,
+          message,
+        },
+      }),
+    );
+  }
 }
 
-// CRT format validator — delegates to parseCrtInfo so magic-check logic lives in one place.
-function isValidCRT(data: Uint8Array): boolean {
-  return parseCrtInfo(data) !== null;
+function validateCrtSupportOrThrow(
+  data: Uint8Array,
+  source: string,
+  onProgress?: ProgressCallback,
+): void {
+  const info = parseCrtInfo(data, source);
+  if (!info) {
+    onProgress?.(0, 'INVALID CRT');
+    const err = new Error('Invalid CRT file format');
+    console.error(err);
+    throw err;
+  }
+  console.log(info.line);
+  const unsupportedReason = getUnsupportedCrtReason(info);
+  if (unsupportedReason) {
+    onProgress?.(0, 'UNSUPPORTED CRT');
+    const err = new Error(unsupportedReason);
+    console.error(err);
+    throw err;
+  }
 }
 
 function formatLoadProgressLabel(type: GameLoadOptions['type']): string {

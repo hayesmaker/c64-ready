@@ -12,6 +12,7 @@
  */
 
 import { C64WASM } from './c64-wasm';
+import { getUnsupportedCrtReason, parseCrtInfo } from './crt-info';
 import type { C64Config, FrameBuffer, AudioBuffer, GameLoadOptions, InputEvent } from '../types';
 import type { JoystickPort, JoystickInput } from './constants';
 
@@ -25,6 +26,7 @@ export class C64Emulator {
   private config: C64Config;
   private running: boolean = false;
   private frameCount: number = 0;
+  private crtPreloadChecksEnabled: boolean = true;
 
   /** Called every tick with the latest video frame */
   onFrame?: (frame: FrameBuffer) => void;
@@ -115,6 +117,10 @@ export class C64Emulator {
     }
   }
 
+  setCrtPreloadChecksEnabled(enabled: boolean): void {
+    this.crtPreloadChecksEnabled = enabled;
+  }
+
   // ---------------------------------------------------------------------------
   // Frame loop — call once per animation frame (requestAnimationFrame)
   // ---------------------------------------------------------------------------
@@ -166,6 +172,16 @@ export class C64Emulator {
           x.c64_insertDisk(ptr, options.data.length);
           break;
         case 'crt':
+          if (this.crtPreloadChecksEnabled) {
+            const info = parseCrtInfo(options.data);
+            if (!info) {
+              throw new Error('Invalid CRT file format');
+            }
+            const unsupportedReason = getUnsupportedCrtReason(info);
+            if (unsupportedReason) {
+              throw new Error(unsupportedReason);
+            }
+          }
           x.c64_loadCartridge(ptr, options.data.length);
           break;
         case 'snapshot':

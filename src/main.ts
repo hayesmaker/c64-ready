@@ -45,7 +45,7 @@ player
   .catch((err) => {
     console.error(err);
     renderer.setError('ERROR');
-    status.textContent = `Error: ${err}`;
+    status.textContent = `Error: ${normalizeErrorMessage(String(err))}`;
     status.style.color = '#f44';
   });
 
@@ -84,7 +84,7 @@ window.addEventListener('c64-load-file', async (e: Event) => {
   } catch (err) {
     console.error(err);
     renderer.setError('LOAD ERROR');
-    status.textContent = `Load error: ${err}`;
+    status.textContent = `Load error: ${normalizeErrorMessage(String(err))}`;
     status.style.color = '#f44';
   }
 });
@@ -104,7 +104,7 @@ window.addEventListener('c64-load-tool', async (e: Event) => {
   } catch (err) {
     console.error(err);
     renderer.setError('LOAD ERROR');
-    status.textContent = `Tool load error: ${err}`;
+    status.textContent = `Tool load error: ${normalizeErrorMessage(String(err))}`;
     status.style.color = '#f44';
   }
 });
@@ -114,7 +114,7 @@ window.addEventListener('c64-load-error', (e: Event) => {
   const detail = (e as CustomEvent).detail as
     | { error?: string; url?: string; file?: string; type?: string }
     | undefined;
-  const msg = detail?.error ?? 'Unknown load error';
+  const msg = normalizeErrorMessage(detail?.error ?? 'Unknown load error');
   console.error('C64 load error event:', detail);
   renderer.setError('LOAD ERROR');
   status.textContent = `Load error: ${msg}`;
@@ -136,3 +136,11 @@ window.addEventListener('c64-reboot', () => {
   status.style.color = '#9ecbff';
   renderer.hideLoader(0);
 });
+
+function normalizeErrorMessage(msg: string): string {
+  let out = String(msg ?? '').trim();
+  while (/^(uncaught\s+)?error\s*:\s*/i.test(out)) {
+    out = out.replace(/^(uncaught\s+)?error\s*:\s*/i, '').trim();
+  }
+  return out || 'Unknown load error';
+}

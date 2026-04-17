@@ -37,6 +37,8 @@ import {
   type LoadTypeSelection,
 } from './load-formats';
 
+const CRT_PRELOAD_CHECKS_STORAGE_KEY = 'c64-disable-crt-preload-checks';
+
 export default class UIController {
   private helpOverlay: HTMLElement | null = null;
   private settingsOverlay: HTMLElement | null = null;
@@ -286,6 +288,11 @@ export default class UIController {
               <button class="c64-btn" id="c64-reset-btn">Hard Reset</button>
               <button class="c64-btn" id="c64-reboot-btn">Reboot Emulator</button>
             </div>
+            <label class="c64-checkbox-row" for="c64-disable-crt-preload-checks">
+              <input type="checkbox" id="c64-disable-crt-preload-checks" />
+              Disable crt preload checks
+            </label>
+            <div class="c64-section-hint">Allows any .crt file and skips compatibility prechecks.</div>
           </section>
         </div>
       </div>
@@ -476,6 +483,21 @@ export default class UIController {
     const detachBtn = section?.querySelector('#c64-detach-btn') as HTMLButtonElement | null;
     const resetBtn = section?.querySelector('#c64-reset-btn') as HTMLButtonElement | null;
     const rebootBtn = section?.querySelector('#c64-reboot-btn') as HTMLButtonElement | null;
+    const disableChecksToggle = section?.querySelector(
+      '#c64-disable-crt-preload-checks',
+    ) as HTMLInputElement | null;
+
+    const disableCrtPreloadChecks =
+      window.localStorage.getItem(CRT_PRELOAD_CHECKS_STORAGE_KEY) === '1';
+    this.player?.setCrtPreloadChecksDisabled(disableCrtPreloadChecks);
+    if (disableChecksToggle) {
+      disableChecksToggle.checked = disableCrtPreloadChecks;
+      disableChecksToggle.addEventListener('change', () => {
+        const disabled = disableChecksToggle.checked;
+        window.localStorage.setItem(CRT_PRELOAD_CHECKS_STORAGE_KEY, disabled ? '1' : '0');
+        this.player?.setCrtPreloadChecksDisabled(disabled);
+      });
+    }
     if (detachBtn) {
       detachBtn.addEventListener('click', () => {
         if (!this.player) return;
