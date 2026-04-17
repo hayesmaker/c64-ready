@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #78 from hayesmaker/fix/reject-ultimax-cartridges (ac1f7e5)
+- feat(system): add CRT preload-check override toggle (3e85f8d)
+- fix(cartridge): reject only unsupported Ultimax normal carts (af9ffff)
+- Merge pull request #77 from hayesmaker/chore/update-changelog-2026-04-16T23-40-40-228Z-c4bbad1 (74b2eb3)
+- chore: update changelog (auto) (c4bbad1)
 - Merge pull request #76 from hayesmaker/fix/emulator-reboot-recovery (4b18cef)
 - fix(emulator): add full reboot recovery across browser and headless (c755986)
 - Merge pull request #73 from hayesmaker/chore/v1.0.0-publish (e67cca2)
