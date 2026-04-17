@@ -21,6 +21,7 @@ Build a clean, testable C64 emulator for the web, with a focus on:
 https://hayesmaker.github.io/c64-ready/
 
 ## Install and run locally
+
 - Prerequisites: Node.js 18+ and npm (see https://nodejs.org/)
 
 Install dependencies:
@@ -69,9 +70,10 @@ joystick input channel. No separate media server is required.
 
 #### With NPM
 
-```bash
+````bash
 npx c64-ready```
-```
+````
+
 This starts a static server that serves the browser player on `http://localhost:5173/c64-ready/` by default.
 
 #### With Docker
@@ -120,25 +122,25 @@ Note: VICE `.vsf` snapshots are currently disabled in the browser runtime.
 All options live in `docker/.env` (copy from `docker/.env.example`). See that file for
 the full annotated list.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WASM_PATH` | `/app/public/c64.wasm` | Path to the WASM binary inside the container |
-| `GAME_PATH` | *(empty)* | Cartridge to load on startup — leave blank to boot to BASIC |
-| `FPS` | `50` | Target frame rate (`50` = PAL, `60` = NTSC) |
-| `AUDIO` | `1` | Set to `1` to include SID audio in the WebRTC stream |
-| `DURATION` | *(empty = forever)* | Stop after this many seconds |
-| `VERBOSE` | *(empty)* | Set to `1` for per-frame diagnostics in container logs |
-| `LOG_EVENTS` | `1` | Log player joins/leaves, cart loads, input events |
-| `WEBRTC_ENABLED` | `1` | Must be `1` — WebRTC is the only supported streaming mode |
-| `WEBRTC_PORT` | `9002` | Port inside the container for the WebRTC server |
-| `WEBRTC_HOST_PORT` | `9002` | Host-side port mapping for the WebRTC server |
-| `MAX_SPECTATORS` | `3` | Max concurrent spectator connections (players are separate, see below) |
-| `WEBRTC_MIN_BITRATE_KBPS` | `200` | VP8 SDP `x-google-min-bitrate` hint in kbps |
-| `WEBRTC_MAX_BITRATE_KBPS` | `600` | VP8 SDP `x-google-max-bitrate` hint in kbps |
-| `WEBRTC_OUTPUT_FPS` | `40` | Cap outgoing WebRTC video FPS (`0` disables cap) |
-| `C64_ADMIN_TOKEN` | *(empty)* | Shared token required by `c64-admin` (`status`, `kick`) |
-| `WS_PORT` | `9001` | WebSocket input server port inside the container |
-| `WS_HOST_PORT` | `9001` | Host-side port mapping for the input WebSocket |
+| Variable                  | Default                | Description                                                            |
+| ------------------------- | ---------------------- | ---------------------------------------------------------------------- |
+| `WASM_PATH`               | `/app/public/c64.wasm` | Path to the WASM binary inside the container                           |
+| `GAME_PATH`               | _(empty)_              | Cartridge to load on startup — leave blank to boot to BASIC            |
+| `FPS`                     | `50`                   | Target frame rate (`50` = PAL, `60` = NTSC)                            |
+| `AUDIO`                   | `1`                    | Set to `1` to include SID audio in the WebRTC stream                   |
+| `DURATION`                | _(empty = forever)_    | Stop after this many seconds                                           |
+| `VERBOSE`                 | _(empty)_              | Set to `1` for per-frame diagnostics in container logs                 |
+| `LOG_EVENTS`              | `1`                    | Log player joins/leaves, cart loads, input events                      |
+| `WEBRTC_ENABLED`          | `1`                    | Must be `1` — WebRTC is the only supported streaming mode              |
+| `WEBRTC_PORT`             | `9002`                 | Port inside the container for the WebRTC server                        |
+| `WEBRTC_HOST_PORT`        | `9002`                 | Host-side port mapping for the WebRTC server                           |
+| `MAX_SPECTATORS`          | `10`                   | Max concurrent spectator connections (players are separate, see below) |
+| `WEBRTC_MIN_BITRATE_KBPS` | `200`                  | VP8 SDP `x-google-min-bitrate` hint in kbps                            |
+| `WEBRTC_MAX_BITRATE_KBPS` | `600`                  | VP8 SDP `x-google-max-bitrate` hint in kbps                            |
+| `WEBRTC_OUTPUT_FPS`       | `40`                   | Cap outgoing WebRTC video FPS (`0` disables cap)                       |
+| `C64_ADMIN_TOKEN`         | _(empty)_              | Shared token required by `c64-admin` (`status`, `kick`)                |
+| `WS_PORT`                 | `9001`                 | WebSocket input server port inside the container                       |
+| `WS_HOST_PORT`            | `9001`                 | Host-side port mapping for the input WebSocket                         |
 
 ### Admin CLI
 
@@ -244,12 +246,16 @@ let ready = false;
 
 function joystickPush(port, direction, fire) {
   if (!ready) return;
-  ws.send(JSON.stringify({ type: 'joystick', action: 'push', joystickPort: port, direction, fire }));
+  ws.send(
+    JSON.stringify({ type: 'joystick', action: 'push', joystickPort: port, direction, fire }),
+  );
 }
 
 function joystickRelease(port, direction, fire) {
   if (!ready) return;
-  ws.send(JSON.stringify({ type: 'joystick', action: 'release', joystickPort: port, direction, fire }));
+  ws.send(
+    JSON.stringify({ type: 'joystick', action: 'release', joystickPort: port, direction, fire }),
+  );
 }
 
 // --- lifecycle -------------------------------------------------------
@@ -278,9 +284,9 @@ import readline from 'readline';
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   const [action, direction] = line.trim().split(' ');
-  if (action === 'push')    joystickPush(2, direction);
+  if (action === 'push') joystickPush(2, direction);
   if (action === 'release') joystickRelease(2, direction);
-  if (action === 'quit')    ws.close();
+  if (action === 'quit') ws.close();
 });
 ```
 
@@ -316,20 +322,20 @@ document.addEventListener('keyup', (evt) => {
 import { InputBridge } from 'c64-ready/src/headless/input-bridge';
 
 // Encode a joystick push and release
-const push    = InputBridge.encodeJoystick(2, 'push',    'right');
+const push = InputBridge.encodeJoystick(2, 'push', 'right');
 const release = InputBridge.encodeJoystick(2, 'release', 'right');
 
 // Encode fire button
-const firePush    = InputBridge.encodeJoystick(2, 'push',    undefined, true);
+const firePush = InputBridge.encodeJoystick(2, 'push', undefined, true);
 const fireRelease = InputBridge.encodeJoystick(2, 'release', undefined, true);
 
 // Encode a keypress
 const keyDown = InputBridge.encodeKeypress(65, 'down'); // 'A'
-const keyUp   = InputBridge.encodeKeypress(65, 'up');
+const keyUp = InputBridge.encodeKeypress(65, 'up');
 
 // Send push on button-down, release on button-up — never infer release from a timer
-gamepad.on('buttondown', (btn) => ws.send(InputBridge.encodeJoystick(2, 'push',    btn.direction)));
-gamepad.on('buttonup',   (btn) => ws.send(InputBridge.encodeJoystick(2, 'release', btn.direction)));
+gamepad.on('buttondown', (btn) => ws.send(InputBridge.encodeJoystick(2, 'push', btn.direction)));
+gamepad.on('buttonup', (btn) => ws.send(InputBridge.encodeJoystick(2, 'release', btn.direction)));
 ```
 
 ### Docker — enabling input
@@ -346,11 +352,11 @@ Then connect your client to `ws://localhost:9001`.
 
 `c64-ready` can be installed as a dependency and used in three ways:
 
-| Use-case | How |
-|---|---|
-| Run the browser player locally | `npx c64-ready` (zero config) |
-| TypeScript / Node API | `import` from sub-path exports |
-| Vite browser app | Copy or re-use `src/player/*` with your own Vite project |
+| Use-case                       | How                                                      |
+| ------------------------------ | -------------------------------------------------------- |
+| Run the browser player locally | `npx c64-ready` (zero config)                            |
+| TypeScript / Node API          | `import` from sub-path exports                           |
+| Vite browser app               | Copy or re-use `src/player/*` with your own Vite project |
 
 ### Prerequisites
 
@@ -382,11 +388,11 @@ Open the URL printed to the terminal in any modern browser:
 
 **Options:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port <n>` | `5173` | HTTP port to listen on |
-| `--host` | localhost | Bind to `0.0.0.0` so the player is reachable on the local network |
-| `--help` | | Print usage |
+| Flag         | Default   | Description                                                       |
+| ------------ | --------- | ----------------------------------------------------------------- |
+| `--port <n>` | `5173`    | HTTP port to listen on                                            |
+| `--host`     | localhost | Bind to `0.0.0.0` so the player is reachable on the local network |
+| `--help`     |           | Print usage                                                       |
 
 ```zsh
 # Different port, accessible on the LAN
@@ -429,7 +435,7 @@ emulator.onFrame = (frame) => {
 };
 
 // Load a cartridge (.crt file bytes)
-const crtBytes = new Uint8Array(await fetch('/games/mygame.crt').then(r => r.arrayBuffer()));
+const crtBytes = new Uint8Array(await fetch('/games/mygame.crt').then((r) => r.arrayBuffer()));
 emulator.loadGame({ type: 'crt', data: crtBytes });
 
 // Start the emulation loop
@@ -459,7 +465,7 @@ if (frame) {
 
 // Forward remote input from an external source (e.g. WebSocket message)
 headless.inputBridge.receiveRemoteInput(
-  JSON.stringify({ type: 'joystick', action: 'push', joystickPort: 2, direction: 'up' })
+  JSON.stringify({ type: 'joystick', action: 'push', joystickPort: 2, direction: 'up' }),
 );
 ```
 
@@ -471,17 +477,17 @@ headless.inputBridge.receiveRemoteInput(
 import { InputBridge } from 'c64-ready/input-bridge';
 
 // Joystick
-const push    = InputBridge.encodeJoystick(2, 'push',    'right');
+const push = InputBridge.encodeJoystick(2, 'push', 'right');
 const release = InputBridge.encodeJoystick(2, 'release', 'right');
-const fire    = InputBridge.encodeJoystick(2, 'push',    undefined, true);
+const fire = InputBridge.encodeJoystick(2, 'push', undefined, true);
 
 // Keyboard (C64 key code)
 const keyDown = InputBridge.encodeKeypress(65, 'down'); // key code 65 = 'A'
-const keyUp   = InputBridge.encodeKeypress(65, 'up');
+const keyUp = InputBridge.encodeKeypress(65, 'up');
 
 // Send via WebSocket — push on button-down, release on button-up
-gamepad.on('buttondown', (btn) => ws.send(InputBridge.encodeJoystick(2, 'push',    btn.direction)));
-gamepad.on('buttonup',   (btn) => ws.send(InputBridge.encodeJoystick(2, 'release', btn.direction)));
+gamepad.on('buttondown', (btn) => ws.send(InputBridge.encodeJoystick(2, 'push', btn.direction)));
+gamepad.on('buttonup', (btn) => ws.send(InputBridge.encodeJoystick(2, 'release', btn.direction)));
 ```
 
 ### Using the player in your own Vite app
@@ -492,14 +498,14 @@ Copy the files you need into your own Vite project and import them directly:
 
 ```ts
 // In your Vite project (TypeScript + Vite)
-import { C64Player }     from './vendor/c64-ready/src/player/c64-player';
-import CanvasRenderer    from './vendor/c64-ready/src/player/canvas-renderer';
-import { AudioEngine }   from './vendor/c64-ready/src/player/audio-engine';
+import { C64Player } from './vendor/c64-ready/src/player/c64-player';
+import CanvasRenderer from './vendor/c64-ready/src/player/canvas-renderer';
+import { AudioEngine } from './vendor/c64-ready/src/player/audio-engine';
 
 const renderer = new CanvasRenderer('c64-canvas');
-const player   = new C64Player({
-  wasmUrl:  '/c64.wasm',
-  gameUrl:  '/games/mygame.crt',
+const player = new C64Player({
+  wasmUrl: '/c64.wasm',
+  gameUrl: '/games/mygame.crt',
   renderer,
 });
 
@@ -519,6 +525,7 @@ npm run package:build
 ```
 
 This produces:
+
 - `dist/` — Vite browser bundle (served by `c64-ready` CLI)
 - `dist-ts/` — compiled JS + `.d.ts` declarations (imported by API consumers)
 
@@ -527,12 +534,13 @@ This produces:
 The project deploys to GitHub Pages automatically via GitHub Actions.
 
 On every push to `master`:
+
 1. Tests run (`npm test`)
 2. If tests pass, a production build is created (`npm run build`)
 3. The `dist/` output is deployed to GitHub Pages
 
-
 ## Work in Progress:
+
 - Proof of Concept Implementation:
 - [x] WASM module loading and initialization
 - [x] Emulator control and state management
@@ -568,14 +576,14 @@ git push origin master && git push --tags
 
 Extended documentation lives in the [`docs/`](docs/) folder:
 
-| File | Description |
-|------|-------------|
-| [`AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md) | SID audio pipeline, worklet pull-model, timing rules |
-| [`HEADLESS_INPUT.md`](docs/HEADLESS_INPUT.md) | Headless WebSocket input API reference |
-| [`HEADLESS_RUNNING.md`](docs/HEADLESS_RUNNING.md) | Headless CLI usage, frame/timing rules, ffmpeg integration |
-| [`PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) | High-level architecture and design decisions |
-| [`CHANGELOG_RELEASES.md`](docs/CHANGELOG_RELEASES.md) | Release workflow, `tools/release.sh`, changelog generator |
-| [`WIKI_PUBLISHING.md`](docs/WIKI_PUBLISHING.md) | How to sync `docs/` to the GitHub wiki via `tools/publish_wiki.sh` |
+| File                                                  | Description                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| [`AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md)             | SID audio pipeline, worklet pull-model, timing rules               |
+| [`HEADLESS_INPUT.md`](docs/HEADLESS_INPUT.md)         | Headless WebSocket input API reference                             |
+| [`HEADLESS_RUNNING.md`](docs/HEADLESS_RUNNING.md)     | Headless CLI usage, frame/timing rules, ffmpeg integration         |
+| [`PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md)     | High-level architecture and design decisions                       |
+| [`CHANGELOG_RELEASES.md`](docs/CHANGELOG_RELEASES.md) | Release workflow, `tools/release.sh`, changelog generator          |
+| [`WIKI_PUBLISHING.md`](docs/WIKI_PUBLISHING.md)       | How to sync `docs/` to the GitHub wiki via `tools/publish_wiki.sh` |
 
 The wiki is kept in sync automatically by the `.github/workflows/publish_wiki.yml` CI workflow
 on every push to `master`. To publish manually:
