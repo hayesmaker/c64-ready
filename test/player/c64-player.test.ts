@@ -59,6 +59,21 @@ describe('C64Player', () => {
     );
   }
 
+  function makeCrtData(exrom: number, game: number, hwType: number = 0): Uint8Array {
+    const data = new Uint8Array(0x40);
+    const sig = 'C64 CARTRIDGE   ';
+    for (let i = 0; i < 16; i++) data[i] = sig.charCodeAt(i);
+    data[0x10] = 0;
+    data[0x11] = 0;
+    data[0x12] = 0;
+    data[0x13] = 0x40;
+    data[0x16] = (hwType >> 8) & 0xff;
+    data[0x17] = hwType & 0xff;
+    data[0x18] = exrom;
+    data[0x19] = game;
+    return data;
+  }
+
   it('start() loads wasm, wires renderer and input, loads game, and starts', async () => {
     const emulator = makeFakeEmulator();
     vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
@@ -156,6 +171,50 @@ describe('C64Player', () => {
     expect(renderer.attachTo).toHaveBeenCalledTimes(2);
     expect(emulator.start).toHaveBeenCalledTimes(2);
     expect(rebootListener).toHaveBeenCalledOnce();
+  });
+
+  it('rejects Ultimax CRT in browser load path and dispatches c64-load-error', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    stubFetchForGame(makeCrtData(1, 0));
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+
+    const errorListener = vi.fn();
+    window.addEventListener('c64-load-error', errorListener);
+    try {
+      await expect(player.loadGame('/games/billiards.crt', 'crt')).rejects.toThrow(
+        'Unsupported CRT: Ultimax/MAX cartridges are not supported by this emulator.',
+      );
+    } finally {
+      window.removeEventListener('c64-load-error', errorListener);
+    }
+
+    expect(emulator.loadGame).not.toHaveBeenCalledWith({ type: 'crt', data: expect.anything() });
+    expect(errorListener).toHaveBeenCalledOnce();
+  });
+
+  it('allows Ultimax-flagged EasyFlash CRT in browser load path', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    stubFetchForGame(makeCrtData(1, 0, 32));
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+    await player.loadGame('/games/legend-of-wilf.crt', 'crt');
+
+    expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'crt', data: expect.any(Uint8Array) });
   });
 
   // ...additional tests omitted for brevity

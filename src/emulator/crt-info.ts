@@ -29,16 +29,16 @@
 
 /** Subset of well-known hardware type names (matches VICE source). */
 export const CRT_HW_TYPES: Record<number, string> = {
-   0: 'Normal cartridge',
-   1: 'Action Replay',
-   2: 'KCS Power Cartridge',
-   3: 'Final Cartridge III',
-   4: 'Simons BASIC',
-   5: 'Ocean type 1',
-   6: 'Expert Cartridge',
-   7: 'Fun Play, Power Play',
-   8: 'Super Games',
-   9: 'Atomic Power',
+  0: 'Normal cartridge',
+  1: 'Action Replay',
+  2: 'KCS Power Cartridge',
+  3: 'Final Cartridge III',
+  4: 'Simons BASIC',
+  5: 'Ocean type 1',
+  6: 'Expert Cartridge',
+  7: 'Fun Play, Power Play',
+  8: 'Super Games',
+  9: 'Atomic Power',
   10: 'Epyx Fastload',
   11: 'Westermann Learning',
   12: 'Rex Utility',
@@ -131,12 +131,25 @@ export interface CrtInfo {
   totalRomBytes: number;
 }
 
+export function isUltimaxCrt(info: CrtInfo): boolean {
+  return info.exrom === 1 && info.game === 0;
+}
+
+export function getUnsupportedCrtReason(info: CrtInfo): string | null {
+  if (isUltimaxCrt(info) && info.hwType === 0) {
+    return 'Unsupported CRT: Ultimax/MAX cartridges are not supported by this emulator.';
+  }
+  return null;
+}
+
 function readU32BE(buf: Uint8Array, offset: number): number {
-  return (((buf[offset] << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | buf[offset + 3]) >>> 0);
+  return (
+    ((buf[offset] << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | buf[offset + 3]) >>> 0
+  );
 }
 
 function readU16BE(buf: Uint8Array, offset: number): number {
-  return (((buf[offset] << 8) | buf[offset + 1]) >>> 0);
+  return ((buf[offset] << 8) | buf[offset + 1]) >>> 0;
 }
 
 /**
@@ -155,9 +168,9 @@ export function parseCrtInfo(data: Uint8Array, filename?: string): CrtInfo | nul
   if (!magic.startsWith('C64 CARTRIDGE')) return null;
 
   const headerLen = readU32BE(data, 0x10); // typically 0x40
-  const hwType    = readU16BE(data, 0x16);
-  const exrom     = data[0x18];
-  const game      = data[0x19];
+  const hwType = readU16BE(data, 0x16);
+  const exrom = data[0x18];
+  const game = data[0x19];
 
   // Cart name: null-terminated ASCII at 0x20, up to 32 bytes
   let cartName = '';
@@ -172,13 +185,13 @@ export function parseCrtInfo(data: Uint8Array, filename?: string): CrtInfo | nul
   //   exrom=1 game=0 → Ultimax
   //   exrom=1 game=1 → inactive (pass-through)
   let bankConfig: string;
-  if      (exrom === 0 && game === 0) bankConfig = '16K (ROML+ROMH)';
+  if (exrom === 0 && game === 0) bankConfig = '16K (ROML+ROMH)';
   else if (exrom === 0 && game === 1) bankConfig = '8K (ROML only)';
   else if (exrom === 1 && game === 0) bankConfig = 'Ultimax';
-  else                                bankConfig = 'inactive (pass-through)';
+  else bankConfig = 'inactive (pass-through)';
 
   // Walk CHIP packets to count them and sum up actual ROM data bytes
-  let chipCount    = 0;
+  let chipCount = 0;
   let totalRomBytes = 0;
   let offset = Math.max(headerLen, 0x40);
 
@@ -189,16 +202,16 @@ export function parseCrtInfo(data: Uint8Array, filename?: string): CrtInfo | nul
     const packetLen = readU32BE(data, offset + 4);
     if (packetLen < 16) break; // malformed packet
 
-    const dataSize = readU16BE(data, offset + 0x0E);
+    const dataSize = readU16BE(data, offset + 0x0e);
     chipCount++;
     totalRomBytes += dataSize;
     offset += packetLen;
   }
 
-  const hwName    = CRT_HW_TYPES[hwType] ?? `Unknown(${hwType})`;
+  const hwName = CRT_HW_TYPES[hwType] ?? `Unknown(${hwType})`;
   const fileLabel = filename ? ` "${filename}"` : '';
-  const namePart  = cartName ? ` name="${cartName}"` : '';
-  const kbActual  = (totalRomBytes / 1024).toFixed(0);
+  const namePart = cartName ? ` name="${cartName}"` : '';
+  const kbActual = (totalRomBytes / 1024).toFixed(0);
 
   const line =
     `[C64 cart]${fileLabel} loading: hwType=${hwType}(${hwName})` +
@@ -207,4 +220,3 @@ export function parseCrtInfo(data: Uint8Array, filename?: string): CrtInfo | nul
 
   return { line, hwType, hwName, exrom, game, bankConfig, cartName, chipCount, totalRomBytes };
 }
-
