@@ -56,7 +56,7 @@ Options:
   --fps <n>            Target frame rate  (default: 50 for PAL)
   --webrtc             Start a WebRTC streaming server (low-latency; replaces RTMP+flv.js)
   --webrtc-port <n>    WebRTC signalling + player HTTP port  (default: 9002)
-  --max-spectators <n> Max concurrent spectator WebRTC connections (default: 3)
+  --max-spectators <n> Max concurrent spectator WebRTC connections (default: 10)
                        Players count separately (up to 2), so total WebRTC peers = n+2.
                        New connections beyond this limit receive { type: 'capacity-full' }.
   --webrtc-min-bitrate-kbps <n> VP8 SDP x-google-min-bitrate hint (default: 200)

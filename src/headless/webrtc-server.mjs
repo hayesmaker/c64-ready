@@ -83,7 +83,7 @@ function buildIceServers({
  * @param {boolean}  [opts.verbose=false]       Log state changes to stderr
  * @param {number}   [opts.inputPort=9001]      Port the input WebSocket listens on
  *                                               (embedded in the browser page)
- * @param {number}   [opts.maxSpectators=3]     Maximum number of spectator connections
+ * @param {number}   [opts.maxSpectators=10]    Maximum number of spectator connections
  *                                               (not counting the 2 player slots).
  *                                               When the limit is reached, new WebRTC
  *                                               connections are rejected immediately with
@@ -106,7 +106,7 @@ export function createWebRTCServer({
   verbose = false,
   logEvents = false,
   inputPort = 9001,
-  maxSpectators = 3,
+  maxSpectators = 10,
   minBitrateKbps = 200,
   maxBitrateKbps = 600,
   iceStunUrls,
