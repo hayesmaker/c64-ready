@@ -56,6 +56,34 @@ describe('webrtc-server', () => {
     }
   });
 
+  it('serves the current ICE config as JSON', async () => {
+    let srv: any;
+    try {
+      srv = createWebRTCServer({
+        port: 19904,
+        verbose: false,
+        inputPort: 19905,
+        iceTurnUrls: 'turn:relay.example.net:3478?transport=udp',
+        iceTurnUsername: 'turn-user',
+        iceTurnPassword: 'turn-pass',
+      });
+      const res = await fetch('http://127.0.0.1:19904/ice-config');
+      expect(res.ok).toBe(true);
+      const payload = await res.json();
+      expect(payload).toEqual({
+        iceServers: [
+          {
+            urls: ['turn:relay.example.net:3478?transport=udp'],
+            username: 'turn-user',
+            credential: 'turn-pass',
+          },
+        ],
+      });
+    } finally {
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
+
   // ── Embedded browser page: reconnect on cart lifecycle events ─────────────
   // These tests parse the source of webrtc-server.mjs to confirm the browser
   // HTML calls connectWebRTC() (not flushToLiveEdge()) when cart-loaded,
@@ -124,4 +152,3 @@ describe('webrtc-server', () => {
     expect(onMessageBlock).toContain('videoEl.muted = false');
   });
 });
-
