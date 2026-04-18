@@ -364,6 +364,29 @@ describe('input-server', () => {
     spectWs.close();
   });
 
+  it('allows a reconnecting host to force-reclaim a stale host session', async () => {
+    const port = nextPort();
+
+    const srv = createInputServer({ port, onInput: () => {} });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'grace' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: reclaimWs } = await connect(port);
+    send(reclaimWs, { type: 'host', username: 'grace', force: true });
+
+    const evicted = await nextMsg(hostWs, (m) => m.type === 'host-evicted');
+    expect(evicted.reason).toBe('force-claim');
+
+    const confirmed = await nextMsg(reclaimWs, (m) => m.type === 'host-confirmed');
+    expect(confirmed.username).toBe('grace');
+
+    hostWs.close();
+    reclaimWs.close();
+  });
+
   // ── P2 slot and host flow ─────────────────────────────────────────────────
 
   it('allows a second client to open-join as P2 when host is present', async () => {
