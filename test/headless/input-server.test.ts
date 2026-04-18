@@ -16,9 +16,9 @@ import WebSocket from 'ws';
 const { createInputServer } = await import('../../src/headless/input-server.mjs');
 
 /** Open a WS connection and return the first message received (the hello). */
-function connect(port: number): Promise<{ ws: WebSocket; hello: any }> {
+function connect(port: number, path = '/'): Promise<{ ws: WebSocket; hello: any }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`);
     ws.once('message', (raw: WebSocket.RawData) => {
       try {
         const hello = JSON.parse(raw.toString());
@@ -101,6 +101,69 @@ describe('input-server', () => {
       fire: 0x10,
     });
     ws.close();
+  });
+
+  it('accepts direct peer input when session id matches the host websocket', async () => {
+    const port = nextPort();
+    const seen: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: (msg: any) => seen.push(msg),
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port, '/?sid=host-session');
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const replies: any[] = [];
+    const handled = srv.handlePeerDataMessage({
+      addr: '127.0.0.1',
+      sessionId: 'host-session',
+      msg: { type: 'joystick', action: 'push', direction: 'left', inputId: 7 },
+      send: (msg: any) => replies.push(msg),
+    });
+
+    expect(handled).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      type: 'joystick',
+      action: 'push',
+      direction: 'left',
+      joystickPort: 2,
+      _role: 'host',
+    });
+    expect(replies).toContainEqual({ type: 'input-ack', inputId: 7 });
+
+    hostWs.close();
+  });
+
+  it('rejects direct peer input when no matching role session exists', async () => {
+    const port = nextPort();
+    const seen: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: (msg: any) => seen.push(msg),
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port, '/?sid=host-session');
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const replies: any[] = [];
+    const handled = srv.handlePeerDataMessage({
+      addr: '127.0.0.1',
+      sessionId: 'other-session',
+      msg: { type: 'joystick', action: 'push', direction: 'right', inputId: 8 },
+      send: (msg: any) => replies.push(msg),
+    });
+
+    expect(handled).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(replies).toHaveLength(0);
+
+    hostWs.close();
   });
 
   // ── cart-loaded sent AFTER onCommand Promise resolves ─────────────────────

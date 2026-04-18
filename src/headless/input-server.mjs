@@ -372,7 +372,12 @@ export function createInputServer(opts = {}) {
   }
 
   let clientCount = 0;
-  const clientMeta = new Map(); // Map<WebSocket, { addr: string, role: string, username: string|null }>
+  const clientMeta = new Map(); // Map<WebSocket, { addr: string, role: string, username: string|null, sessionId: string|null }>
+
+  function normalizeSessionId(value) {
+    const raw = String(value ?? '').trim();
+    return raw || null;
+  }
 
   function normalizeAddr(addr) {
     if (!addr) return '';
@@ -384,6 +389,123 @@ export function createInputServer(opts = {}) {
     if (!meta) return;
     meta.role = role;
     meta.username = username;
+  }
+
+  function getRoleByPeer({ addr = null, sessionId = null } = {}) {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    const hostMeta = hostClient ? clientMeta.get(hostClient) : null;
+    const p2Meta = p2Client ? clientMeta.get(p2Client) : null;
+
+    if (normalizedSessionId) {
+      if (hostMeta?.sessionId && hostMeta.sessionId === normalizedSessionId) {
+        return { role: 'host', username: hostUsername, ws: hostClient };
+      }
+      if (p2Meta?.sessionId && p2Meta.sessionId === normalizedSessionId) {
+        return { role: 'p2', username: p2Username, ws: p2Client };
+      }
+      return null;
+    }
+
+    const normalizedAddr = normalizeAddr(addr);
+    if (!normalizedAddr) return null;
+    const hostMatches = !!(hostMeta?.addr && hostMeta.addr === normalizedAddr);
+    const p2Matches = !!(p2Meta?.addr && p2Meta.addr === normalizedAddr);
+    if (hostMatches && !p2Matches) return { role: 'host', username: hostUsername, ws: hostClient };
+    if (p2Matches && !hostMatches) return { role: 'p2', username: p2Username, ws: p2Client };
+    return null;
+  }
+
+  function handleInputTransportMessage({ msg, role, respond = null } = {}) {
+    if (!msg || (msg.type !== 'joystick' && msg.type !== 'key' && msg.type !== 'ping')) return false;
+
+    if (msg.type === 'ping') {
+      const now = Date.now();
+      const payload = {
+        type: 'pong',
+        pingId: msg.pingId ?? null,
+        serverTime: now,
+        clientTime: msg.clientTime ?? null,
+      };
+      try {
+        respond?.(payload);
+      } catch (_) {}
+      if (verbose) console.error(`[ping] role=${role} pong pingId=${msg.pingId ?? '-'} `);
+      return true;
+    }
+
+    if (role === 'host') resetHostTimeout();
+    if (role === 'p2') resetP2Timeout();
+
+    const stats = role === 'host' ? _inputStats.host : _inputStats.p2;
+    if (msg.type === 'joystick') stats.joystick++;
+    else stats.key++;
+    stats.lastMsgTime = Date.now();
+
+    if (msg.clientTime) {
+      const now = Date.now();
+      const latency = now - msg.clientTime;
+      const bucket = _networkStats[role];
+      if (bucket) {
+        bucket.lastLatency = latency;
+      }
+      if (!_latencyLogTimer) {
+        _latencyLogTimer = setInterval(() => {
+          const hostActive = _latencyCount.host > 0;
+          const p2Active = _latencyCount.p2 > 0;
+          if (hostActive || p2Active) {
+            const hostAvg = hostActive ? Number(_avgLatency.host.toFixed(0)) : null;
+            const p2Avg = p2Active ? Number(_avgLatency.p2.toFixed(0)) : null;
+            const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
+            const p2Label = p2Avg != null ? `${p2Avg}` : '--';
+            if (logEvents || verbose) {
+              console.error(
+                `[event] input-latency host-avg=${hostLabel}ms p2-avg=${p2Label}ms`,
+              );
+            }
+            _networkStats.host.avgLatency = hostAvg;
+            _networkStats.p2.avgLatency = p2Avg;
+            broadcastNetworkStats();
+          }
+          _avgLatency.host = 0;
+          _avgLatency.p2 = 0;
+          _latencyCount.host = 0;
+          _latencyCount.p2 = 0;
+        }, 5000);
+      }
+      _latencyCount[role]++;
+      _avgLatency[role] =
+        (_avgLatency[role] * (_latencyCount[role] - 1) + latency) / _latencyCount[role];
+      if (latency > LATENCY_SPIKE_MS) {
+        if (bucket) {
+          bucket.lastSpikeLatency = latency;
+          bucket.lastSpikeAt = now;
+        }
+        if (logEvents || verbose) {
+          console.error(
+            `[event] input-latency-spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
+              `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`,
+          );
+        }
+      }
+    }
+
+    msg._role = role;
+    if (msg.type === 'joystick') {
+      msg.joystickPort = role === 'host' ? hostPort() : p2Port();
+    }
+    if (onInput) onInput(msg);
+    if (Number.isFinite(msg.inputId)) {
+      try {
+        respond?.({ type: 'input-ack', inputId: msg.inputId });
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  function handlePeerDataMessage({ addr = null, sessionId = null, msg, send = null } = {}) {
+    const identity = getRoleByPeer({ addr, sessionId });
+    if (!identity || (identity.role !== 'host' && identity.role !== 'p2')) return false;
+    return handleInputTransportMessage({ msg, role: identity.role, respond: send, isWebSocket: false, ws: identity.ws });
   }
 
   function getWebrtcPeerCountByAddr() {
@@ -469,7 +591,9 @@ export function createInputServer(opts = {}) {
   wss.on('connection', (ws, req) => {
     clientCount++;
     const addr = req.socket.remoteAddress;
-    clientMeta.set(ws, { addr: normalizeAddr(addr), role: 'spectator', username: null });
+    const reqUrl = new URL(req.url || '/', 'http://localhost');
+    const sessionId = normalizeSessionId(reqUrl.searchParams.get('sid'));
+    clientMeta.set(ws, { addr: normalizeAddr(addr), role: 'spectator', username: null, sessionId });
     if (verbose)
       console.error(`[input-server] client connected from ${addr} (${clientCount} total)`);
     logEv('client-connected', { addr, total: clientCount });
@@ -1080,95 +1204,28 @@ export function createInputServer(opts = {}) {
       // ── Input events ─────────────────────────────────────────────────────
       if (msg.type === 'joystick' || msg.type === 'key') {
         if (ws !== hostClient && ws !== p2Client) return;
-        if (ws === hostClient) resetHostTimeout();
-        if (ws === p2Client) resetP2Timeout();
-        // Track input counts for flood investigation
         const role = ws === hostClient ? 'host' : 'p2';
-        const stats = role === 'host' ? _inputStats.host : _inputStats.p2;
-        if (msg.type === 'joystick') stats.joystick++;
-        else stats.key++;
-        stats.lastMsgTime = Date.now();
-
-        // ── Input latency profiling ───────────────────────────────────────
-        if (msg.clientTime) {
-          const now = Date.now();
-          const latency = now - msg.clientTime;
-          const bucket = _networkStats[role];
-          if (bucket) {
-            bucket.lastLatency = latency;
-          }
-          // Log latency periodically (every 5s) to avoid spam
-          if (!_latencyLogTimer) {
-            _latencyLogTimer = setInterval(() => {
-              const hostActive = _latencyCount.host > 0;
-              const p2Active = _latencyCount.p2 > 0;
-              if (hostActive || p2Active) {
-                const hostAvg = hostActive ? Number(_avgLatency.host.toFixed(0)) : null;
-                const p2Avg = p2Active ? Number(_avgLatency.p2.toFixed(0)) : null;
-                const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
-                const p2Label = p2Avg != null ? `${p2Avg}` : '--';
-                if (logEvents || verbose) {
-                  console.error(
-                    `[event] input-latency host-avg=${hostLabel}ms p2-avg=${p2Label}ms`,
-                  );
-                }
-                _networkStats.host.avgLatency = hostAvg;
-                _networkStats.p2.avgLatency = p2Avg;
-                broadcastNetworkStats();
-              }
-              // Reset averages
-              _avgLatency.host = 0;
-              _avgLatency.p2 = 0;
-              _latencyCount.host = 0;
-              _latencyCount.p2 = 0;
-            }, 5000);
-          }
-          // Accumulate for averaging
-          _latencyCount[role]++;
-          _avgLatency[role] =
-            (_avgLatency[role] * (_latencyCount[role] - 1) + latency) / _latencyCount[role];
-          if (latency > LATENCY_SPIKE_MS) {
-            if (bucket) {
-              bucket.lastSpikeLatency = latency;
-              bucket.lastSpikeAt = now;
-            }
-            if (logEvents || verbose) {
-              console.error(
-                `[event] input-latency-spike role=${role} latency=${latency}ms type=${msg.type} action=${msg.action ?? '-'} ` +
-                  `dir=${msg.direction ?? '-'} fire=${msg.fire ? 1 : 0}`,
-              );
-            }
-          }
-        }
-
-        // Tag with role so onInput can include it in logEvents output
-        // without input-server needing to know about logEvents details.
-        msg._role = role;
-        if (msg.type === 'joystick') {
-          msg.joystickPort = role === 'host' ? hostPort() : p2Port();
-        }
-        if (onInput) onInput(msg);
-        if (Number.isFinite(msg.inputId) && ws.readyState === ws.OPEN) {
-          try {
-            ws.send(JSON.stringify({ type: 'input-ack', inputId: msg.inputId }));
-          } catch (_) {}
-        }
+        handleInputTransportMessage({
+          msg,
+          role,
+          respond: (payload) => {
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
+          },
+        });
         return;
       }
 
       if (msg.type === 'ping') {
         const role = ws === hostClient ? 'host' : ws === p2Client ? 'p2' : 'spectator';
-        const now = Date.now();
-        const payload = {
-          type: 'pong',
-          pingId: msg.pingId ?? null,
-          serverTime: now,
-          clientTime: msg.clientTime ?? null,
-        };
-        try {
-          ws.send(JSON.stringify(payload));
-        } catch (_) {}
-        if (verbose) console.error(`[ping] role=${role} pong pingId=${msg.pingId ?? '-'} `);
+        handleInputTransportMessage({
+          msg,
+          role,
+          respond: (payload) => {
+            try {
+              ws.send(JSON.stringify(payload));
+            } catch (_) {}
+          },
+        });
         return;
       }
     });
@@ -1267,8 +1324,11 @@ export function createInputServer(opts = {}) {
         clearInterval(_networkStatsTimer);
         _networkStatsTimer = null;
       }
+      for (const client of wss.clients) {
+        try { client.terminate(); } catch (_) {}
+      }
       wss.close(() => resolve());
     });
 
-  return { wss, close };
+  return { wss, close, handlePeerDataMessage };
 }

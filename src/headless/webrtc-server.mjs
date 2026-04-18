@@ -99,6 +99,8 @@ function buildIceServers({
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
  * @param {(pc: RTCPeerConnection) => void} [opts.onPeerConnected]
  *   Called once ICE reaches 'connected' or 'completed'.
+ * @param {(payload: { msg: any, remoteAddr: string, sessionId: string|null, send: (msg: any) => void }) => boolean | void} [opts.onDataChannelInput]
+ *   Called for JSON messages received on the browser-created `input` data channel.
  * @returns {{ close: () => Promise<void> }}
  */
 export function createWebRTCServer({
@@ -115,6 +117,7 @@ export function createWebRTCServer({
   iceTurnPassword,
   onOffer,
   onPeerConnected,
+  onDataChannelInput,
 } = {}) {
   const iceServers = buildIceServers({
     iceStunUrls,
@@ -643,6 +646,35 @@ export function createWebRTCServer({
       if (candidate && ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'candidate', candidate }));
       }
+    };
+
+    pc.ondatachannel = ({ channel }) => {
+      if (!channel || channel.label !== 'input') return;
+
+      channel.onmessage = ({ data }) => {
+        let msg;
+        try {
+          msg = JSON.parse(typeof data === 'string' ? data : data.toString('utf8'));
+        } catch {
+          if (verbose) console.error(`[webrtc] bad datachannel JSON from ${remoteAddr}`);
+          return;
+        }
+
+        try {
+          onDataChannelInput?.({
+            msg,
+            remoteAddr,
+            sessionId: controller.sessionKey ?? null,
+            send(reply) {
+              if (!reply) return;
+              if (channel.readyState !== 'open') return;
+              channel.send(JSON.stringify(reply));
+            },
+          });
+        } catch (err) {
+          console.error(`[webrtc] datachannel input error (${remoteAddr}): ${err?.message ?? err}`);
+        }
+      };
     };
 
     pc.oniceconnectionstatechange = () => {
