@@ -630,6 +630,43 @@ export async function runHeadless(options = {}) {
         sidFrameView = sidFrameBufMax.subarray(0, 1);
       }
 
+      function handleInputEvent(event) {
+        if (!exports) return;
+        if (event.type === 'joystick') {
+          const port = (event.joystickPort ?? 2) - 1; // 1-based → 0-based
+          const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
+          const fire = event.fire || event.fire1 ? 0x10 : 0;
+          if (event.action === 'release') {
+            if (dir) exports.c64_joystick_release(port, dir);
+            if (fire) exports.c64_joystick_release(port, fire);
+          } else {
+            if (dir) exports.c64_joystick_push(port, dir);
+            if (fire) exports.c64_joystick_push(port, fire);
+          }
+          if (verbose) {
+            const role = event._role ?? 'unknown';
+            console.error(
+              `[event] input joystick role=${role} port=${event.joystickPort ?? 2} action=${event.action ?? 'press'} dir=${event.direction ?? '-'} fire=${!!(event.fire || event.fire1)}`,
+            );
+          }
+        } else if (event.type === 'key') {
+          const domKey = String(event.key ?? '');
+          const shiftKey = !!event.shiftKey;
+          const evType = event.action === 'up' ? 'keyup' : 'keydown';
+          const c64acts = domKeyToC64Actions(domKey, shiftKey, evType);
+          for (const act of c64acts) {
+            if (act.action === 'press') exports.keyboard_keyPressed(act.key);
+            else exports.keyboard_keyReleased(act.key);
+          }
+          if (verbose && c64acts.length > 0) {
+            const role = event._role ?? 'unknown';
+            console.error(
+              `[input] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`,
+            );
+          }
+        }
+      }
+
       inputServer = createInputServer({
         port: wsPort,
         verbose,
@@ -797,42 +834,7 @@ export async function runHeadless(options = {}) {
             else if (logEvents) console.error(`[event] machine-rebooted gap=${gapMs}ms`);
           }
         },
-        onInput: (event) => {
-          if (!exports) return;
-          if (event.type === 'joystick') {
-            const port = (event.joystickPort ?? 2) - 1; // 1-based → 0-based
-            const dir = event.direction ? (dirMap[event.direction] ?? 0) : 0;
-            const fire = event.fire || event.fire1 ? 0x10 : 0;
-            if (event.action === 'release') {
-              if (dir) exports.c64_joystick_release(port, dir);
-              if (fire) exports.c64_joystick_release(port, fire);
-            } else {
-              if (dir) exports.c64_joystick_push(port, dir);
-              if (fire) exports.c64_joystick_push(port, fire);
-            }
-            if (verbose) {
-              const role = event._role ?? 'unknown';
-              console.error(
-                `[event] input joystick role=${role} port=${event.joystickPort ?? 2} action=${event.action ?? 'press'} dir=${event.direction ?? '-'} fire=${!!(event.fire || event.fire1)}`,
-              );
-            }
-          } else if (event.type === 'key') {
-            const domKey = String(event.key ?? '');
-            const shiftKey = !!event.shiftKey;
-            const evType = event.action === 'up' ? 'keyup' : 'keydown';
-            const c64acts = domKeyToC64Actions(domKey, shiftKey, evType);
-            for (const act of c64acts) {
-              if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-              else exports.keyboard_keyReleased(act.key);
-            }
-            if (verbose && c64acts.length > 0) {
-              const role = event._role ?? 'unknown';
-              console.error(
-                `[input] input key role=${role} ${evType} "${domKey}" → ${JSON.stringify(c64acts)}`,
-              );
-            }
-          }
-        },
+        onInput: handleInputEvent,
       });
       out.push(`Input server listening on ws://0.0.0.0:${wsPort}`);
     } catch (e) {
@@ -904,6 +906,14 @@ export async function runHeadless(options = {}) {
               }
             }
           } catch (_) {}
+        },
+        onDataChannelInput: ({ msg, remoteAddr, sessionId, send }) => {
+          inputServer?.handlePeerDataMessage?.({
+            addr: remoteAddr,
+            sessionId,
+            msg,
+            send,
+          });
         },
       });
       if (typeof webrtcServer.getTelemetrySnapshot === 'function') {
