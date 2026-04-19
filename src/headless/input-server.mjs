@@ -502,6 +502,15 @@ export function createInputServer(opts = {}) {
     return true;
   }
 
+  function resetRoleActivity(role, source = 'unknown') {
+    if (role === 'host') resetHostTimeout();
+    else if (role === 'p2') resetP2Timeout();
+    else return false;
+    if (verbose) console.error(`[input-server] activity role=${role} source=${source}`);
+    logEv('activity', { role, source });
+    return true;
+  }
+
   function handlePeerDataMessage({ addr = null, sessionId = null, msg, send = null } = {}) {
     const identity = getRoleByPeer({ addr, sessionId });
     if (!identity || (identity.role !== 'host' && identity.role !== 'p2')) return false;
@@ -1010,6 +1019,40 @@ export function createInputServer(opts = {}) {
             username: result.username,
             addr: result.addr,
             status: buildAdminStatus(),
+          }),
+        );
+        return;
+      }
+
+      if (msg.type === 'admin-activity') {
+        const valid = validateAdminToken(msg.token ?? '');
+        if (!valid) {
+          ws.send(
+            JSON.stringify({ type: 'admin-error', command: 'activity', reason: 'invalid-token' }),
+          );
+          return;
+        }
+        setWsIdentity(ws, 'admin', null);
+        const role = msg.role === 'p2' ? 'p2' : msg.role === 'host' ? 'host' : null;
+        if (!role) {
+          ws.send(
+            JSON.stringify({ type: 'admin-error', command: 'activity', reason: 'invalid-role' }),
+          );
+          return;
+        }
+        const active = role === 'host' ? !!hostClient : !!p2Client;
+        if (!active) {
+          ws.send(
+            JSON.stringify({ type: 'admin-error', command: 'activity', reason: 'role-not-present' }),
+          );
+          return;
+        }
+        resetRoleActivity(role, msg.source ?? 'admin');
+        ws.send(
+          JSON.stringify({
+            type: 'admin-activity-ok',
+            role,
+            source: msg.source ?? 'admin',
           }),
         );
         return;

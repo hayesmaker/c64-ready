@@ -166,6 +166,47 @@ describe('input-server', () => {
     hostWs.close();
   });
 
+  it('accepts admin chat activity for the host role', async () => {
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-activity', token: 'admin-secret', role: 'host', source: 'chat' });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-activity-ok');
+    expect(ack).toMatchObject({ role: 'host', source: 'chat' });
+
+    adminWs.close();
+    hostWs.close();
+  });
+
+  it('rejects admin chat activity when the role is not present', async () => {
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-activity', token: 'admin-secret', role: 'host', source: 'chat' });
+
+    const err = await nextMsg(adminWs, (m) => m.type === 'admin-error');
+    expect(err).toMatchObject({ command: 'activity', reason: 'role-not-present' });
+
+    adminWs.close();
+  });
+
   // ── cart-loaded sent AFTER onCommand Promise resolves ─────────────────────
 
   it('broadcasts cart-loaded only after the async onCommand Promise resolves for load-crt', async () => {
