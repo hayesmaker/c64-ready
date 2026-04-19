@@ -883,6 +883,15 @@ export async function runHeadless(options = {}) {
         },
         onPeerConnected(pc) {
           if (verbose) console.error('[webrtc] peer ICE connected');
+          if (webrtcServer) {
+            // New peers can attach mid-GOP and sit on a black frame until the
+            // next natural keyframe arrives. Force one on join so the decoder
+            // gets a decodable frame immediately.
+            webrtcServer.forceKeyframe(videoTrack);
+            setTimeout(() => {
+              webrtcServer?.forceKeyframe(videoTrack);
+            }, 300);
+          }
           // Reduce video sender bitrate after connection to minimise encode
           // latency. A tight ceiling keeps frame sizes small and predictable,
           // reducing the encoder's internal queue and decode buffer on the
