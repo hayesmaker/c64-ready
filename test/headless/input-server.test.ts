@@ -207,6 +207,30 @@ describe('input-server', () => {
     adminWs.close();
   });
 
+  it('deduplicates quick spectator rejoins by session id in admin status', async () => {
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+    });
+    servers.push(srv);
+
+    const { ws: spectatorA } = await connect(port, '/?sid=spectator-1');
+    const { ws: spectatorB } = await connect(port, '/?sid=spectator-1');
+    const { ws: adminWs } = await connect(port);
+
+    send(adminWs, { type: 'admin-status', token: 'admin-secret' });
+    const status = await nextMsg(adminWs, (m) => m.type === 'admin-status-ok');
+
+    expect(status.status.counts.spectators).toBe(1);
+    expect(status.status.spectators).toHaveLength(1);
+
+    spectatorA.close();
+    spectatorB.close();
+    adminWs.close();
+  });
+
   // ── cart-loaded sent AFTER onCommand Promise resolves ─────────────────────
 
   it('broadcasts cart-loaded only after the async onCommand Promise resolves for load-crt', async () => {

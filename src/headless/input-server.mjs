@@ -521,41 +521,81 @@ export function createInputServer(opts = {}) {
     const snapshot = getWebrtcPeerSnapshot?.() ?? null;
     const peers = Array.isArray(snapshot?.peers) ? snapshot.peers : [];
     const byAddr = new Map();
+    const bySession = new Map();
     for (const p of peers) {
       const addr = normalizeAddr(p?.addr);
+      const session = normalizeSessionId(p?.session);
       if (!addr) continue;
       byAddr.set(addr, (byAddr.get(addr) ?? 0) + 1);
+      if (session) bySession.set(session, (bySession.get(session) ?? 0) + 1);
     }
-    return { snapshot, byAddr };
+    return { snapshot, byAddr, bySession };
+  }
+
+  function getSpectatorIdentity(meta, ws) {
+    const sessionId = normalizeSessionId(meta?.sessionId);
+    if (sessionId) return `session:${sessionId}`;
+    const username = normalizeUsername(meta?.username);
+    if (username) return `user:${username}`;
+    return `socket:${String(meta?.addr ?? 'unknown')}:${ws._socket?._handle?.fd ?? 'na'}`;
   }
 
   function buildAdminStatus() {
     const hostMeta = hostClient ? clientMeta.get(hostClient) : null;
     const p2Meta = p2Client ? clientMeta.get(p2Client) : null;
     const spectators = [];
-    const { snapshot: webrtcSnapshot, byAddr: webrtcByAddr } = getWebrtcPeerCountByAddr();
-    const mappedAddrSet = new Set();
-    if (hostMeta?.addr) mappedAddrSet.add(hostMeta.addr);
-    if (p2Meta?.addr) mappedAddrSet.add(p2Meta.addr);
+    const { snapshot: webrtcSnapshot, byAddr: webrtcByAddr, bySession: webrtcBySession } = getWebrtcPeerCountByAddr();
+    const matchedPeerSlots = new Set();
+    const webrtcPeers = Array.isArray(webrtcSnapshot?.peers) ? webrtcSnapshot.peers : [];
+
+    function matchWebrtcPeers(meta) {
+      const sessionId = normalizeSessionId(meta?.sessionId);
+      if (sessionId && webrtcBySession.has(sessionId)) {
+        let matched = 0;
+        webrtcPeers.forEach((peer, index) => {
+          if (normalizeSessionId(peer?.session) !== sessionId) return;
+          matchedPeerSlots.add(index);
+          matched++;
+        });
+        return matched;
+      }
+
+      const addr = normalizeAddr(meta?.addr);
+      if (!addr || !webrtcByAddr.has(addr)) return 0;
+      let matched = 0;
+      webrtcPeers.forEach((peer, index) => {
+        if (normalizeAddr(peer?.addr) !== addr) return;
+        matchedPeerSlots.add(index);
+        matched++;
+      });
+      return matched;
+    }
+
+    const spectatorByIdentity = new Map();
+    const hostWebrtcPeers = matchWebrtcPeers(hostMeta);
+    const p2WebrtcPeers = matchWebrtcPeers(p2Meta);
     for (const [ws, meta] of clientMeta.entries()) {
       if (ws === hostClient || ws === p2Client) continue;
       if (ws.readyState !== ws.OPEN) continue;
       if (meta.role === 'admin') continue;
-      if (meta.addr) mappedAddrSet.add(meta.addr);
-      spectators.push({
+      const identity = getSpectatorIdentity(meta, ws);
+      const existing = spectatorByIdentity.get(identity);
+      const spectator = existing ?? {
         addr: meta.addr,
         role: meta.role ?? 'spectator',
         username: meta.username ?? null,
-        webrtcPeers: webrtcByAddr.get(meta.addr) ?? 0,
-      });
+        webrtcPeers: 0,
+      };
+      spectator.addr = spectator.addr ?? meta.addr;
+      spectator.username = spectator.username ?? meta.username ?? null;
+      spectator.webrtcPeers = Math.max(spectator.webrtcPeers, matchWebrtcPeers(meta));
+      spectatorByIdentity.set(identity, spectator);
     }
 
-    let mappedWebrtcPeers = 0;
-    for (const addr of mappedAddrSet) {
-      mappedWebrtcPeers += webrtcByAddr.get(addr) ?? 0;
-    }
+    spectators.push(...spectatorByIdentity.values());
+
     const webrtcTotal = Number.isFinite(webrtcSnapshot?.total) ? webrtcSnapshot.total : 0;
-    const anonymousWebrtcPeers = Math.max(0, webrtcTotal - mappedWebrtcPeers);
+    const anonymousWebrtcPeers = Math.max(0, webrtcTotal - matchedPeerSlots.size);
 
     return {
       host: hostClient
@@ -563,7 +603,7 @@ export function createInputServer(opts = {}) {
             connected: hostClient.readyState === hostClient.OPEN,
             username: hostUsername,
             addr: hostMeta?.addr ?? null,
-            webrtcPeers: hostMeta?.addr ? (webrtcByAddr.get(hostMeta.addr) ?? 0) : 0,
+            webrtcPeers: hostWebrtcPeers,
           }
         : null,
       p2: p2Client
@@ -571,7 +611,7 @@ export function createInputServer(opts = {}) {
             connected: p2Client.readyState === p2Client.OPEN,
             username: p2Username,
             addr: p2Meta?.addr ?? null,
-            webrtcPeers: p2Meta?.addr ? (webrtcByAddr.get(p2Meta.addr) ?? 0) : 0,
+            webrtcPeers: p2WebrtcPeers,
           }
         : null,
       spectators,
