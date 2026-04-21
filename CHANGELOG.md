@@ -4,11 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+- Merge pull request #95 from hayesmaker/fix/spectator-admin-counts (17261da)
+- fix(input): deduplicate spectator admin counts (159d540)
+- Merge pull request #93 from hayesmaker/fix/webrtc-black-screen-keyframe (95b9753)
+- fix(webrtc): force a keyframe for new peers (5af04f7)
+- Merge pull request #91 from hayesmaker/fix/chat-activity-afk-reset (6f7554c)
+- fix(input): reset AFK timers from admin activity (f1ffd2d)
+- Merge pull request #89 from hayesmaker/feat/webrtc-input-datachannel (6ed2d7d)
+- feat(webrtc): accept live input over data channels (dc6b267)
+- Merge pull request #85 from hayesmaker/test/forced-host-reclaim (76bd1d6)
+- Merge pull request #86 from hayesmaker/feat/lobby-ice-config (6b26408)
+- updated env example to include ICE/TURN vars (9106265)
+- feat(webrtc): expose ICE config endpoint (8d7de1f)
+- test(headless): cover forced host reclaim (81b2dfa)
+- Merge pull request #83 from hayesmaker/fix/default-max-spectators-10 (8bb542f)
+- fix: change default max spectators to 10 (ad5f5ef)
+- Merge pull request #80 from hayesmaker/chore/prep-fix-release (f059c4d)
 
 ## v1.0.1 - 2026-04-17T09:12:10+01:00
 
-- chore(release): 1.0.1 (f3d2eec)
+- chore(release): 1.0.1 (9cc1131)
 - Merge pull request #78 from hayesmaker/fix/reject-ultimax-cartridges (ac1f7e5)
 - feat(system): add CRT preload-check override toggle (3e85f8d)
 - fix(cartridge): reject only unsupported Ultimax normal carts (af9ffff)
@@ -74,12 +89,9 @@ No unreleased changes.
 
 - Merge pull request #40 from hayesmaker/chore/prepare-deployment-0.11.0 (e82839d)
 - Merge branch 'master' into chore/prepare-deployment-0.11.0 (e3fdd96)
+- chore(release): 0.11.0 (5baface)
 - Merge pull request #39 from hayesmaker/chore/prepare-deployment (9aa487d)
 - fix(d64): reset state before headless disk insert (ea39d2a)
-
-## v0.11.0 - 2026-04-11T10:48:07+01:00
-
-- chore(release): 0.11.0 (5baface)
 - Merge pull request #38 from hayesmaker/feature/live-settings-parity-backend (8fdb739)
 - feat(input): support host-defined joystick port overrides (86701b2)
 - fix(prg): make headless autorun typing deterministic (d55ca16)
@@ -98,9 +110,6 @@ No unreleased changes.
 ## v0.10.0 - 2026-04-09T09:24:54+01:00
 
 - chore(release): 0.10.0 (6716e49)
-
-## v0.9.0 - 2026-04-09T09:24:36+01:00
-
 - chore(release): 0.9.0 (d03b2f1)
 - Merge pull request #35 from hayesmaker/spike/video-telemetry-diagnostics (0dbc14a)
 - fix(webrtc): handle early trickle ICE and send explicit SDP offers (b798fe6)
@@ -149,21 +158,12 @@ No unreleased changes.
 - chore(docs): README update (c212758)
 - docs(readme): rewrite headless streaming section for WebRTC NMS (Node Media Server) has been removed. The single headless container now streams directly over WebRTC — a self-contained player page on port 9002 handles video, audio, and keyboard/joystick input with no extra software required. Changes: - Replace two-container RTMP/NMS setup with single-container WebRTC docs - Add spectator limit section (MAX_SPECTATORS, player slots) - Document FFmpeg --record as a separate capture/debug tool that can run   alongside or instead of WebRTC (file recording, RTMP push) - Update env variable table to match current docker/.env.example   (add WEBRTC_*, LOG_EVENTS, MAX_SPECTATORS; remove NMS_* and RTMP_URL) - Update quick-start to point to http://localhost:9002 instead of ffplay - Add drag-and-drop cartridge loading note (d8551a2)
 - feat(webrtc): add spectator connection limit (--max-spectators, default 5) Prevent CPU overload when many users spectate simultaneously by capping the number of concurrent WebRTC peer connections. How it works: - MAX_CONNECTIONS = 2 (player slots) + maxSpectators (default 5) = 7 - Capacity is tracked as active ICE-connected peers + pending (in-flight)   WS connections so a burst of simultaneous connects can't slip through. - Connections over the limit receive { type: 'capacity-full', current, max,   maxSpectators } and the WS is closed immediately — no ICE negotiation,   no encoder load. - A webrtc-capacity-full event is logged when --log-events is active. Browser (headless page) already stops auto-reconnecting on capacity-full. c64cade useC64WebRTC.js must also be updated (see companion commit there). New flag:   --max-spectators <n>   default 5 Docker support:   MAX_SPECTATORS=<n> in docker/.env (entrypoint passes it through)   Documented in docker/.env.example (7091d83)
-
-## v0.7.0 - 2026-03-31T19:52:09+01:00
-
 - chore(release): 0.7.0 Promotes v0.7.0-rc.1 + v0.7.0-rc.2 + pre-release fixes to final release. Full changelog in CHANGELOG.md. (408c855)
 - chore: merge feat/pre-release-fixes (3657c9c)
 - chore: merge fix/v0.7.0-rc.2-release (ac2bfe5)
 - feat(input-server): remove P2→host promotion; increase inactivity timeout to 10 min Three changes: 1. Remove P2 auto-promotion when host leaves    Previously, whenever the host slot became vacant (voluntary leave, timeout,    admin kick, or grace-period expiry) P2 was automatically promoted to host.    This caused confusion — P2 had no expectation of taking over and could    find themselves as host unexpectedly.    Removed promoteP2ToHost() entirely. P2 now stays as P2 when the host leaves;    the host slot becomes open for a new player to claim. Each path that    previously called promoteP2ToHost() now broadcasts p2-slot-status open:false    (since no host = slot is logically unavailable for new P2 joins too). 2. Fix player panel not clearing p2-slot-status on host leave    Without the promotion call, voluntary host-leave, timeout kick, and    admin kick were not broadcasting a p2-slot-status update. Added    broadcastAll({ type: 'p2-slot-status', open: false }) to all four host-exit    paths so every connected client updates its Join button state immediately. 3. Increase default inactivity timeout from 5 to 10 minutes    Applies to both host and P2 (both use HOST_TIMEOUT).    Reduces accidental kicks during normal play pauses. (4965158)
 - chore(release): 0.7.0-rc.2 Bump version and update CHANGELOG for v0.7.0-rc.2. Single fix since rc.1: - fix(webrtc): WS ping/pong keepalive to prevent idle TCP timeout (031610d) (bd926eb)
-
-## v0.7.0-rc.2 - 2026-03-31T18:30:33+01:00
-
 - fix(webrtc): add WS ping/pong keepalive to prevent idle TCP timeout Root cause of the ~60s stream freeze observed in production: After ICE negotiation completes the signalling WebSocket carries no further traffic. Cloud NAT, Docker bridge networking, and OS TCP stacks silently drop idle connections after ~60s — exactly matching the log evidence (ws-closed firing ~60s after webrtc-ice-connected with no prior ICE disconnect event). Fix — two-layer keepalive: Server side (webrtc-server.mjs):   - setInterval every 30s: ws.ping() all connected signalling clients   - Track liveness with ws._sigAlive flag, reset on pong, set on pong   - If a client misses a full ping interval (60s total): ws.terminate()     and log webrtc-sig-timeout under --log-events   - clearInterval(pingInterval) in close() to avoid timer leak Browser side (embedded HTML):   - sigPingTimer: send {type:'ping'} every 30s on sigWs   - Server replies with {type:'pong'} — browser handles it as no-op   - sigPingTimer cleared in sigWs.onclose and connectWebRTC() teardown   - Handle {type:'pong'} in sigWs.onmessage (no-op, prevents JSON parse     errors from unrecognised message type) (031610d)
-
-## v0.7.0-rc.1 - 2026-03-31T18:13:33+01:00
-
 - chore(release): 0.7.0-rc.1 Release candidate for v0.7.0. Key changes since v0.6.2: - fix(webrtc): ICE disconnected grace period — root cause of periodic stream freeze - fix(webrtc): browser auto-reconnect on failed/peer-closed/sigWs-close - feat(headless): --log-events structured production logging - feat(input-server): per-player P2 inactivity timer - feat(input-server): host reconnect grace period (8s) before P2 promotion - fix(webrtc): RTCPeerConnection full reconnect on cart-load - fix(webrtc): force VP8 IDR keyframe after load/reset - fix(webrtc): audio RTP resync after blocking WASM gaps - fix(docker): VERBOSE=0 correctly disables verbose - chore(docker): WebRTC-only, NMS removed (d565e79)
 - feat(input-server): add per-player inactivity timer for P2 Previously only the host had an inactivity timeout. P2 could sit connected indefinitely without sending any input and never be kicked. Changes: - Add p2TimeoutTimer / resetP2Timeout() / clearP2Timeout() mirroring   the existing host timer, using the same HOST_TIMEOUT duration (5min) - resetP2Timeout() called on every joystick/key input from P2 - resetP2Timeout() called on P2 join (open + token) - clearP2Timeout() called on: voluntary leave, revoke-p2, admin kick,   ws.on('close'), promoteP2ToHost(), and server close() - Kick sends p2-timeout-kick to P2 and broadcasts player2-left   reason=timeout + p2-slot-status open=true to all clients - logEv('p2-timeout') emitted under --log-events (a674b0c)
 - fix(webrtc): don't close peer on ICE disconnected; add logEv throughout Two changes: 1. ICE 'disconnected' grace period (root cause fix)    The server was calling pc.close() immediately on iceConnectionState    === 'disconnected', which is a transient state that the ICE agent is    supposed to recover from on its own within a few seconds. Any brief    packet loss, NAT keepalive gap, or Node GC pause could trigger it,    permanently killing what would have been a recoverable connection —    the browser then sat on a frozen frame with no indication the peer    was gone.    Fix: on 'disconnected', remove from activePeers (stop pushing frames)    but start a 6s grace timer. If ICE recovers to connected/completed    within that window the timer is cancelled and streaming resumes. Only    after the grace expires (or on 'failed'/'closed') is closePeer() called.    closePeer() sends a 'peer-closed' message to the browser so it can    reconnect immediately rather than waiting for a timeout. 2. Browser auto-reconnect    - On ICE 'failed': scheduleRtcReconnect(1000)    - On sigWs close: scheduleRtcReconnect(2000) instead of dead badge    - On 'peer-closed' message from server: scheduleRtcReconnect(500)    - On ICE 'disconnected': show 'unstable…' badge, wait for server grace 3. logEv throughout webrtc-server    Added logEv() helper (same pattern as input-server.mjs) and wired it    to every ICE state transition and peer lifecycle event. logEvents is    now accepted by createWebRTCServer and passed in from headless-cli.    ICE state changes are also always logged to stderr (not gated on    --verbose) since they are infrequent and critical for diagnosing    stream freezes. (cc80281)
@@ -223,19 +223,19 @@ No unreleased changes.
 - chore(wiki): publish all docs/ to wiki, clean up stale rewrite plan - Rename workflow to 'Publish docs to Wiki' - Trigger only on changes to docs/, CHANGELOG.md, or the workflow itself - Copy all docs/*.md + CHANGELOG.md to wiki on every qualifying push - Generate Home.md from scratch with ordered links to all pages - Fallback loop picks up any future docs not in the explicit order list - Remove debug/API-inspection steps from workflow - Sync tools/publish_wiki.sh to use identical logic - Remove stale docs/REWRITE_PLAN_V2..md (020962b)
 - chore: changelogs (auto) (414199c)
 
-## v0.6.2 - 2026-03-27T20:43:20+00:00
+## v0.6.2 - 2026-03-27T20:43:20Z
 
 - chore(release): 0.6.2 (d3cc8a0)
 - fix: serve correct mimetypes in serve mode (096516d)
 - chore: changelogs (auto) (68698eb)
 
-## v0.6.1 - 2026-03-27T20:36:27+00:00
+## v0.6.1 - 2026-03-27T20:36:27Z
 
 - chore(release): 0.6.1 (27df16c)
 - fix: serve path corrected for running emulator via npm (56b9f1a)
 - chore: updated changelogs (e9c6320)
 
-## v0.6.0 - 2026-03-27T20:21:42+00:00
+## v0.6.0 - 2026-03-27T20:21:42Z
 
 - chore(release): 0.6.0 (fce6cf9)
 - chore(release): 0.5.2 (cbf9175)
@@ -251,7 +251,7 @@ No unreleased changes.
 - chore: dockerized headless c64 player (7bc7770)
 - chore: cleanup source files (27925b4)
 
-## v0.5.1 - 2026-03-23T10:09:37+00:00
+## v0.5.1 - 2026-03-23T10:09:37Z
 
 - chore(release): 0.5.1 (8f3dae2)
 - chore: update CHANGELOG.md (auto) (c9c5955)
@@ -259,19 +259,19 @@ No unreleased changes.
 - chore: fix node24 in deploy workflow (a948be5)
 - chore: force node24 fix (25d1bc8)
 - chore: update changelog (auto) [skip ci] (8e926b6)
-
-## v0.5.0 - 2026-03-23T09:12:04+00:00
-
 - chore: fix typings and UI controller behavior for joystick/display settings (e843785)
 - Merge remote-tracking branch 'origin/master' (2f5150f)
-- chore(release): 0.5.0 (1c67934)
-- chore: update changelog (auto) [skip ci] (07c46ba)
 - Merge pull request #18 from hayesmaker/feature/more-ui-controller-settings (7557af9)
 - chore: fix lints (45d0b3d)
 - feat: simple input and display settings (c5e60b1)
 - chore(styles): extract inline CSS to module styles/ and import as raw (74f1d41)
 
-## v0.4.0 - 2026-03-22T23:27:35+00:00
+## v0.5.0 - 2026-03-23T08:56:08Z
+
+- chore(release): 0.5.0 (1c67934)
+- chore: update changelog (auto) [skip ci] (07c46ba)
+
+## v0.4.0 - 2026-03-22T23:27:35Z
 
 - chore(release): 0.4.0 (ccff6b7)
 - Merge pull request #17 from hayesmaker/feature/headless-cli-runner (7bcd326)
@@ -307,7 +307,7 @@ No unreleased changes.
 - feat(headless): headless runner first commit (acb9e7f)
 - chore: update changelog (auto) [skip ci] (5ae1fea)
 
-## v0.3.0 - 2026-03-21T15:16:11+00:00
+## v0.3.0 - 2026-03-21T15:16:11Z
 
 - chore(release): 0.3.0 (40d518c)
 - feat: audio support (ee0f378)
@@ -318,7 +318,7 @@ No unreleased changes.
 - ci: use Node 24 in changelog workflow (02065db)
 - chore: fix changelog action (5675eda)
 
-## v0.2.0 - 2026-03-21T13:25:25+00:00
+## v0.2.0 - 2026-03-21T13:25:25Z
 
 - chore(release): 0.2.0 (991d9e7)
 - chore: prepare release 0.2.0 (b31be4b)
@@ -335,7 +335,7 @@ No unreleased changes.
 - feat: power led favicon (b8b4825)
 - chore: regenerated lockfile (fa871eb)
 
-## v0.1.0 - 2026-03-20T23:42:38+00:00
+## v0.1.0 - 2026-03-20T23:42:38Z
 
 - build: bump version to 0.1.0 (ef6ee3f)
 - chore: ensure minimum node (2977a5e)
