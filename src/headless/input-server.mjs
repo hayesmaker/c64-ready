@@ -379,6 +379,11 @@ export function createInputServer(opts = {}) {
     return raw || null;
   }
 
+  function normalizeUsername(value) {
+    const username = String(value ?? '').trim().toLowerCase();
+    return username || null;
+  }
+
   function normalizeAddr(addr) {
     if (!addr) return '';
     return String(addr).replace(/^::ffff:/, '');
