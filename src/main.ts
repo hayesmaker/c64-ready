@@ -89,6 +89,18 @@ window.addEventListener('c64-load-file', async (e: Event) => {
   }
 });
 
+window.addEventListener('c64-controller-connected', (e: Event) => {
+  const detail = (e as CustomEvent).detail;
+  status.textContent = `Controller Connected: ${detail.index} - ${detail.name}`;
+  status.style.color = '#9ecbff';
+});
+
+window.addEventListener('c64-controller-disconnected', (e: Event) => {
+  const detail = (e as CustomEvent).detail;
+  status.textContent = `Controller Disconnected : ${detail.index} - ${detail.name}`;
+  status.style.color = '#9ecbff';
+})
+
 window.addEventListener('c64-load-tool', async (e: Event) => {
   const detail = (e as CustomEvent).detail as
     | { name?: string; url?: string; type?: string }

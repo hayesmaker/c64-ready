@@ -505,14 +505,50 @@ export class EmulatorInput {
   }
 
   attach(): void {
+    this.target.addEventListener("gamepadconnected", this.handleGamepadConnected as EventListener);
+    this.target.addEventListener("gamepaddisconnected", this.handleGamepadDisconnected as EventListener);
     this.target.addEventListener('keydown', this.keyDownHandler as EventListener);
     this.target.addEventListener('keyup', this.keyUpHandler as EventListener);
   }
 
   detach(): void {
+    this.target.removeEventListener("gamepadconnected", this.handleGamepadConnected as EventListener);
     this.target.removeEventListener('keydown', this.keyDownHandler as EventListener);
     this.target.removeEventListener('keyup', this.keyUpHandler as EventListener);
     this.releaseAll();
+  }
+
+  private handleGamepadDisconnected(event: GamepadEvent): void {
+    console.log(
+      "Gamepad disconnected from index %d: %s",
+      event.gamepad.index,
+      event.gamepad.id,
+    );
+    const gamepadDisconnected = new CustomEvent("c64-controller-disconnected", {
+      detail: {
+        name: event.gamepad.id,
+        index: event.gamepad.index,
+      }
+    });
+    window.dispatchEvent(gamepadDisconnected);
+
+  }
+
+  private handleGamepadConnected(event: GamepadEvent): void {
+    console.log(
+      "Gamepad connected at index %d: %s. %d buttons, %d axes.",
+      event.gamepad.index,
+      event.gamepad.id,
+      event.gamepad.buttons.length,
+      event.gamepad.axes.length,
+    );
+    const gamepadConnected = new CustomEvent("c64-controller-connected", {
+      detail: {
+        name: event.gamepad.id,
+        index: event.gamepad.index,
+      }
+    });
+    window.dispatchEvent(gamepadConnected);
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
