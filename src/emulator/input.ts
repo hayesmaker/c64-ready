@@ -1,5 +1,5 @@
 import type { C64Emulator } from './c64-emulator';
-import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from './constants';
+import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2, type JoystickInput } from './constants'
 import type { JoystickPort } from './constants';
 
 export const KEY_TO_JOYSTICK = {
@@ -474,7 +474,6 @@ export function domKeyToC64Actions(
     default:
       break;
   }
-
   return actions;
 }
 
@@ -573,7 +572,7 @@ export class EmulatorInput {
         const dir = MIXED_JOYSTICK_KEYS[event.code];
         this.emulator.joystickPush(
           this.keyboardJoystickPort,
-          dir as import('./constants').JoystickInput,
+          dir as JoystickInput,
         );
         event.preventDefault();
       } else {
@@ -619,7 +618,7 @@ export class EmulatorInput {
         const dir = MIXED_JOYSTICK_KEYS[event.code];
         this.emulator.joystickRelease(
           this.keyboardJoystickPort,
-          dir as import('./constants').JoystickInput,
+          dir as JoystickInput,
         );
         event.preventDefault();
       } else {
