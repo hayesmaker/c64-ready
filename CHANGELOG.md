@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #97 from hayesmaker/fix/admin-status-normalize-username (7c11063)
+- fix(input): restore username normalization in admin status (3e0a4df)
+- Merge pull request #96 from hayesmaker/chore/update-changelog-2026-04-21T19-33-07-906Z-b0548c5 (9ae3bed)
+- chore: update changelog (auto) (b0548c5)
 - Merge pull request #95 from hayesmaker/fix/spectator-admin-counts (17261da)
 - fix(input): deduplicate spectator admin counts (159d540)
 - Merge pull request #93 from hayesmaker/fix/webrtc-black-screen-keyframe (95b9753)
