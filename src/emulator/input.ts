@@ -483,10 +483,11 @@ export class EmulatorInput {
   private readonly emulator: C64Emulator;
   private readonly target: EventTarget;
   // Which joystick port keyboard events map to (1 or 2). Default is port 2.
-  private keyboardJoystickPort: JoystickPort;
+  private joystickPort: JoystickPort;
   private inputMode: InputMode = 'mixed';
   private updateFrame: number = -1;
   private gamepadIndex: number = -1;
+  private gamepadPresses: Array<boolean> = [];
   private readonly pressedControls = new Set<MappedControl>();
   private readonly keyDownHandler = (event: KeyboardEvent): void => {
     this.handleKeyDown(event);
@@ -502,7 +503,7 @@ export class EmulatorInput {
   ) {
     this.emulator = emulator;
     this.target = target;
-    this.keyboardJoystickPort = defaultPort;
+    this.joystickPort = defaultPort;
   }
 
   attach(): void {
@@ -520,12 +521,10 @@ export class EmulatorInput {
   }
 
   private step(): void {
-    console.log('step');
     const gamepads = navigator.getGamepads();
     if (!gamepads) {
       return;
     }
-
     const gp = gamepads[this.gamepadIndex];
     if (!gp) {
       this.cancelUpdate();
@@ -534,17 +533,53 @@ export class EmulatorInput {
     if (gp.buttons) {
       for (let b = 0; b < gp.buttons.length; b++) {
         if (gp.buttons[b].pressed) {
-          console.log('Buttons Pressed', b, gp.buttons[b]);
-        }
-        if (!gp.buttons[b].pressed) {
+          this.gamepadPresses[b] = true;
+          // console.log('Buttons Pressed', b, gp.buttons[b]);
+          switch(b) {
+            case 0:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_FIRE_1);
+              break;
+            case 14:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
+              break;
+            case 15:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
+              break;
+            case 12:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
+              break;
+            case 13:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
+              break;
+          }
+          // this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
+        } else if (!gp.buttons[b].pressed && this.gamepadPresses[b] === true) {
+          this.gamepadPresses[b] = false;
           console.log('Buttons Released', b, gp.buttons[b]);
+          switch(b) {
+            case 0:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_FIRE_1);
+              break;
+            case 14:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
+              break;
+            case 15:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
+              break;
+            case 12:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
+              break;
+            case 13:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
+              break;
+          }
+          // this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
         }
       }
     }
 
     // ball.style.left = `${a * 2}px`;
     // ball.style.top = `${b * 2}px`;
-
     this.updateFrame = requestAnimationFrame(this.step.bind(this));
   }
 
@@ -571,7 +606,7 @@ export class EmulatorInput {
     //     this.updateFrame = -1;
     //   }, 0);
     // }
-    window.dispatchEvent(gamepadDisconnected);
+    this.target.dispatchEvent(gamepadDisconnected);
   }
 
   private handleGamepadConnected(event: GamepadEvent): void {
@@ -590,7 +625,7 @@ export class EmulatorInput {
       }
     });
 
-    window.dispatchEvent(gamepadConnected);
+    this.target.dispatchEvent(gamepadConnected);
     if (this.updateFrame < 0) {
       this.step();
     }
@@ -617,7 +652,7 @@ export class EmulatorInput {
         // Joystick path
         const dir = MIXED_JOYSTICK_KEYS[event.code] as JoystickInput;
         this.emulator.joystickPush(
-          this.keyboardJoystickPort,
+          this.joystickPort,
           dir,
         );
         event.preventDefault();
@@ -642,7 +677,7 @@ export class EmulatorInput {
       return;
     }
     this.pressedControls.add(control);
-    this.emulator.joystickPush(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
+    this.emulator.joystickPush(this.joystickPort, KEY_TO_JOYSTICK[control]);
     event.preventDefault();
   }
 
@@ -663,7 +698,7 @@ export class EmulatorInput {
       if (event.code in MIXED_JOYSTICK_KEYS) {
         const dir = MIXED_JOYSTICK_KEYS[event.code];
         this.emulator.joystickRelease(
-          this.keyboardJoystickPort,
+          this.joystickPort,
           dir as JoystickInput,
         );
         event.preventDefault();
@@ -686,7 +721,7 @@ export class EmulatorInput {
       return;
     }
     this.pressedControls.delete(control);
-    this.emulator.joystickRelease(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
+    this.emulator.joystickRelease(this.joystickPort, KEY_TO_JOYSTICK[control]);
     event.preventDefault();
   }
 
@@ -699,16 +734,16 @@ export class EmulatorInput {
 
   private releaseAll(): void {
     for (const control of this.pressedControls) {
-      this.emulator.joystickRelease(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
+      this.emulator.joystickRelease(this.joystickPort, KEY_TO_JOYSTICK[control]);
     }
     this.pressedControls.clear();
   }
 
   /** Set which joystick port keyboard controls should target (1 or 2). */
   setKeyboardPort(port: JoystickPort): void {
-    if (this.keyboardJoystickPort === port) return;
+    if (this.joystickPort === port) return;
     this.releaseAll();
-    this.keyboardJoystickPort = port;
+    this.joystickPort = port;
   }
 
   /** Set the input mode. Releases any held joystick buttons on mode change. */

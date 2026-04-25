@@ -95,11 +95,11 @@ export class C64Player {
     }
 
     const contentLength = Number(response.headers.get('content-length') ?? 0);
-    let data: Uint8Array;
+    let data: Uint8Array<ArrayBufferLike>;
 
     if (contentLength > 0 && response.body) {
       const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
+      const chunks: Uint8Array<ArrayBufferLike>[] = [];
       let loaded = 0;
 
       let result = await reader.read();
@@ -317,7 +317,7 @@ export class C64Player {
   }
 
   private assertSnapshotFormatSupported(
-    data: Uint8Array,
+    data: Uint8Array<ArrayBufferLike>,
     type: GameLoadOptions['type'],
     source: string,
   ): void {
@@ -348,7 +348,7 @@ export class C64Player {
   }
 
   private handleCrtPreloadChecks(
-    data: Uint8Array,
+    data: Uint8Array<ArrayBufferLike>,
     source: string,
     onProgress?: ProgressCallback,
   ): void {
@@ -381,7 +381,7 @@ export class C64Player {
 }
 
 function validateCrtSupportOrThrow(
-  data: Uint8Array,
+  data: Uint8Array<ArrayBufferLike>,
   source: string,
   onProgress?: ProgressCallback,
 ): void {
@@ -413,7 +413,7 @@ function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function hasViceSnapshotMagic(data: Uint8Array): boolean {
+function hasViceSnapshotMagic(data: Uint8Array<ArrayBufferLike>): boolean {
   const magic = 'VICE Snapshot File\x1a';
   if (data.length < magic.length) return false;
   for (let i = 0; i < magic.length; i++) {

@@ -204,13 +204,13 @@ export default class UIController {
       <div class="c64-menu-body">
         <div class="c64-settings-tabs" role="tablist" aria-label="Settings sections">
           ${sections
-            .map(
-              (section, i) =>
-                `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
-                  i === 0 ? 'true' : 'false'
-                }">${section.label}</button>`,
-            )
-            .join('')}
+      .map(
+        (section, i) =>
+          `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
+            i === 0 ? 'true' : 'false'
+          }">${section.label}</button>`,
+      )
+      .join('')}
         </div>
 
         <div class="c64-settings-sections">
@@ -266,6 +266,11 @@ export default class UIController {
               <label><input type="radio" name="c64-input-mode" value="mixed" checked /> Mixed</label>
             </div>
             <div id="c64-input-mode-hint" class="c64-section-hint">Arrows + Z + Ctrl = joystick &amp; all other keys &rarr; C64 keyboard</div>
+            <label class="c64-section-label">Gamepads</label>
+              <div class="c64-radio-row">
+                <pre class="gamepad-info">To use a gamepad, connect 
+it to your computer and press any button</pre>
+              </div>
           </section>
 
           <section class="c64-settings-section" data-settings-section="display" hidden>
@@ -313,18 +318,18 @@ export default class UIController {
 
     const activateSection = (sectionId: string) => {
       tabButtons.forEach((tab) => {
-        const active = tab.dataset.settingsTab === sectionId;
+        const active = tab.getAttribute('data-settings-tab') === sectionId;
         tab.classList.toggle('active', active);
         tab.setAttribute('aria-selected', active ? 'true' : 'false');
       });
       sectionEls.forEach((section) => {
-        section.hidden = section.dataset.settingsSection !== sectionId;
+        section.hidden = section.getAttribute('data-settings-section') !== sectionId;
       });
     };
 
     tabButtons.forEach((tab) => {
       tab.addEventListener('click', () => {
-        const sectionId = tab.dataset.settingsTab;
+        const sectionId = tab.getAttribute('data-settings-tab');
         if (sectionId) activateSection(sectionId);
       });
     });
@@ -417,7 +422,7 @@ export default class UIController {
     };
 
     const parseManifest = (raw: unknown): ToolItem[] => {
-      const entries: unknown[] = Array.isArray(raw)
+      const entries: unknown = Array.isArray(raw)
         ? raw
         : raw && typeof raw === 'object' && Array.isArray((raw as { tools?: unknown[] }).tools)
           ? (raw as { tools: unknown[] }).tools
@@ -668,6 +673,7 @@ export default class UIController {
     window.addEventListener('c64-close-dialog', () => {
       this.closeMenu();
     });
+
     // Close settings when a load completes or errors so the user sees the result
     // window.addEventListener('c64-load-success', () => {
     //   this.settingsOverlay?.classList.remove('visible');
