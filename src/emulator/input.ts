@@ -495,6 +495,12 @@ export class EmulatorInput {
   private readonly keyUpHandler = (event: KeyboardEvent): void => {
     this.handleKeyUp(event);
   };
+  private readonly gamepadConnectedHandler = (event: Event): void => {
+    this.handleGamepadConnected(event as GamepadEvent);
+  };
+  private readonly gamepadDisconnectedHandler = (event: Event): void => {
+    this.handleGamepadDisconnected(event as GamepadEvent);
+  };
 
   constructor(
     emulator: C64Emulator,
@@ -507,17 +513,20 @@ export class EmulatorInput {
   }
 
   attach(): void {
-    this.target.addEventListener("gamepadconnected", this.handleGamepadConnected.bind(this) as EventListener);
-    this.target.addEventListener("gamepaddisconnected", this.handleGamepadDisconnected.bind(this) as EventListener);
+    this.target.addEventListener('gamepadconnected', this.gamepadConnectedHandler as EventListener);
+    this.target.addEventListener('gamepaddisconnected', this.gamepadDisconnectedHandler as EventListener);
     this.target.addEventListener('keydown', this.keyDownHandler as EventListener);
     this.target.addEventListener('keyup', this.keyUpHandler as EventListener);
   }
 
   detach(): void {
-    this.target.removeEventListener("gamepadconnected", this.handleGamepadConnected as EventListener);
+    this.target.removeEventListener('gamepadconnected', this.gamepadConnectedHandler as EventListener);
+    this.target.removeEventListener('gamepaddisconnected', this.gamepadDisconnectedHandler as EventListener);
     this.target.removeEventListener('keydown', this.keyDownHandler as EventListener);
     this.target.removeEventListener('keyup', this.keyUpHandler as EventListener);
     this.releaseAll();
+    this.releaseAllGamepadButtons();
+    this.cancelUpdate();
   }
 
   private step(): void {
@@ -585,7 +594,39 @@ export class EmulatorInput {
 
   private cancelUpdate(): void {
     cancelAnimationFrame(this.updateFrame);
+    this.updateFrame = -1;
     this.gamepadIndex = -1;
+  }
+
+  private releaseAllGamepadButtons(): void {
+    if (!this.gamepadPresses.some(Boolean)) return;
+
+    const buttonToInput: Partial<Record<number, JoystickInput>> = {
+      0: JOYSTICK_FIRE_1,
+      12: JOYSTICK_DIRECTION.UP,
+      13: JOYSTICK_DIRECTION.DOWN,
+      14: JOYSTICK_DIRECTION.LEFT,
+      15: JOYSTICK_DIRECTION.RIGHT,
+    };
+
+    for (const [button, input] of Object.entries(buttonToInput)) {
+      if (!input) continue;
+      if (this.gamepadPresses[Number(button)] === true) {
+        this.emulator.joystickRelease(this.joystickPort, input);
+      }
+    }
+
+    this.gamepadPresses = [];
+  }
+
+  private findConnectedGamepadIndex(excludeIndex?: number): number {
+    const gamepads = navigator.getGamepads?.() ?? [];
+    for (const gamepad of gamepads) {
+      if (!gamepad) continue;
+      if (gamepad.index === excludeIndex) continue;
+      return gamepad.index;
+    }
+    return -1;
   }
 
   private handleGamepadDisconnected(event: GamepadEvent): void {
@@ -594,18 +635,26 @@ export class EmulatorInput {
       event.gamepad.index,
       event.gamepad.id,
     );
-    const gamepadDisconnected = new CustomEvent("c64-controller-disconnected", {
+    const wasActive = this.gamepadIndex === event.gamepad.index;
+    if (wasActive) {
+      this.releaseAllGamepadButtons();
+      const fallbackIndex = this.findConnectedGamepadIndex(event.gamepad.index);
+      if (fallbackIndex >= 0) {
+        this.gamepadIndex = fallbackIndex;
+        if (this.updateFrame < 0) {
+          this.step();
+        }
+      } else {
+        this.cancelUpdate();
+      }
+    }
+
+    const gamepadDisconnected = new CustomEvent('c64-controller-disconnected', {
       detail: {
         name: event.gamepad.id,
         index: event.gamepad.index,
       }
     });
-    // if (navigator.getGamepads().length === 0) {
-    //   this.cancelUpdate();
-    //   setTimeout(() => {
-    //     this.updateFrame = -1;
-    //   }, 0);
-    // }
     this.target.dispatchEvent(gamepadDisconnected);
   }
 
@@ -617,8 +666,10 @@ export class EmulatorInput {
       event.gamepad.buttons.length,
       event.gamepad.axes.length,
     );
-    this.gamepadIndex = event.gamepad.index;
-    const gamepadConnected = new CustomEvent("c64-controller-connected", {
+    if (this.gamepadIndex < 0) {
+      this.gamepadIndex = event.gamepad.index;
+    }
+    const gamepadConnected = new CustomEvent('c64-controller-connected', {
       detail: {
         name: event.gamepad.id,
         index: event.gamepad.index,
@@ -743,6 +794,7 @@ export class EmulatorInput {
   setKeyboardPort(port: JoystickPort): void {
     if (this.joystickPort === port) return;
     this.releaseAll();
+    this.releaseAllGamepadButtons();
     this.joystickPort = port;
   }
 
@@ -750,10 +802,31 @@ export class EmulatorInput {
   setInputMode(mode: InputMode): void {
     if (this.inputMode === mode) return;
     this.releaseAll();
+    this.releaseAllGamepadButtons();
     this.inputMode = mode;
   }
 
   getInputMode(): InputMode {
     return this.inputMode;
+  }
+
+  setActiveGamepadIndex(index: number): void {
+    if (this.gamepadIndex === index) return;
+
+    const gamepads = navigator.getGamepads?.() ?? [];
+    const nextGamepad = gamepads[index];
+    if (!nextGamepad) {
+      throw new Error(`Gamepad ${index} is not connected`);
+    }
+
+    this.releaseAllGamepadButtons();
+    this.gamepadIndex = index;
+    if (this.updateFrame < 0) {
+      this.step();
+    }
+  }
+
+  getActiveGamepadIndex(): number {
+    return this.gamepadIndex;
   }
 }

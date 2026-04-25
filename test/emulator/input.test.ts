@@ -5,7 +5,33 @@ import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from '../../src/
 describe('EmulatorInput', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: vi.fn(() => []),
+    });
   });
+
+  function makeGamepad(index: number, id = `Pad ${index}`): Gamepad {
+    return {
+      id,
+      index,
+      connected: true,
+      mapping: 'standard',
+      axes: [],
+      buttons: [],
+      timestamp: 0,
+      hapticActuators: [],
+      vibrationActuator: null,
+    } as unknown as Gamepad;
+  }
+
+  function dispatchGamepadEvent(type: 'gamepadconnected' | 'gamepaddisconnected', gamepad: Gamepad): void {
+    const event = new Event(type);
+    Object.defineProperty(event, 'gamepad', { value: gamepad });
+    window.dispatchEvent(event);
+  }
 
   it('maps cursor keys to joystick port 2', () => {
     const emulator = {
@@ -69,5 +95,71 @@ describe('EmulatorInput', () => {
 
     expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_DIRECTION.UP);
     expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
+  });
+
+  it('keeps the first connected gamepad active until changed explicitly', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+    } as any;
+    const firstPad = makeGamepad(1, 'First Pad');
+    const secondPad = makeGamepad(2, 'Second Pad');
+    vi.mocked(navigator.getGamepads).mockReturnValue([
+      null,
+      firstPad,
+      secondPad,
+    ] as unknown as Gamepad[]);
+
+    const input = new EmulatorInput(emulator, window);
+    input.attach();
+
+    dispatchGamepadEvent('gamepadconnected', firstPad);
+    dispatchGamepadEvent('gamepadconnected', secondPad);
+
+    expect(input.getActiveGamepadIndex()).toBe(1);
+
+    input.detach();
+  });
+
+  it('allows explicitly selecting another connected gamepad', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+    } as any;
+    const gamepads = [null, makeGamepad(1, 'First Pad'), makeGamepad(2, 'Second Pad')];
+    vi.mocked(navigator.getGamepads).mockReturnValue(gamepads as unknown as Gamepad[]);
+
+    const input = new EmulatorInput(emulator, window);
+    input.attach();
+    dispatchGamepadEvent('gamepadconnected', gamepads[1] as Gamepad);
+
+    input.setActiveGamepadIndex(2);
+
+    expect(input.getActiveGamepadIndex()).toBe(2);
+
+    input.detach();
+  });
+
+  it('falls back to another connected gamepad when the active one disconnects', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+    } as any;
+    const firstPad = makeGamepad(1, 'First Pad');
+    const secondPad = makeGamepad(2, 'Second Pad');
+    vi.mocked(navigator.getGamepads)
+      .mockReturnValueOnce([null, firstPad, secondPad] as unknown as Gamepad[])
+      .mockReturnValue([null, null, secondPad] as unknown as Gamepad[]);
+
+    const input = new EmulatorInput(emulator, window);
+    input.attach();
+    dispatchGamepadEvent('gamepadconnected', firstPad);
+    input.setActiveGamepadIndex(1);
+
+    dispatchGamepadEvent('gamepaddisconnected', firstPad);
+
+    expect(input.getActiveGamepadIndex()).toBe(2);
+
+    input.detach();
   });
 });
