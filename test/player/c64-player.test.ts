@@ -242,5 +242,20 @@ describe('C64Player', () => {
     expect(infoListener.mock.calls.some((c) => c[0]?.detail?.mode === 'warning')).toBe(true);
   });
 
+  it('delegates active gamepad selection through the input handler', () => {
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
+    const inputHandler = {
+      setActiveGamepadIndex: vi.fn(),
+      getActiveGamepadIndex: vi.fn(() => 4),
+    };
+
+    (player as unknown as { inputHandler: typeof inputHandler }).inputHandler = inputHandler;
+
+    player.setActiveGamepadIndex(2);
+
+    expect(inputHandler.setActiveGamepadIndex).toHaveBeenCalledWith(2);
+    expect(player.getActiveGamepadIndex()).toBe(4);
+  });
+
   // ...additional tests omitted for brevity
 });

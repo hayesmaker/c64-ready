@@ -39,6 +39,11 @@ import {
 
 const CRT_PRELOAD_CHECKS_STORAGE_KEY = 'c64-disable-crt-preload-checks';
 
+type ConnectedGamepad = {
+  index: number;
+  name: string;
+};
+
 export default class UIController {
   private helpOverlay: HTMLElement | null = null;
   private settingsOverlay: HTMLElement | null = null;
@@ -47,15 +52,84 @@ export default class UIController {
   // Save previous overflow styles so we can restore them when exiting full/stretch
   private savedHtmlOverflow: string | null = null;
   private savedBodyOverflow: string | null = null;
+  private connectedGamepads = new Map<number, ConnectedGamepad>();
+  private readonly handleControllerConnected = (event: Event): void => {
+    const detail = (event as CustomEvent<{ name?: string; index?: number }>).detail;
+    if (typeof detail?.index !== 'number') return;
+    this.connectedGamepads.set(detail.index, {
+      index: detail.index,
+      name: detail.name ?? `Gamepad ${detail.index}`,
+    });
+    this.renderGamepadButtons();
+  };
+  private readonly handleControllerDisconnected = (event: Event): void => {
+    const detail = (event as CustomEvent<{ index?: number }>).detail;
+    if (typeof detail?.index !== 'number') return;
+    this.connectedGamepads.delete(detail.index);
+    this.renderGamepadButtons();
+  };
 
   init(player?: C64Player): void {
     this.player = player ?? null;
+    this.syncConnectedGamepads();
     this.injectCSS();
     this.createButton();
     this.createDialog();
     this.createHamburger();
     this.createMenu();
     this.createUnmuteButton();
+    window.addEventListener('c64-controller-connected', this.handleControllerConnected);
+    window.addEventListener('c64-controller-disconnected', this.handleControllerDisconnected);
+  }
+
+  private syncConnectedGamepads(): void {
+    this.connectedGamepads.clear();
+    const gamepads = navigator.getGamepads?.() ?? [];
+    for (const gamepad of gamepads) {
+      if (!gamepad) continue;
+      this.connectedGamepads.set(gamepad.index, {
+        index: gamepad.index,
+        name: gamepad.id,
+      });
+    }
+  }
+
+  private getConnectedGamepads(): ConnectedGamepad[] {
+    return Array.from(this.connectedGamepads.values()).sort((a, b) => a.index - b.index);
+  }
+
+  private getGamepadLabel(gamepad: ConnectedGamepad): string {
+    const shortenedName = gamepad.name.replace(/\s*\([^)]*\)\s*$/u, '').trim();
+    const name = shortenedName || gamepad.name.trim() || `Gamepad ${gamepad.index}`;
+    return `${gamepad.index}: ${name}`;
+  }
+
+  private renderGamepadButtons(): void {
+    const container = document.getElementById('c64-gamepad-list');
+    const emptyState = document.getElementById('c64-gamepad-empty');
+    if (!container || !emptyState) return;
+
+    const gamepads = this.getConnectedGamepads();
+    const activeIndex = this.player?.getActiveGamepadIndex() ?? -1;
+
+    container.replaceChildren(
+      ...gamepads.map((gamepad) => {
+        const button = document.createElement('button');
+        const active = gamepad.index === activeIndex;
+        button.type = 'button';
+        button.className = `c64-btn c64-gamepad-btn${active ? ' active' : ''}`;
+        button.textContent = this.getGamepadLabel(gamepad);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.addEventListener('click', () => {
+          if (!this.player) return;
+          this.player.setActiveGamepadIndex(gamepad.index);
+          this.renderGamepadButtons();
+        });
+        return button;
+      }),
+    );
+
+    emptyState.hidden = gamepads.length > 0;
   }
 
   private injectCSS(): void {
@@ -204,13 +278,13 @@ export default class UIController {
       <div class="c64-menu-body">
         <div class="c64-settings-tabs" role="tablist" aria-label="Settings sections">
           ${sections
-            .map(
-              (section, i) =>
-                `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
-                  i === 0 ? 'true' : 'false'
-                }">${section.label}</button>`,
-            )
-            .join('')}
+      .map(
+        (section, i) =>
+          `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
+            i === 0 ? 'true' : 'false'
+          }">${section.label}</button>`,
+      )
+      .join('')}
         </div>
 
         <div class="c64-settings-sections">
@@ -266,6 +340,9 @@ export default class UIController {
               <label><input type="radio" name="c64-input-mode" value="mixed" checked /> Mixed</label>
             </div>
             <div id="c64-input-mode-hint" class="c64-section-hint">Arrows + Z + Ctrl = joystick &amp; all other keys &rarr; C64 keyboard</div>
+            <label class="c64-section-label">Gamepads</label>
+            <div id="c64-gamepad-list" class="c64-gamepad-list"></div>
+            <div id="c64-gamepad-empty" class="c64-section-hint">To use a gamepad, connect it to your computer and press any button.</div>
           </section>
 
           <section class="c64-settings-section" data-settings-section="display" hidden>
@@ -313,18 +390,18 @@ export default class UIController {
 
     const activateSection = (sectionId: string) => {
       tabButtons.forEach((tab) => {
-        const active = tab.dataset.settingsTab === sectionId;
+        const active = tab.getAttribute('data-settings-tab') === sectionId;
         tab.classList.toggle('active', active);
         tab.setAttribute('aria-selected', active ? 'true' : 'false');
       });
       sectionEls.forEach((section) => {
-        section.hidden = section.dataset.settingsSection !== sectionId;
+        section.hidden = section.getAttribute('data-settings-section') !== sectionId;
       });
     };
 
     tabButtons.forEach((tab) => {
       tab.addEventListener('click', () => {
-        const sectionId = tab.dataset.settingsTab;
+        const sectionId = tab.getAttribute('data-settings-tab');
         if (sectionId) activateSection(sectionId);
       });
     });
@@ -424,7 +501,7 @@ export default class UIController {
           : [];
 
       return entries
-        .map((entry) => {
+        .map((entry: unknown) => {
           const path =
             typeof entry === 'string'
               ? entry
@@ -446,7 +523,7 @@ export default class UIController {
           );
           return { name: filename, url, type } satisfies ToolItem;
         })
-        .filter((v): v is ToolItem => !!v);
+        .filter((v: ToolItem | null): v is ToolItem => !!v);
     };
 
     const loadToolsManifest = async () => {
@@ -595,6 +672,7 @@ export default class UIController {
         if (r.checked) applyInputMode(r.value);
       });
     });
+    this.renderGamepadButtons();
 
     // ── Display section wiring ─────────────────────────────────────────────
     const displayRadios = panel.querySelectorAll(
@@ -668,6 +746,7 @@ export default class UIController {
     window.addEventListener('c64-close-dialog', () => {
       this.closeMenu();
     });
+
     // Close settings when a load completes or errors so the user sees the result
     // window.addEventListener('c64-load-success', () => {
     //   this.settingsOverlay?.classList.remove('visible');

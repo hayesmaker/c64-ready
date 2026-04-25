@@ -1,5 +1,5 @@
 import type { C64Emulator } from './c64-emulator';
-import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from './constants';
+import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2, type JoystickInput } from './constants'
 import type { JoystickPort } from './constants';
 
 export const KEY_TO_JOYSTICK = {
@@ -474,7 +474,6 @@ export function domKeyToC64Actions(
     default:
       break;
   }
-
   return actions;
 }
 
@@ -484,14 +483,23 @@ export class EmulatorInput {
   private readonly emulator: C64Emulator;
   private readonly target: EventTarget;
   // Which joystick port keyboard events map to (1 or 2). Default is port 2.
-  private keyboardJoystickPort: JoystickPort;
+  private joystickPort: JoystickPort;
   private inputMode: InputMode = 'mixed';
+  private updateFrame: number = -1;
+  private gamepadIndex: number = -1;
+  private gamepadPresses: Array<boolean> = [];
   private readonly pressedControls = new Set<MappedControl>();
   private readonly keyDownHandler = (event: KeyboardEvent): void => {
     this.handleKeyDown(event);
   };
   private readonly keyUpHandler = (event: KeyboardEvent): void => {
     this.handleKeyUp(event);
+  };
+  private readonly gamepadConnectedHandler = (event: Event): void => {
+    this.handleGamepadConnected(event as GamepadEvent);
+  };
+  private readonly gamepadDisconnectedHandler = (event: Event): void => {
+    this.handleGamepadDisconnected(event as GamepadEvent);
   };
 
   constructor(
@@ -501,18 +509,177 @@ export class EmulatorInput {
   ) {
     this.emulator = emulator;
     this.target = target;
-    this.keyboardJoystickPort = defaultPort;
+    this.joystickPort = defaultPort;
   }
 
   attach(): void {
+    this.target.addEventListener('gamepadconnected', this.gamepadConnectedHandler as EventListener);
+    this.target.addEventListener('gamepaddisconnected', this.gamepadDisconnectedHandler as EventListener);
     this.target.addEventListener('keydown', this.keyDownHandler as EventListener);
     this.target.addEventListener('keyup', this.keyUpHandler as EventListener);
   }
 
   detach(): void {
+    this.target.removeEventListener('gamepadconnected', this.gamepadConnectedHandler as EventListener);
+    this.target.removeEventListener('gamepaddisconnected', this.gamepadDisconnectedHandler as EventListener);
     this.target.removeEventListener('keydown', this.keyDownHandler as EventListener);
     this.target.removeEventListener('keyup', this.keyUpHandler as EventListener);
     this.releaseAll();
+    this.releaseAllGamepadButtons();
+    this.cancelUpdate();
+  }
+
+  private step(): void {
+    const gamepads = navigator.getGamepads();
+    if (!gamepads) {
+      return;
+    }
+    const gp = gamepads[this.gamepadIndex];
+    if (!gp) {
+      this.cancelUpdate();
+      return;
+    }
+    if (gp.buttons) {
+      for (let b = 0; b < gp.buttons.length; b++) {
+        if (gp.buttons[b].pressed) {
+          this.gamepadPresses[b] = true;
+          // console.log('Buttons Pressed', b, gp.buttons[b]);
+          switch(b) {
+            case 0:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_FIRE_1);
+              break;
+            case 14:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
+              break;
+            case 15:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
+              break;
+            case 12:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
+              break;
+            case 13:
+              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
+              break;
+          }
+          // this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
+        } else if (!gp.buttons[b].pressed && this.gamepadPresses[b] === true) {
+          this.gamepadPresses[b] = false;
+          console.log('Buttons Released', b, gp.buttons[b]);
+          switch(b) {
+            case 0:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_FIRE_1);
+              break;
+            case 14:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
+              break;
+            case 15:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
+              break;
+            case 12:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
+              break;
+            case 13:
+              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
+              break;
+          }
+          // this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
+        }
+      }
+    }
+
+    // ball.style.left = `${a * 2}px`;
+    // ball.style.top = `${b * 2}px`;
+    this.updateFrame = requestAnimationFrame(this.step.bind(this));
+  }
+
+  private cancelUpdate(): void {
+    cancelAnimationFrame(this.updateFrame);
+    this.updateFrame = -1;
+    this.gamepadIndex = -1;
+  }
+
+  private releaseAllGamepadButtons(): void {
+    if (!this.gamepadPresses.some(Boolean)) return;
+
+    const buttonToInput: Partial<Record<number, JoystickInput>> = {
+      0: JOYSTICK_FIRE_1,
+      12: JOYSTICK_DIRECTION.UP,
+      13: JOYSTICK_DIRECTION.DOWN,
+      14: JOYSTICK_DIRECTION.LEFT,
+      15: JOYSTICK_DIRECTION.RIGHT,
+    };
+
+    for (const [button, input] of Object.entries(buttonToInput)) {
+      if (!input) continue;
+      if (this.gamepadPresses[Number(button)] === true) {
+        this.emulator.joystickRelease(this.joystickPort, input);
+      }
+    }
+
+    this.gamepadPresses = [];
+  }
+
+  private findConnectedGamepadIndex(excludeIndex?: number): number {
+    const gamepads = navigator.getGamepads?.() ?? [];
+    for (const gamepad of gamepads) {
+      if (!gamepad) continue;
+      if (gamepad.index === excludeIndex) continue;
+      return gamepad.index;
+    }
+    return -1;
+  }
+
+  private handleGamepadDisconnected(event: GamepadEvent): void {
+    console.log(
+      "Gamepad disconnected from index %d: %s",
+      event.gamepad.index,
+      event.gamepad.id,
+    );
+    const wasActive = this.gamepadIndex === event.gamepad.index;
+    if (wasActive) {
+      this.releaseAllGamepadButtons();
+      const fallbackIndex = this.findConnectedGamepadIndex(event.gamepad.index);
+      if (fallbackIndex >= 0) {
+        this.gamepadIndex = fallbackIndex;
+        if (this.updateFrame < 0) {
+          this.step();
+        }
+      } else {
+        this.cancelUpdate();
+      }
+    }
+
+    const gamepadDisconnected = new CustomEvent('c64-controller-disconnected', {
+      detail: {
+        name: event.gamepad.id,
+        index: event.gamepad.index,
+      }
+    });
+    this.target.dispatchEvent(gamepadDisconnected);
+  }
+
+  private handleGamepadConnected(event: GamepadEvent): void {
+    console.log(
+      "Gamepad connected at index %d: %s. %d buttons, %d axes.",
+      event.gamepad.index,
+      event.gamepad.id,
+      event.gamepad.buttons.length,
+      event.gamepad.axes.length,
+    );
+    if (this.gamepadIndex < 0) {
+      this.gamepadIndex = event.gamepad.index;
+    }
+    const gamepadConnected = new CustomEvent('c64-controller-connected', {
+      detail: {
+        name: event.gamepad.id,
+        index: event.gamepad.index,
+      }
+    });
+
+    this.target.dispatchEvent(gamepadConnected);
+    if (this.updateFrame < 0) {
+      this.step();
+    }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -534,10 +701,10 @@ export class EmulatorInput {
       // all other keys route to the C64 keyboard matrix.
       if (event.code in MIXED_JOYSTICK_KEYS) {
         // Joystick path
-        const dir = MIXED_JOYSTICK_KEYS[event.code];
+        const dir = MIXED_JOYSTICK_KEYS[event.code] as JoystickInput;
         this.emulator.joystickPush(
-          this.keyboardJoystickPort,
-          dir as import('./constants').JoystickInput,
+          this.joystickPort,
+          dir,
         );
         event.preventDefault();
       } else {
@@ -561,7 +728,7 @@ export class EmulatorInput {
       return;
     }
     this.pressedControls.add(control);
-    this.emulator.joystickPush(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
+    this.emulator.joystickPush(this.joystickPort, KEY_TO_JOYSTICK[control]);
     event.preventDefault();
   }
 
@@ -582,8 +749,8 @@ export class EmulatorInput {
       if (event.code in MIXED_JOYSTICK_KEYS) {
         const dir = MIXED_JOYSTICK_KEYS[event.code];
         this.emulator.joystickRelease(
-          this.keyboardJoystickPort,
-          dir as import('./constants').JoystickInput,
+          this.joystickPort,
+          dir as JoystickInput,
         );
         event.preventDefault();
       } else {
@@ -605,7 +772,7 @@ export class EmulatorInput {
       return;
     }
     this.pressedControls.delete(control);
-    this.emulator.joystickRelease(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
+    this.emulator.joystickRelease(this.joystickPort, KEY_TO_JOYSTICK[control]);
     event.preventDefault();
   }
 
@@ -618,26 +785,48 @@ export class EmulatorInput {
 
   private releaseAll(): void {
     for (const control of this.pressedControls) {
-      this.emulator.joystickRelease(this.keyboardJoystickPort, KEY_TO_JOYSTICK[control]);
+      this.emulator.joystickRelease(this.joystickPort, KEY_TO_JOYSTICK[control]);
     }
     this.pressedControls.clear();
   }
 
   /** Set which joystick port keyboard controls should target (1 or 2). */
   setKeyboardPort(port: JoystickPort): void {
-    if (this.keyboardJoystickPort === port) return;
+    if (this.joystickPort === port) return;
     this.releaseAll();
-    this.keyboardJoystickPort = port;
+    this.releaseAllGamepadButtons();
+    this.joystickPort = port;
   }
 
   /** Set the input mode. Releases any held joystick buttons on mode change. */
   setInputMode(mode: InputMode): void {
     if (this.inputMode === mode) return;
     this.releaseAll();
+    this.releaseAllGamepadButtons();
     this.inputMode = mode;
   }
 
   getInputMode(): InputMode {
     return this.inputMode;
+  }
+
+  setActiveGamepadIndex(index: number): void {
+    if (this.gamepadIndex === index) return;
+
+    const gamepads = navigator.getGamepads?.() ?? [];
+    const nextGamepad = gamepads[index];
+    if (!nextGamepad) {
+      throw new Error(`Gamepad ${index} is not connected`);
+    }
+
+    this.releaseAllGamepadButtons();
+    this.gamepadIndex = index;
+    if (this.updateFrame < 0) {
+      this.step();
+    }
+  }
+
+  getActiveGamepadIndex(): number {
+    return this.gamepadIndex;
   }
 }
