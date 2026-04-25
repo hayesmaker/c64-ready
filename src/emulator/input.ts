@@ -1,6 +1,6 @@
-import type { C64Emulator } from './c64-emulator';
-import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2, type JoystickInput } from './constants'
-import type { JoystickPort } from './constants';
+import type {C64Emulator} from './c64-emulator';
+import {JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2, type JoystickInput} from './constants'
+import type {JoystickPort} from './constants';
 
 export const KEY_TO_JOYSTICK = {
   ArrowUp: JOYSTICK_DIRECTION.UP,
@@ -132,9 +132,9 @@ export function domKeyToC64Actions(
   const isDown = eventType === 'keydown';
   const actions: C64KeyAction[] = [];
 
-  const press = (idx: number) => actions.push({ key: idx, action: 'press' });
-  const release = (idx: number) => actions.push({ key: idx, action: 'release' });
-  const main = (idx: number) => actions.push({ key: idx, action: isDown ? 'press' : 'release' });
+  const press = (idx: number) => actions.push({key: idx, action: 'press'});
+  const release = (idx: number) => actions.push({key: idx, action: 'release'});
+  const main = (idx: number) => actions.push({key: idx, action: isDown ? 'press' : 'release'});
 
   // Handle host shift state first for plain alpha/numeric keys
   if (isDown) {
@@ -488,6 +488,7 @@ export class EmulatorInput {
   private updateFrame: number = -1;
   private gamepadIndex: number = -1;
   private gamepadPresses: Array<boolean> = [];
+  private gamepadAxes: Array<boolean> = [false, false, false, false];
   private readonly pressedControls = new Set<MappedControl>();
   private readonly keyDownHandler = (event: KeyboardEvent): void => {
     this.handleKeyDown(event);
@@ -544,7 +545,7 @@ export class EmulatorInput {
         if (gp.buttons[b].pressed) {
           this.gamepadPresses[b] = true;
           // console.log('Buttons Pressed', b, gp.buttons[b]);
-          switch(b) {
+          switch (b) {
             case 0:
               this.emulator.joystickPush(this.joystickPort, JOYSTICK_FIRE_1);
               break;
@@ -564,8 +565,7 @@ export class EmulatorInput {
           // this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
         } else if (!gp.buttons[b].pressed && this.gamepadPresses[b] === true) {
           this.gamepadPresses[b] = false;
-          console.log('Buttons Released', b, gp.buttons[b]);
-          switch(b) {
+          switch (b) {
             case 0:
               this.emulator.joystickRelease(this.joystickPort, JOYSTICK_FIRE_1);
               break;
@@ -587,8 +587,39 @@ export class EmulatorInput {
       }
     }
 
-    // ball.style.left = `${a * 2}px`;
-    // ball.style.top = `${b * 2}px`;
+    if (gp.axes[0] <= -0.5) {
+      this.gamepadAxes[0] = true;
+      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
+    } else if (this.gamepadAxes[0] === true) {
+      this.gamepadAxes[0] = false;
+      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
+    }
+
+    if (gp.axes[0] >= 0.5) {
+      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
+      this.gamepadAxes[1] = true;
+    } else if (this.gamepadAxes[1] === true) {
+      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
+      this.gamepadAxes[1] = false;
+
+    }
+
+    if (gp.axes[1] <= -0.5) {
+      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
+      this.gamepadAxes[2] = true
+    } else if (this.gamepadAxes[2] === true) {
+      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
+      this.gamepadAxes[2] = false
+    }
+
+    if (gp.axes[1] >= 0.5) {
+      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
+      this.gamepadAxes[3] = true;
+    } else if (this.gamepadAxes[3] === true) {
+      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
+      this.gamepadAxes[3] = false;
+    }
+
     this.updateFrame = requestAnimationFrame(this.step.bind(this));
   }
 
