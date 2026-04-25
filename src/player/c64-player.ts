@@ -271,6 +271,14 @@ export class C64Player {
     this.inputHandler?.setInputMode(mode);
   }
 
+  setActiveGamepadIndex(index: number): void {
+    this.inputHandler?.setActiveGamepadIndex(index);
+  }
+
+  getActiveGamepadIndex(): number {
+    return this.inputHandler?.getActiveGamepadIndex() ?? -1;
+  }
+
   setCrtPreloadChecksDisabled(disabled: boolean): void {
     this.disableCrtPreloadChecks = disabled;
     this.emulator?.setCrtPreloadChecksEnabled(!disabled);

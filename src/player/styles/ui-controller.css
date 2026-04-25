@@ -372,6 +372,18 @@
   color: #888;
   line-height: 1.4;
 }
+.c64-gamepad-list {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.c64-gamepad-btn.active {
+  background: #7b71d5;
+  border-color: #948bff;
+  color: #fff;
+}
 .c64-dragarea {
   border: 2px dashed #2a2a3e;
   border-radius: 6px;

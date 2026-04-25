@@ -40,6 +40,14 @@ export default class InputHandler {
     return this.emulatorInput.getInputMode();
   }
 
+  setActiveGamepadIndex(index: number): void {
+    this.emulatorInput.setActiveGamepadIndex(index);
+  }
+
+  getActiveGamepadIndex(): number {
+    return this.emulatorInput.getActiveGamepadIndex();
+  }
+
   private onCaptureKeyDown(e: KeyboardEvent): void {
     // Block joystick-mapped keys (standard + mixed mode) when overlays are
     // visible or the document is unfocused. Use the union of both key sets.
