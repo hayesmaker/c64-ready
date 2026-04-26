@@ -4,8 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+No unreleased changes.
+
+## v1.1.0 - 2026-04-26T16:23:34+01:00
+
+- chore(release): 1.1.0 (35020c0)
+- Merge pull request #105 from hayesmaker/feature/snapshot-saving (6dfb5f7)
+- fix(snapshot): use wasm snapshot pointer contract (0a7777a)
+- feat(player): add snapshot save action (540058e)
+- feat: new game - goat beat (494847e)
+- Merge pull request #103 from hayesmaker/fix/webrtc-failure-debug (0d68566)
+- fix(webrtc): include peer close diagnostics (fd36c9b)
+- Merge pull request #101 from hayesmaker/feature/gamepad-analog-sticks (b54a46d)
+- feat: left anaolog support for movement (a6f62e4)
+- Merge pull request #99 from hayesmaker/feature/gamepad-support (06643dc)
+- Merge branch 'feat/ui-gamepad-selector' into feature/gamepad-support (f06f1a6)
+- feat(ui-controller): add connected gamepad selector (583b51d)
+- feat: added gamepad buttons mapping to joystick (35d9546)
+- WIP: initial buttons press release test (a958fa3)
+- Merge pull request #98 from hayesmaker/chore/update-changelog-2026-04-22T14-40-46-866Z-904f20b (bd80a23)
+- refactor: type jank (5403251)
+- chore: update changelog (auto) (904f20b)
 - Merge pull request #97 from hayesmaker/fix/admin-status-normalize-username (7c11063)
 - fix(input): restore username normalization in admin status (3e0a4df)
+- feat: initial gamepad connect/disconnect detection (b69b2cc)
 - Merge pull request #96 from hayesmaker/chore/update-changelog-2026-04-21T19-33-07-906Z-b0548c5 (9ae3bed)
 - chore: update changelog (auto) (b0548c5)
 - Merge pull request #95 from hayesmaker/fix/spectator-admin-counts (17261da)
@@ -27,48 +49,234 @@ All notable changes to this project will be documented in this file.
 
 ## v1.0.1 - 2026-04-17T09:12:10+01:00
 
-Adds crt preload checks. Rejects loading Ultimax flagged crts with hwType=0 (normal cart).  Provides override flag to allow dangerously loading invalid crt types but still provides user feedback when trying to load known dangerous types.
+- chore(release): 1.0.1 (9cc1131)
+- Merge pull request #78 from hayesmaker/fix/reject-ultimax-cartridges (ac1f7e5)
+- feat(system): add CRT preload-check override toggle (3e85f8d)
+- fix(cartridge): reject only unsupported Ultimax normal carts (af9ffff)
+- Merge pull request #77 from hayesmaker/chore/update-changelog-2026-04-16T23-40-40-228Z-c4bbad1 (74b2eb3)
+- chore: update changelog (auto) (c4bbad1)
+- Merge pull request #76 from hayesmaker/fix/emulator-reboot-recovery (4b18cef)
+- fix(emulator): add full reboot recovery across browser and headless (c755986)
+- Merge pull request #73 from hayesmaker/chore/v1.0.0-publish (e67cca2)
 
 ## v1.0.0 - 2026-04-16T23:12:30+01:00
 
-Initial C64-Live release!
+- chore(release): 1.0.0 (e8c5841)
+- Merge pull request #72 from hayesmaker/chore/update-changelog-2026-04-15T18-04-55-415Z-ce8f3b7 (542acfe)
+- chore: update changelog (auto) (ce8f3b7)
+- Merge pull request #71 from hayesmaker/fix/publish-workflow-path-filter (72aa955)
+- Merge branch 'master' into fix/publish-workflow-path-filter (064ce2a)
+- chore: verify failed publish - fail early (71604e1)
+- Merge pull request #70 from hayesmaker/chore/update-changelog-2026-04-15T17-12-16-760Z-cc23d7c (d98be7d)
+- chore: update changelog (auto) (cc23d7c)
+- Merge pull request #69 from hayesmaker/fix/publish-workflow-path-filter (ccde90e)
+- fix: preserve p2 reconnects and default headless audio (bc24059)
+- Merge pull request #68 from hayesmaker/chore/update-changelog-2026-04-15T09-18-20-311Z-2c36723 (6a0dbf7)
+- chore: update changelog (auto) (2c36723)
+- Merge pull request #67 from hayesmaker/fix/publish-workflow-path-filter (1d505cf)
+- fix(ci): skip c64-live publish on changelog-only merges (529f818)
+- Merge pull request #66 from hayesmaker/chore/update-changelog-2026-04-15T08-19-12-836Z-962ea21 (7eff2ba)
+- chore: update changelog (auto) (962ea21)
+- Merge pull request #65 from hayesmaker/fix/env-ice-and-publish-workflow (3c8ef48)
+- fix: support env-driven ICE and repair publish workflow (98a1ad2)
+- Merge pull request #63 from hayesmaker/chore/fix-docker-entrypoint (9272eba)
+- fix(headless): keep drop diagnostics in verbose mode (85b0c86)
+- Merge pull request #61 from hayesmaker/chore/fix-docker-entrypoint (c81a847)
+- fix(ci): block empty bin entrypoints in c64-live image publish (89d56da)
+- Merge pull request #59 from hayesmaker/chore/fix-docker-entrypoint (45225db)
+- fix: fix entroypoint path for ephemeral setups (d696417)
+- Merge pull request #57 from hayesmaker/chore/ghcr-c64-live-workflow (81e5439)
+- chore: GHCR_PAT (68a6b9d)
+- Merge pull request #55 from hayesmaker/chore/ghcr-c64-live-workflow (f10e09f)
+- Merge branch 'chore/docker-env-defaults' into chore/ghcr-c64-live-workflow (2f449d3)
+- chore(ci): publish c64-live image to ghcr (595f04d)
+- chore(docker): add headless runtime env defaults (b6ed581)
+- Merge pull request #52 from hayesmaker/chore/docker-ephemeral-headless (c92e065)
+- chore(docker): bake headless runtime and remove dev bind mounts (1bb8803)
+- Merge pull request #50 from hayesmaker/chore/docker-package-link (14c04da)
+- chore: link docker package to repo (81789df)
+- Merge pull request #48 from hayesmaker/fix/changelog-ci-checks (dcd8599)
+- fix(ci): skip changelog workflow on changelog-only pushes (3d7368a)
+- Merge pull request #46 from hayesmaker/chore/update-changelog-2026-04-12T06-55-05-920Z-950b3e8 (6721cff)
+- chore: update changelog (auto) (950b3e8)
+- Merge pull request #45 from hayesmaker/fix/changelog-ci-checks (4ecc113)
+- fix(ci): allow changelog PR checks to run (898a459)
+- Merge pull request #43 from hayesmaker/chore/fix-workflows (2a84b9a)
+- fix(ci): create changelog PRs on push and clean wiki links (7449215)
+- Merge pull request #42 from hayesmaker/feature/keyboard-tester (1c6589d)
+- test: fixing tests to account for new mixed default (778730f)
+- feat: keyboard tester tools (74eb259)
+- feat(ui): add tools loader and mixed-mode restore defaults (a24cc52)
+- tools: added anykey prg (48a86dc)
+- Merge pull request #41 from hayesmaker/fix/live-d64-no-reset (f4bee9d)
+- fix(d64): keep emulator running when mounting disk (9f6dc14)
 
 ## 0.11.0 - 2026-04-11T10:50:57+01:00
 
-## What's Changed
-* Chore/deploy and release by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/36
-* Feature/add prg support by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/37
-* Feature/live settings parity backend by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/38
-* fix(d64): reset state before headless disk insert by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/39
-* Chore/prepare deployment 0.11.0 by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/40
+- Merge pull request #40 from hayesmaker/chore/prepare-deployment-0.11.0 (e82839d)
+- Merge branch 'master' into chore/prepare-deployment-0.11.0 (e3fdd96)
+- Merge pull request #39 from hayesmaker/chore/prepare-deployment (9aa487d)
+- fix(d64): reset state before headless disk insert (ea39d2a)
 
+## v0.11.0 - 2026-04-11T10:48:07+01:00
 
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.10.0...0.11.0
+- chore(release): 0.11.0 (5baface)
+- Merge pull request #38 from hayesmaker/feature/live-settings-parity-backend (8fdb739)
+- feat(input): support host-defined joystick port overrides (86701b2)
+- fix(prg): make headless autorun typing deterministic (d55ca16)
+- feat(headless): support typed load-file command and reset-only hard reset (1b575b2)
+- Merge pull request #37 from hayesmaker/feature/add-prg-support (b883c3e)
+- feat: added keyboard test prg and snapshots (7325ffa)
+- revert(snapshot): disable VICE .vsf support in browser runtime (5911735)
+- feat(runtime): add ?game override and refine VICE snapshot parsing (69a38b6)
+- feat(snapshot): add VICE best-effort loader and runtime load diagnostics (9330bfa)
+- feat: lvllvl snapshot support (eb2fe61)
+- fix(d64): enable 1541 drive before disk insert (9835894)
+- fix(prg): auto-run after load and use inject mode (373615f)
+- feat(ui): split settings into tabs and add format-aware loading (3df4373)
+- Merge pull request #36 from hayesmaker/chore/deploy-and-release (3e5d444)
 
 ## v0.10.0 - 2026-04-09T09:24:54+01:00
 
-## What's Changed
-* Fix/input flood instrumentation by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/34
-* feat(headless): improve WebRTC stability, telemetry, and admin controls by @hayesmaker in https://github.com/hayesmaker/c64-ready/pull/35
+- chore(release): 0.10.0 (6716e49)
 
+## v0.9.0 - 2026-04-09T09:24:36+01:00
 
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.8.0...v0.10.0
+- chore(release): 0.9.0 (d03b2f1)
+- Merge pull request #35 from hayesmaker/spike/video-telemetry-diagnostics (0dbc14a)
+- fix(webrtc): handle early trickle ICE and send explicit SDP offers (b798fe6)
+- feat(webrtc): keep one peer per viewer session (635c77c)
+- feat(telemetry): log sender pressure metrics under log-events (3b1bccb)
+- feat(admin): add c64-admin commands for status and client kicks (78091a7)
+- feat(webrtc): use monotonic clocks and sample sender queue stats (b74f8af)
+- feat(webrtc): add output fps cap and sender drop counters (15119e6)
+- tune(webrtc): lower bitrate defaults and drop overdue video frames (5cc58cd)
+- chore(docs): mv doc to correct location (c726d30)
+- docs(troubleshooting): document auto-resync controls (51d9c60)
+- docs(troubleshooting): update video lag threshold guidance (d95fd3a)
+- docs(troubleshooting): add c64-live input lag runbook (94d7146)
+- fix: input latency indicator improvement (ae12360)
+- fix: attempt to fix network latency status (bc05b7c)
+- fix: use wall clock delta for debugger_update (05c61f7)
+- Merge pull request #34 from hayesmaker/fix/input-flood-instrumentation (d158729)
+- feat(latency): network latency backend (c1ea04b)
+- chore(logs): more diagnostic logging see LOGGING.md (df80b57)
+- chore(logs): input latency profiling (8323723)
+- chore(logs): added write logs to file (3dada37)
+- feat(headless): add log file output with retention (75f2ed8)
+- perf(input-server): add input flood instrumentation (d6d802d)
+- chore(logs): only log key events on verbose mode (d94174d)
+- chore(logs): only log inputs on verbose running (53a6698)
 
 ## v0.8.0 - 2026-04-05T08:53:20+01:00
 
-Headless multiplayer tested and working on C64cade. See CHANGELOG.md for specific details.
+- Merge pull request #33 from hayesmaker/chore/release-0.8.0 (090cbc7)
+- chore(release): 0.8.0 Skip v0.7.0 (tagged locally, never published). This is the first public release since v0.6.2 and includes all v0.7.0 work plus: - feat(cart): parseCrtInfo — cartridge type/size/CHIP logging on load - fix(input): force host claim on reconnect — fixes detach/reset - fix(webrtc): enable buttons when initial game already loaded on connect - fix(docker): bake GIT_HASH into image via build arg - feat(hello): serverVersion + serverGitHash in hello message - feat(webrtc): --max-spectators connection limit - ci(test): PR workflow for branch-protection status check (bb284e4)
+- Merge pull request #32 from hayesmaker/feat/cart-load-logging (4173b68)
+- test(player): fix CRT stub — bump to 0x40 bytes to satisfy parseCrtInfo parseCrtInfo requires a minimum of 0x40 bytes (full CRT header) before it considers a buffer valid.  The old 16-byte stub only contained the magic string; isValidCRT now delegates to parseCrtInfo so the test was throwing 'Invalid CRT file format'. Updated stubFetchForGame() to build a proper 0x40-byte header:   - 16-byte signature 'C64 CARTRIDGE   '   - header-length field = 0x40 (big-endian u32 at 0x10)   - hwType = 0 (Normal cartridge) at 0x16   - exrom = 1, game = 1 (inactive / pass-through) at 0x18–0x19 (393a218)
+- fix(input): force host claim on page (re)connect — fixes detach/reset The WebRTC player page always claims host on inputWs.onopen.  If a previous session's WS connection is still open (Docker restart, page reload, or any connectWebRTC() call) the server returned host-taken and the new socket never became hostClient, so detach-crt and hard-reset were silently dropped (ws !== hostClient gate). Fix — two-part: input-server.mjs:   Honour force:true on a host claim message.  When set, the existing   host socket is gracefully evicted (host-evicted message + close())   before the new connection is granted the slot.  Without force:true   the old rejection behaviour is preserved (multi-player aware callers   should not force). webrtc-server.mjs (embedded browser page):   Always send force:true with the host claim.  The headless player   page is a single-player UI; there is never a legitimate reason for a   second host to exist concurrently, so forcibly taking the slot on   every connect/reconnect is the correct policy. (fcfa464)
+- feat(cart): log cartridge type, size and CHIP count on load Add parseCrtInfo() to src/emulator/crt-info.ts — parses the CRT binary header (magic, hwType, EXROM/GAME bits, cart name, CHIP packets) and returns a structured object plus a ready-to-log summary line. Browser player (c64-player.ts) calls parseCrtInfo() in both loadGame() (URL path) and loadFile() (drag-and-drop / file-input path), logging to console.log before emulator.loadGame(). isValidCRT() now delegates to parseCrtInfo() to avoid duplicating the magic-check logic. Headless CLI (headless-cli.mjs) carries an inline JS port of the same parser (no build step required) and logs to console.error at both the startup --game load site and inside the load-crt WebSocket command handler. Example output:   [C64 cart] "legend-of-wilf.crt" loading: hwType=32(EasyFlash) | Ultimax flags, 96K actual | 12 CHIP(s) | 98560 bytes name="EasyFlash" (87fa675)
+- Merge pull request #31 from hayesmaker/fix/webrtc-initial-game-buttons (49c258f)
+- fix(webrtc): enable detach/reset buttons when initial game is already loaded When a browser client connects after the server has already booted with a game loaded (via --game CLI arg), the input server sends a 'hello' message containing cartFilename.  The browser page was not acting on that field to enable the detach/reset buttons or update the game badge, leaving both buttons permanently disabled until a new cart-loaded event arrived. Add a 'hello' handler that mirrors the cart-loaded UI update: set the game badge, mark load-status as loaded, and enable both buttons. (03872dc)
+- Merge pull request #29 from hayesmaker/feat/hello-build-info (ecb1ee7)
+- Merge pull request #28 from hayesmaker/master (d5011f0)
+- fix(docker): bake GIT_HASH into image via build arg; fall back to .git-hash file git is not installed in node:24-slim and .git is not bind-mounted, so execSync('git rev-parse --short HEAD') silently failed in the container and serverGitHash was never sent in the hello message. Fix: - Dockerfile.headless: accept GIT_HASH build arg (default 'unknown'),   write it to /app/.git-hash during the build layer so it survives   into the final image without needing git at runtime. - headless-cli.mjs: check GIT_HASH env var first, then read /app/.git-hash,   then fall back to execSync (local dev only). - docker-compose.yml: pass GIT_HASH build arg via args block — resolves   from host shell env at build time:     GIT_HASH=$(git rev-parse --short HEAD) docker compose build headless - docker/.env.example: document MAX_SPECTATORS (missing from this branch)   and add a note explaining GIT_HASH is a build arg, not a runtime var. (f8b1bb7)
+- Merge pull request #27 from hayesmaker/feat/hello-build-info (97d8b6f)
+- feat(hello): include serverVersion and serverGitHash in hello message headless-cli.mjs reads package.json version and runs git rev-parse --short HEAD at startup (both non-fatal — omitted if unavailable). Both values are passed to createInputServer as opts.serverVersion and opts.serverGitHash and included as optional fields in the hello frame sent to every new WebSocket client:   { ..., serverVersion: '0.7.0', serverGitHash: '16e86cd' } Fields are omitted from the hello when null (standalone / non-git environments) so older clients receiving the message are unaffected. (9d287ee)
+- Merge pull request #25 from hayesmaker/feat/spectator-limit (6e836ef)
+- Merge branch 'master' into feat/spectator-limit (16e86cd)
+- Merge pull request #26 from hayesmaker/chore/update-readme-webrtc-streaming (35b05d2)
+- ci(test): add PR test workflow to satisfy branch protection status check The deploy.yml workflow only runs on push to master, so branch protection status checks were waiting indefinitely for a check that never fires on pull requests. Add .github/workflows/test.yml that: - triggers on pull_request targeting master - runs the same 'test' job (npm ci + npm test) as deploy.yml - uses the same job name 'test' so the required status check in the   branch protection rule is satisfied by this workflow (c20c3b2)
+- chore(docs): README update (c212758)
+- docs(readme): rewrite headless streaming section for WebRTC NMS (Node Media Server) has been removed. The single headless container now streams directly over WebRTC — a self-contained player page on port 9002 handles video, audio, and keyboard/joystick input with no extra software required. Changes: - Replace two-container RTMP/NMS setup with single-container WebRTC docs - Add spectator limit section (MAX_SPECTATORS, player slots) - Document FFmpeg --record as a separate capture/debug tool that can run   alongside or instead of WebRTC (file recording, RTMP push) - Update env variable table to match current docker/.env.example   (add WEBRTC_*, LOG_EVENTS, MAX_SPECTATORS; remove NMS_* and RTMP_URL) - Update quick-start to point to http://localhost:9002 instead of ffplay - Add drag-and-drop cartridge loading note (d8551a2)
+- feat(webrtc): add spectator connection limit (--max-spectators, default 5) Prevent CPU overload when many users spectate simultaneously by capping the number of concurrent WebRTC peer connections. How it works: - MAX_CONNECTIONS = 2 (player slots) + maxSpectators (default 5) = 7 - Capacity is tracked as active ICE-connected peers + pending (in-flight)   WS connections so a burst of simultaneous connects can't slip through. - Connections over the limit receive { type: 'capacity-full', current, max,   maxSpectators } and the WS is closed immediately — no ICE negotiation,   no encoder load. - A webrtc-capacity-full event is logged when --log-events is active. Browser (headless page) already stops auto-reconnecting on capacity-full. c64cade useC64WebRTC.js must also be updated (see companion commit there). New flag:   --max-spectators <n>   default 5 Docker support:   MAX_SPECTATORS=<n> in docker/.env (entrypoint passes it through)   Documented in docker/.env.example (7091d83)
 
-## v0.6.2 - 2026-03-27T20:43:20Z
+## v0.7.0 - 2026-03-31T19:52:09+01:00
 
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.6.1...v0.6.2
+- chore(release): 0.7.0 Promotes v0.7.0-rc.1 + v0.7.0-rc.2 + pre-release fixes to final release. Full changelog in CHANGELOG.md. (408c855)
+- chore: merge feat/pre-release-fixes (3657c9c)
+- chore: merge fix/v0.7.0-rc.2-release (ac2bfe5)
+- feat(input-server): remove P2→host promotion; increase inactivity timeout to 10 min Three changes: 1. Remove P2 auto-promotion when host leaves    Previously, whenever the host slot became vacant (voluntary leave, timeout,    admin kick, or grace-period expiry) P2 was automatically promoted to host.    This caused confusion — P2 had no expectation of taking over and could    find themselves as host unexpectedly.    Removed promoteP2ToHost() entirely. P2 now stays as P2 when the host leaves;    the host slot becomes open for a new player to claim. Each path that    previously called promoteP2ToHost() now broadcasts p2-slot-status open:false    (since no host = slot is logically unavailable for new P2 joins too). 2. Fix player panel not clearing p2-slot-status on host leave    Without the promotion call, voluntary host-leave, timeout kick, and    admin kick were not broadcasting a p2-slot-status update. Added    broadcastAll({ type: 'p2-slot-status', open: false }) to all four host-exit    paths so every connected client updates its Join button state immediately. 3. Increase default inactivity timeout from 5 to 10 minutes    Applies to both host and P2 (both use HOST_TIMEOUT).    Reduces accidental kicks during normal play pauses. (4965158)
+- chore(release): 0.7.0-rc.2 Bump version and update CHANGELOG for v0.7.0-rc.2. Single fix since rc.1: - fix(webrtc): WS ping/pong keepalive to prevent idle TCP timeout (031610d) (bd926eb)
 
-## v0.6.1 - 2026-03-27T20:36:27Z
+## v0.7.0-rc.2 - 2026-03-31T18:30:33+01:00
+
+- fix(webrtc): add WS ping/pong keepalive to prevent idle TCP timeout Root cause of the ~60s stream freeze observed in production: After ICE negotiation completes the signalling WebSocket carries no further traffic. Cloud NAT, Docker bridge networking, and OS TCP stacks silently drop idle connections after ~60s — exactly matching the log evidence (ws-closed firing ~60s after webrtc-ice-connected with no prior ICE disconnect event). Fix — two-layer keepalive: Server side (webrtc-server.mjs):   - setInterval every 30s: ws.ping() all connected signalling clients   - Track liveness with ws._sigAlive flag, reset on pong, set on pong   - If a client misses a full ping interval (60s total): ws.terminate()     and log webrtc-sig-timeout under --log-events   - clearInterval(pingInterval) in close() to avoid timer leak Browser side (embedded HTML):   - sigPingTimer: send {type:'ping'} every 30s on sigWs   - Server replies with {type:'pong'} — browser handles it as no-op   - sigPingTimer cleared in sigWs.onclose and connectWebRTC() teardown   - Handle {type:'pong'} in sigWs.onmessage (no-op, prevents JSON parse     errors from unrecognised message type) (031610d)
+
+## v0.7.0-rc.1 - 2026-03-31T18:13:33+01:00
+
+- chore(release): 0.7.0-rc.1 Release candidate for v0.7.0. Key changes since v0.6.2: - fix(webrtc): ICE disconnected grace period — root cause of periodic stream freeze - fix(webrtc): browser auto-reconnect on failed/peer-closed/sigWs-close - feat(headless): --log-events structured production logging - feat(input-server): per-player P2 inactivity timer - feat(input-server): host reconnect grace period (8s) before P2 promotion - fix(webrtc): RTCPeerConnection full reconnect on cart-load - fix(webrtc): force VP8 IDR keyframe after load/reset - fix(webrtc): audio RTP resync after blocking WASM gaps - fix(docker): VERBOSE=0 correctly disables verbose - chore(docker): WebRTC-only, NMS removed (d565e79)
+- feat(input-server): add per-player inactivity timer for P2 Previously only the host had an inactivity timeout. P2 could sit connected indefinitely without sending any input and never be kicked. Changes: - Add p2TimeoutTimer / resetP2Timeout() / clearP2Timeout() mirroring   the existing host timer, using the same HOST_TIMEOUT duration (5min) - resetP2Timeout() called on every joystick/key input from P2 - resetP2Timeout() called on P2 join (open + token) - clearP2Timeout() called on: voluntary leave, revoke-p2, admin kick,   ws.on('close'), promoteP2ToHost(), and server close() - Kick sends p2-timeout-kick to P2 and broadcasts player2-left   reason=timeout + p2-slot-status open=true to all clients - logEv('p2-timeout') emitted under --log-events (a674b0c)
+- fix(webrtc): don't close peer on ICE disconnected; add logEv throughout Two changes: 1. ICE 'disconnected' grace period (root cause fix)    The server was calling pc.close() immediately on iceConnectionState    === 'disconnected', which is a transient state that the ICE agent is    supposed to recover from on its own within a few seconds. Any brief    packet loss, NAT keepalive gap, or Node GC pause could trigger it,    permanently killing what would have been a recoverable connection —    the browser then sat on a frozen frame with no indication the peer    was gone.    Fix: on 'disconnected', remove from activePeers (stop pushing frames)    but start a 6s grace timer. If ICE recovers to connected/completed    within that window the timer is cancelled and streaming resumes. Only    after the grace expires (or on 'failed'/'closed') is closePeer() called.    closePeer() sends a 'peer-closed' message to the browser so it can    reconnect immediately rather than waiting for a timeout. 2. Browser auto-reconnect    - On ICE 'failed': scheduleRtcReconnect(1000)    - On sigWs close: scheduleRtcReconnect(2000) instead of dead badge    - On 'peer-closed' message from server: scheduleRtcReconnect(500)    - On ICE 'disconnected': show 'unstable…' badge, wait for server grace 3. logEv throughout webrtc-server    Added logEv() helper (same pattern as input-server.mjs) and wired it    to every ICE state transition and peer lifecycle event. logEvents is    now accepted by createWebRTCServer and passed in from headless-cli.    ICE state changes are also always logged to stderr (not gated on    --verbose) since they are infrequent and critical for diagnosing    stream freezes. (cc80281)
+- chore: log events for docker debug (df24c2b)
+- feat(headless): add --log-events flag for structured event logging Adds a new --log-events CLI flag (distinct from --verbose) that emits structured [event] lines to stderr for all meaningful state transitions:   - server-listening   - client-connected / client-disconnected   - host-joined / host-rejoined / host-left / host-disconnected   - host-grace-expired / host-timeout / host-kicked / host-claim-rejected   - p2-joined / p2-left / p2-disconnected / p2-kicked / p2-promoted-to-host   - p2-join-rejected / invite-p2-issued / invite-p2-rejected / ports-swapped   - cmd-load-crt / cmd-detach-crt / cmd-hard-reset (emulator commands)   - cart-loaded / cart-detached / hard-reset outcome (in headless-cli)   - drift warning when actual FPS deviates >10% from target   - error (bad-message, ws-error, server-error, load-crt-failed, etc.) Format: [event] <ISO-timestamp> <tag> key=value ... Never fires per-frame; safe for production/deployed instances. Input events include a role= field (host|p2) for attribution. --verbose is unchanged and remains independent of --log-events. (0e7f24c)
+- Merge pull request #24 from hayesmaker/feat/host-rejoin-grace (c40a23b)
+- chore: fix lints (cc352ea)
+- feat(input-server): add host reconnect grace period before P2 promotion When the host WebSocket closes unexpectedly (e.g. browser refresh), instead of immediately promoting P2 to host, start a grace period (default 8 s). During the grace period: - All clients receive 'host-disconnected' (new) with graceMs so they can   show a 'reconnecting…' notice rather than an immediate role change. - The hello handshake sends hostTaken:false + hostPendingRejoin so that:     - The refreshing host's rejoin logic can silently reclaim the slot.     - P2 / spectators joining during grace suppress the host prompt. - If the original host reconnects and sends 'host' (same username) the   grace timer is cancelled and 'host-rejoined' is broadcast. - If a different user claims the host slot during grace, grace is also   cancelled (they get it). - If nobody claims within graceMs, expireGrace() broadcasts 'host-left'   and calls promoteP2ToHost() as before. Voluntary leave, inactivity timeout, and admin kick all call clearGrace() to prevent a stale timer from firing after an intentional departure. New option: hostReconnectGraceMs (default 8000). (8436d5b)
+- Merge pull request #23 from hayesmaker/fix/input-lag-post-cart-load (2428bf5)
+- chore: fix lint (14b3597)
+- test(webrtc): add tests covering post-load input lag fixes webrtc-encoder.test.ts (new):   - pushSilenceForGap: correct chunk count for 1600ms / 1000ms / 200ms gaps   - pushSilenceForGap: 0ms and negative gaps are no-ops   - pushSilenceForGap: correct chunk size at 48000 Hz (480 samples)   - pushSilenceForGap: all chunks are silence (zeros, 16-bit, mono)   - resetVideoTimestamp: safe no-op, no throw   - init/setFps: track kinds correct, no throw   - pushAudioFrame: drains exactly 2 chunks from 882 samples at 50fps webrtc-server.test.ts (new):   - createWebRTCServer: returns { close, forceKeyframe }   - forceKeyframe: safe no-op with no peers (null/undefined/no-peers)   - browser HTML: cart-loaded / machine-reset / cart-detached each     call connectWebRTC() — regression guard against reverting to seek   - browser HTML: connectWebRTC tears down old pc + sigWs + srcObject     before creating fresh RTCPeerConnection   - browser HTML: sync button uses connectWebRTC(), not flushToLiveEdge()   - browser HTML: mute state preserved across reconnect (wasMuted check) headless.cli.test.ts:   - pushSilenceForGap algorithm test: 1600ms → 160 chunks of 441 samples (31f33ac)
+- fix(webrtc): reconnect RTCPeerConnection on cart-load to clear decoder state Root cause of persistent post-load lag:   The browser's RTCPeerConnection jitter buffer and VP8 decoder accumulate   state during the ~1600ms cart-load gap. No amount of currentTime seeking,   srcObject manipulation, or jitterBufferTarget=0 clears this — they all   operate above the decoder pipeline level. Only a full browser refresh (new   RTCPeerConnection) reliably clears it, which the user confirmed. Fix: refactor browser WebRTC setup into connectWebRTC() and call it on   every cart-loaded / machine-reset / cart-detached event.   connectWebRTC():     - Closes the existing pc and sigWs cleanly (no badge flicker)     - Nulls videoEl.srcObject to drop the stale MediaStream reference     - Creates a fresh RTCPeerConnection + new signalling WebSocket     - Re-negotiates SDP offer/answer with the server     - Re-applies VP8 codec preference + bitrate fmtp     - Restarts the drift monitor on the new pc   Mute state is preserved: if the user had unmuted before the load,   a 100ms polling interval re-unmutes once the new stream's ontrack fires.   The sync button (⟳) also calls connectWebRTC() — giving users a   manual way to hard-reset the video pipeline at any time.   The input WebSocket is deliberately NOT reconnected — it is independent   of the video pipeline and must stay connected to avoid losing host role. (c1301f0)
+- fix(docker): VERBOSE=0 should disable verbose, check for '1'/'true' explicitly The entrypoint used 'if [ -n "${VERBOSE}" ]' which treats any non-empty string as truthy — including VERBOSE=0. Change to match '1' or 'true' only, consistent with the WEBRTC_ENABLED and AUDIO checks in the same file. (be0d0b9)
+- fix(webrtc): force VP8 IDR keyframe on cart load/reset to eliminate video freeze Root cause of post-load visual lag (separate from AV clock sync):   After c64_loadCartridge() the VP8 encoder emits IDR keyframes at its   normal interval (~2-3 seconds). The browser decoder cannot render any   frame until it receives an IDR. So even though the server pushes live   frames immediately after the load, the browser shows a frozen/blank   screen for up to 2-3 seconds waiting for the next natural keyframe.   This is the dominant source of perceived input lag — the player sees   the pre-load game state while their inputs are landing on the new game. Fix: server-side forceKeyframe(videoTrack)   createWebRTCServer() now tracks all active RTCPeerConnections in an   activePeers Set (added on ICE 'connected'/'completed', removed on   'failed'/'closed'/'disconnected' and ws 'close').   forceKeyframe(videoTrack) iterates activePeers and calls   sender.replaceTrack(videoTrack) on every video sender. This triggers   libwebrtc to emit an IDR on the next encoded frame (within ≤20ms @   50fps), giving the browser decoder a complete reference frame   immediately after the load completes.   Called after load-crt (1625ms gap), detach-crt (~110ms) and   hard-reset (~110ms). Also reverts the srcObject=null flushToLiveEdge approach from the previous commit — that approach caused a blank screen while waiting for the keyframe that replaceTrack() now provides proactively. (e62a278)
+- fix(webrtc): hard srcObject reset on cart-load/reset to flush stale video buffer The previous flushToLiveEdge() used videoEl.currentTime = bufEnd. This is ineffective because at the moment cart-loaded fires from the input server, the frame loop has just resumed and hasn't pushed any new video frames yet. The buffered range end is still the pre-load stale position — seeking to it just jumps within the stale buffered content, not to the actual live stream edge. Fix: replace currentTime seek with srcObject=null then restore on the next requestAnimationFrame. This forces the WebRTC decoder to drop its entire accumulated buffer and re-initialize from the next incoming keyframe. The browser starts playing live frames immediately rather than draining the pre-load buffer first. Also update the drift monitor: drifts >1s now trigger the same hard srcObject reset (the currentTime seek is kept for small drifts ≤1s as a lighter-weight correction for minor jitter). (9d24673)
+- fix(webrtc): re-sync audio RTP clock after blocking WASM gaps to eliminate input lag Root cause:   RTCAudioSource is a push-source — its RTP clock only advances when   onData() is called.  RTCVideoSource is driven by @roamhq/wrtc using   the wall clock internally.  During the ~1300ms blockage of   c64_loadCartridge() (and ~110ms for detach/hard-reset) the frame loop   is completely frozen, so no audio is pushed.  The video RTP clock keeps   ticking, leaving audio ~1300ms behind video when the loop resumes.   The browser's AV sync logic holds video playback until the audio clock   catches up — experienced as 1–30s of input lag after every cart load.   The slow recovery (sometimes 30s) was because the 1300ms audio debt   could only drain at real-time rate (one 10ms chunk per 441 samples). Fix:   In all three blocking WASM paths (load-crt, detach-crt, hard-reset):   1. Record wall-clock time before the blocking call (gapStart).   2. Measure the actual gap (gapMs = Date.now() - gapStart).   3. Call webrtcEncoder.pushSilenceForGap(gapMs) immediately after.   pushSilenceForGap() pushes (gapMs/1000 * sampleRate / chunkSize)   silence chunks via RTCAudioSource.onData() in a tight loop — ~130   calls for a 1300ms gap.  This advances the audio RTP clock by the   exact same duration the video RTP clock advanced during the gap, so   both clocks re-align before the frame loop resumes.   The wall-clock video timestamp change (Date.now()-based) is kept as   a no-op improvement — the timestamp field is ignored by @roamhq/wrtc   0.10.0 (RTCVideoFrame type has no timestamp field), but the comment   is accurate about intent. Also applies to detach-crt (~110ms gap) and hard-reset (~110ms gap) for completeness, though those gaps are short enough that the lag was barely perceptible before. (03b5e82)
+- fix(headless): gate video push on debugger_update return + debugger_isRunning Mirror c64.js render guard in the headless frame loop:   const update = debugger_update(dTime);   if (update && cd /home/ahayes/Homespace/c64-ready && git commit --amend -m 'fix(headless): gate video push on debugger_update return + debugger_isRunning Mirror c64.js render guard in the headless frame loop:   const update = debugger_update(dTime);   if (update && cd /home/ahayes/Homespace/c64-ready && git log --oneline -3 | catdebugger_isRunning()) { redraw(); } - Capture debugger_update() return value as frameReady (truthy = VSync   completed, emulator has a new pixel buffer ready). - Call debugger_isRunning() each frame as isRunning. - Gate WebRTC pushVideoFrame() and ffmpeg writeFrame() on   frameReady && isRunning — prevents pushing stale/repeated pixel   data during ROM boot sequences after a cart load, which was   inflating the WebRTC jitter buffer with duplicate frames and likely   contributing to the post-load perceived lag. - Audio push is unconditional every frame — audio clock must stay   continuous regardless of video readiness. - Fix always-true WebRTC audio condition: (audio || sidRingCount >= 0)   corrected — pushAudioFrame() called directly inside the   (webrtc && webrtcEncoder) block, which is the correct guard. - Remove redundant try/catch blocks around WASM calls in the frame   loop, onInput, and onCommand — exports are known-good at this point.' | catdebugger_isRunning()) { redraw(); } - Capture debugger_update() return value as frameReady (truthy = VSync   completed, emulator has a new pixel buffer ready). - Call debugger_isRunning() each frame as isRunning. - Gate WebRTC pushVideoFrame() and ffmpeg writeFrame() on   frameReady && isRunning — prevents pushing stale/repeated pixel   data during ROM boot sequences after a cart load, which was   inflating the WebRTC jitter buffer with duplicate frames and likely   contributing to the post-load perceived lag. - Audio push is unconditional every frame — audio clock must stay   continuous regardless of video readiness. - Fix always-true WebRTC audio condition: (audio || sidRingCount >= 0)   corrected — pushAudioFrame() called directly inside the   (webrtc && webrtcEncoder) block, which is the correct guard. - Remove redundant try/catch blocks around WASM calls in the frame   loop, onInput, and onCommand — exports are known-good at this point. (430a0c9)
+- Merge branch 'fix/webrtc-frame-drop-live-edge' (3429f0e)
+- docs(headless): document unresolved post-load input lag in load-crt handler Symptoms (observed, not yet fixed): - Initial game load: lag-free. - First load-crt: ~1s lag onset, clears after ~20-30s. - Subsequent loads: lag-free for a while, then periodically returns   and recovers, cycling unpredictably. Investigation notes added inline at the load-crt site: - Emulator keypress latency is not the cause (<=20ms confirmed). - Lag is perceptual: browser displays stale buffered WebRTC video   while live input lands on the server. - flushToLiveEdge() fires on cart-loaded but buffer partially   re-accumulates over the following 20-30s. - c64_loadCartridge + c64_reset block the event loop ~1300ms inside   setImmediate, starving WebRTC of frames and leaving the jitter   buffer ahead of real-time when frames resume. - Periodic relapse suggests a slow buffer-drain race that re-opens   on each subsequent load. - Candidates not yet ruled out: primeSidRing() extra emulation deepening   video debt; jitterBufferTarget=0 not honoured under load; VP8 bitrate   cap holding queued frames longer than expected after burst resumes. Also removes debug noise from previous investigation session: - Restore moved comment to its original inline position - Remove dead commented-out c64_reset() line (f361b27)
+- feat(webrtc): add sync button to manually flush video to live edge (de57747)
+- chore(docker): remove nms service — WebRTC-only setup NMS (Node Media Server) was used for the legacy RTMP streaming path. Now that WebRTC is the only supported mode, NMS is no longer needed. docker-compose.yml: - Remove the nms service block entirely - Remove headless depends_on nms - Simplify header comment to reflect WebRTC-only setup docker/.env.example: - Remove RTMP_URL, NMS_RTMP_HOST_PORT, NMS_HTTP_HOST_PORT - Default WEBRTC_ENABLED=1 and AUDIO=1 (sensible defaults for WebRTC mode) - Clean up comments (258e0c9)
+- fix(webrtc): blur all UI elements on game load, reset, and detach Buttons (load, detach, reset) retain DOM focus after being clicked. While a button has focus, keydown events fire its click handler rather than reaching the document keydown listener, causing the first keypress after a game action to be swallowed or misrouted. Fix: add blurAll() helper (document.activeElement.blur()) and call it:   - inputWs.onmessage on cart-loaded / machine-reset / cart-detached     (server confirms the action completed — safe point to return focus)   - detachBtn and resetBtn click handlers (immediate blur on click)   - fileInput change handler (blur after file picker closes) (94d8641)
+- Revert "fix(webrtc): aggressive drift monitor, hard flush on cart load, surface frame errors" (fb37716)
+- fix(webrtc): aggressive drift monitor, hard flush on cart load, surface frame errors headless-cli.mjs: - Fix always-true condition: (audio || sidRingCount >= 0) was always true   since sidRingCount is always >= 0. Corrected to (audio || webrtc). - Surface frame loop errors: outer catch(_){} was silently swallowing all   exceptions including WASM traps, causing silent frame skips that could   manifest as intermittent lag. Now logs via console.error when --verbose. webrtc-server.mjs (browser page): - Drift monitor: lower threshold from 300ms to 80ms (4 frames @ 50fps)   and poll every 100ms instead of 200ms so drift is corrected faster   during normal gameplay. - flushToLiveEdge: replace currentTime seek with srcObject=null + restore.   The currentTime seek only works when buffered.length > 0, which is not   guaranteed for all WebRTC stream states. The srcObject hard flush works   unconditionally and is called on cart-loaded / machine-reset / cart-detached   where we need a guaranteed resync to the live edge after a load blockage. (582e63a)
+- fix(headless): c64_reset before cart load/detach; keep reset btn enabled after detach - load-crt: call c64_reset() after removeCartridge() and before   c64_loadCartridge() so the machine is in a clean state before the   new cart is parsed and booted. - detach-crt: call c64_reset() after removeCartridge() so the machine   returns to a clean BASIC prompt rather than undefined CPU state. - webrtc-server.mjs: do not disable the reset button after cart-detached —   the machine is still running (at BASIC prompt) so hard-reset remains   meaningful after an eject. (8ca7a64)
+- feat(webrtc): replace stub player page with full-featured WebRTC frontend The page at :9002 was a minimal test stub that didn't match the real c64cade frontend (ArcadeLiveView.vue / useC64WebRTC.js). Replace it with a complete self-contained player page implementing: Video:   - RTCPeerConnection with VP8 preference via setCodecPreferences   - jitterBufferTarget=0 applied on track arrival and after answer   - Live-edge drift monitor: polls videoEl.buffered every 200ms,     skips currentTime forward when >300ms behind buffer head   - flushToLiveEdge() called on cart-loaded / machine-reset /     cart-detached — same pattern as useC64WebRTC.js flushToLiveEdge()   - Muted autoplay with click-to-unmute overlay + AudioContext RMS     analyser to confirm actual SID audio signal Input:   - Connects to input server on INPUT_PORT, claims host role on open   - Three input modes (cycle via button): mixed (🕹+⌨), joy, kb     Mixed: arrows/Z/X → joystick port 2 AND all other keys → C64 kb     — matches the default mode in ArcadeLiveView.vue   - Exponential backoff reconnect on WS close CRT loading:   - 📂 load .crt button → file picker   - Drag-and-drop .crt files onto the screen (drag-over highlight)   - FileReader.readAsDataURL → base64 → load-crt WS message   - Progress badge: reading… → sending… → loaded (from cart-loaded)   - Error badge on cart-load-error Controls:   - ⏏ detach and ↺ reset buttons (enabled after a game loads)   - Game name badge derived from cart filename on cart-loaded Status badges: video, audio, input, game state all update reactively (9b115e6)
+- fix(webrtc): fix apparent input lag — video buffer resync + monotonic timestamps The 'input lag' was not emulator lag at all. The emulator processes keypresses within one frame (<=20ms). The visible lag was the browser playing stale buffered video while the emulator ran in real-time. Root cause 1 — video buffer accumulates during cart load blockage:   c64_loadCartridge() blocks the event loop for ~1300ms. During this   window no video frames are sent to the browser. When frames resume,   the browser's WebRTC decode pipeline plays back from its accumulated   buffer rather than the live edge. The player watches video from the   past while their inputs land in real-time, making controls feel   unresponsive for 20-25s until the buffer drains.   Fix (webrtc-server.mjs): inputWs.onmessage listens for cart-loaded,   machine-reset and cart-detached events from the input server.  On   receipt, videoEl.srcObject is set to null then restored on the next   animation frame. This forces the WebRTC decoder to drop its buffer   and resync to the live incoming frames — same effect as a page   refresh without losing the RTCPeerConnection. Root cause 2 — resetVideoTimestamp() caused backwards timestamp jump:   After every cart load, resetVideoTimestamp() set _videoFrameCount=0.   The browser receiver saw timestamps jump backwards (e.g. 50 000 000   µs → 0 µs), triggering a full re-buffer cycle of another 20-25s.   The ~1300ms blockage is already invisible to the receiver (no frames   sent = no timestamp gap); resetting makes it visible as a backwards   jump.   Fix (webrtc-encoder.mjs): resetVideoTimestamp() is now a no-op.   _videoFrameCount increments monotonically across cart loads. Root cause 3 — startup cart load re-triggered ROM boot sequence:   The startup path called free(ptr) + c64_reset() + debugger_set_speed()   + debugger_play() after c64_loadCartridge(). c64_loadCartridge already   resets and resumes the machine internally; these calls re-triggered   the ROM boot sequence causing ~1s of heavy emulation on the first   frames (same root cause as the lag fixed for the load-crt command   path in 6f30143).   Fix (headless-cli.mjs): remove those four calls from startup path. Bonus low-latency improvements (no user-visible behaviour change):   - isScreencast: true on RTCVideoSource — disables temporal noise     filtering in libwebrtc, reducing encoder buffering latency   - SDP answer: inject x-google-min/max-bitrate=200/800 fmtp for VP8     to keep frame sizes small and encode latency low   - Browser offer: setCodecPreferences to prefer VP8, matching fmtp   - onPeerConnected: sender.setParameters maxBitrate=800kbps (3fe65b2)
+- fix(headless): fix input lag and audio dropouts Input lag (headless-cli.mjs)   The two-half-step approach added in the previous commit put the   setImmediate yield BEFORE the sleep, meaning input that arrived   during the sleep still waited until the next frame's yield — no   improvement over a single debugger_update.   Correct ordering:     1. debugger_update(frameMs)  — full frame emulation     2. audio/video push     3. setTimeout(sleepMs)       — event loop sleeps; WebSocket I/O                                    callbacks fire here and write to                                    WASM exports synchronously     4. setImmediate yield        — drains any message that arrived                                    right at the tail of the sleep     5. top of next iteration: debugger_update reads committed state   iterStart is captured at the TOP of the loop (before emulation) so   sleepMs correctly accounts for all work in the frame.   Worst-case latency = 1 frame (20ms @ 50fps); average ~10ms. Audio dropouts (headless-cli.mjs)   The JS-side SID ring started empty and accumulated samples at   882/frame (samplesPerFrame @ 50fps), only pulling a 4096-sample   chunk from the WASM every ~4.65 frames.  This caused:     - Frames 0-3: always silent (ring empty, no pull yet)     - Frame 8 (and every ~4.65 frames): ring ran dry       (4096 - 5*882 = -314 → 568 samples left < 882 needed)   Fix: add primeSidRing() — runs 2 * ~93ms of emulated pre-roll and   pulls 2 × 4096-sample buffers into the ring before the frame loop.   Ring starts at 8192 samples (~9.3 frames of headroom); the lowest   it ever reaches is ~4290 samples (verified by trace), well above the   882 threshold.  Zero silent frames in steady state.   primeSidRing() is also called from resetSidRing() after every cart   load / detach / hard-reset so the new game's audio starts without   a gap. test: update the stale 'silence on first frame' test name/comment to reflect that the ring is now pre-primed before the frame loop. (018a6ec)
+- fix(webrtc): fix input lag, audio stuttering, and dead live-edge code Three independent bugs addressed in one commit: 1. Input lag (headless-cli.mjs)    The previous single debugger_update(frameMs) gave no yield point for    the Node event loop to drain incoming WebSocket input events. Worst-case    latency was one full 20ms frame (input arrives just after the update).    Fix: restore the two-half-step pattern — debugger_update(halfFrameMs),    setImmediate yield, debugger_update(halfFrameMs). Input events that    land during the yield are processed in the second half, halving    worst-case latency to 10ms @ 50fps. 2. Audio stuttering (webrtc-encoder.mjs)    pushAudioFrame() was allocating two new Float32Array objects per call    (merged concat + slice for leftovers) — at 50fps that is 100 heap    allocs/sec of varying size, triggering frequent GC pauses and audible    gaps in the audio stream.    Fix: replace the dynamic queue with a pre-allocated Float32Array ring    buffer (32768 samples, sized for 8× SID_BUFFER_SIZE headroom) and a    pre-allocated Int16Array staging buffer. pushAudioFrame() now makes    zero heap allocations per call. 3. Dead live-edge browser code (webrtc-server.mjs)    The requestVideoFrameCallback + videoEl.buffered seek approach does    nothing for WebRTC streams: videoEl.buffered is always empty because    WebRTC video feeds through the jitter buffer, not a seekable MSE    source. The seek silently no-ops every frame.    Fix: replace with RTCPeerConnection.getStats() polling (every 2s) that    reads jitterBufferDelay/jitterBufferEmittedCount from the inbound-rtp    video report. When average jitter delay exceeds 20ms (one frame @    50fps) the video element's playbackRate is bumped to 1.02x to drain    the buffer; it snaps back to 1.0x once delay falls below 10ms.    The jitterBufferTarget = 0 from the previous commit is retained as the    primary mechanism; playbackRate catchup is the secondary safety net. (9fd6df8)
+- fix(webrtc): restore missing input handlers lost during live-edge edit The jitterBufferTarget + requestVideoFrameCallback live-edge code was added correctly inside pc.ontrack, but the edit accidentally deleted:   - inputWs.onclose (backoff reconnect + badge update)   - inputWs.onerror (badge update)   - inputBtn click listener (manual retry)   - connectInput() auto-call on page load   - sendInput() helper function   - Input mode toggle section comment header Restore all removed code. The diff now adds only the two live-edge blocks with no other behavioural changes. (855dcda)
+- Merge pull request #22 from hayesmaker/fix/input-lag-issue (2000c9f)
+- fix(headless): remove substep system and redundant cart load/detach calls Merges chore/remove-substep-system into fix/input-lag-issue. - Remove half-step setImmediate approach (did not fix input lag) - Remove free(ptr)/debugger_set_speed/debugger_play after c64_loadCartridge   — re-triggering ROM boot was the actual root cause of post-load input lag - Same removal for detach-crt path - Update AGENTS.md: remove substep docs, add | cat rule for git pager commands (6f30143)
+- chore(agents): add | cat rule for git pager commands (bc1de2d)
+- fix(headless): remove redundant calls after cart load/detach to fix input lag After c64_loadCartridge(), calling free(ptr) / debugger_set_speed(100) / debugger_play() re-triggers the ROM boot sequence, causing the emulator to run CPU-heavy frames for ~1 second after every cart load. This was the root cause of post-load input lag. Removing them is safe: c64_loadCartridge internally resets and resumes the machine. Same fix for detach-crt: removing c64_reset() / debugger_set_speed / debugger_play() after c64_removeCartridge() eliminates the same boot re-trigger on detach. Also removes the unnecessary typeof guard — c64_removeCartridge is always present. Verified stable across 4 consecutive cart loads. (db76279)
+- chore: adding game (8557133)
+- chore(headless): remove frame substep system The two-half-step + setImmediate yield approach was added to reduce input lag but did not actually solve the problem. Remove it entirely: - headless-cli.mjs: replace two debugger_update(halfFrameMs) calls +   setImmediate yield with a single debugger_update(frameMs) per frame.   Remove halfFrameMs constant and the input-lag comment block. - AGENTS.md: remove INPUT_SUBSTEPS / yield-guard / POST_RESET_GRACE   documentation; restore the simple one-call-per-frame timing rule. - headless.cli.test.ts: remove the half-step assertion   (toBeGreaterThanOrEqual FRAMES*2); replace with a direct   toBe(FRAMES) check. (9558104)
+- refactor(headless): replace 4-substep/grace-window frame loop with simple 2-half-step design Remove accumulated complexity that was no longer solving real problems: REMOVED: - INPUT_SUBSTEPS = 4 with per-substep yield guard (subElapsed < subStepMs)   The guard was always true (debugger_update(5ms) takes ~0.4ms wall time),   making it dead code that added 3 extra event-loop turns per frame. - POST_RESET_GRACE_FRAMES = 64 grace window countdown   Added to handle slow boot frames suppressing yields — no longer needed   since the yield is now unconditional. - markEmulatorReset() and postResetFrames counter   Only served the now-removed grace window. - lastTick / useFixedDt / deltaMs   useFixedDt was always true; deltaMs was computed but never used. - Double iterStart = Date.now() capture at loop top - Stale iterStart re-capture patch (was treating a symptom, not the cause) - Dead --use-fixed-dt / --use-wall-clock arg flags REPLACEMENT:   exports.debugger_update(halfFrameMs);   // first half (10ms @ 50fps)   await new Promise(r => setImmediate(r)); // yield — input events drain here   exports.debugger_update(halfFrameMs);   // second half   const iterStart = Date.now();           // captured AFTER emulation   ...   const sleepMs = max(0, frameMs - (Date.now() - iterStart));   await setTimeout(r, sleepMs); - One unconditional setImmediate yield per frame halves worst-case input   latency (20ms → 10ms) without guards or counters. - iterStart captured after emulation means sleepMs is always correct   even if loadCartridge blocked inside the yield — no burst spin-up. (8b042a7)
+- fix(headless): re-capture iterStart after sub-steps to prevent burst emulation on load Root cause of variable input lag + progressive audio drift after crt loads: loadCartridge (~1300ms) fires inside a sub-step setImmediate yield.  The original iterStart was captured at the top of the frame, so by the time the sub-step loop completes, iterStart is ~1300ms stale. At the bottom of the loop:   sleepMs = max(0, frameMs - (Date.now() - iterStart))            = max(0, 20 - 1300+) = 0 The frame loop then spins with 0ms sleep for ~65 consecutive frames (1300ms debt / 20ms per frame), running the emulator at many times real-clock speed during that window.  Two symptoms result: 1. Input lag that 'gets better after some time' — the emulator is    consuming game time faster than wall clock; inputs arrive at real    speed but are spread across far more emulated cycles than intended.    After 65 fast frames the debt drains and normal pacing resumes. 2. Audio drifts late — the SID ring is filled at 65× normal rate during    the burst; the consumer (WebRTC/ffmpeg) still drains at 1× rate, so    the ring overflows and audio timestamp falls behind video.  With each    successive crt load the accumulated debt grows. Fix: re-capture iterStart = Date.now() immediately after the sub-step loop, before the sleep calculation.  The blockage time is absorbed into the current frame's 'elapsed' cost; sleepMs is computed from when emulation actually finished, giving a correct ~20ms sleep on every frame regardless of how long a mid-yield blockage took. Also include the webrtc-encoder.mjs timestamp fix (frame-counter-driven timestamps) and the TDZ crash fix (setFps after targetFps declaration) from the previous session that were not yet committed together. (b4d99f6)
+- fix(webrtc): drive video timestamp from frame counter, not wall clock; fix TDZ crash Root cause of progressive video lag after each crt load: RTCVideoSource.onFrame() was called with no timestamp, so the WebRTC engine used its internal wall-clock monotonic timer.  The ~1300ms loadCartridge() blockage advances the wall clock but produces no frames.  When frames resume, the receiver's jitter buffer sees a ~1300ms gap; each subsequent load adds another gap, causing video to drift progressively further behind audio. Audio was unaffected because RTCAudioSource drives its own clock independently. Fix: WebRTCEncoder now maintains _videoFrameCount and _videoFrameDurationUs. pushVideoFrame() passes timestamp = frameCount * frameDuration (µs) to onFrame().  The timestamp is purely emulator-time-based — the ~1300ms wall-clock blockage is invisible to the receiver; frames resume at the next sequential timestamp with no gap. - setFps(fps): sets per-frame duration in µs (called after targetFps is known) - resetVideoTimestamp(): resets counter to 0 — called from load-crt,   detach-crt and hard-reset so each new game starts a fresh sequence Also fix: TDZ crash 'Cannot access targetFps before initialization' setFps(targetFps) was mistakenly placed inside the webrtc init block which runs before targetFps is declared.  Moved to immediately after the targetFps const declaration where webrtcEncoder is already in scope. (6010186)
+- fix(headless): halve load-crt blockage by dropping redundant c64_reset after loadCartridge Measured per-call costs after 500 frames of gameplay:   allocAndWrite:              0 ms   c64_loadCartridge:       1250 ms  (parses cart + resets machine internally)   c64_reset (with cart):   1250 ms  ← was called after loadCartridge — redundant   c64_reset (no cart):      101 ms c64_loadCartridge already performs a full machine reset internally — the explicit c64_reset() after it produces an identical CPU PC and is pure wasted event-loop blockage (~1250ms).  Drop it. Also add c64_removeCartridge() before loadCartridge to ensure any previously-resident cart is cleanly ejected before the new parse begins. Total load-crt blockage: ~2500ms → ~1300ms (one loadCartridge call only). The setImmediate deferral is kept so the frame loop yields to the event loop before the blockage starts and input events can drain afterwards. Also simplify detach-crt to run synchronously inline (same as hard-reset): removeCartridge (~0ms) + c64_reset no-cart (~110ms) — no setImmediate or debugger_set_speed(0) pause needed for a ~110ms operation. (25c98dc)
+- fix(headless): instant hard-reset — removeCartridge + c64_reset, no loadCartridge Root cause of post-reset lag: the previous hard-reset fast path still called c64_loadCartridge() after the reset, which blocks the event loop for ~1300ms (O(1) but large constant). This stalled all WebSocket I/O for ~1.4s on every reset, causing input events to pile up and be delivered in a burst afterwards. New approach: hard reset detaches the cart and resets — intentionally leaving the machine at the BASIC prompt (blank screen), matching real C64 behaviour.   c64_removeCartridge()  →   0 ms   c64_reset() (no cart)  → ~110 ms  (runs inline, no setImmediate needed)   Total                  → ~110 ms, no event-loop blockage - Remove stale currentCartBytes variable and all its write sites — it was   only ever read by the old hard-reset-reload path, which no longer exists. - Remove dead commented-out debugger_set_speed(0) line from load-crt path. - Add resetSidRing() + markEmulatorReset() to the new hard-reset handler. - Update input-server.mjs comment: hard-reset onCommand is now synchronous;   Promise chain still works correctly (resolves immediately on undefined). test: add input-server.test.ts covering Promise-await behaviour for load-crt, detach-crt and hard-reset; cart-load-error on rejection; non-host command rejection; cart-loading broadcast timing; P2 open-join. Add headless.cli.test.ts cases: sub-step count per frame (4×), SID silence on first frame, --no-game completion. Install @types/ws for TS support. (b9b828e)
+- fix(headless): eliminate event-loop blocking on hard-reset and detach-crt Root cause: c64_reset() with a cartridge resident blocks the Node.js event loop for ~1.4-3 s (the WASM runs a full ROM + cart init synchronously). During this time ALL WebSocket I/O stalls — inputs queue up and are not dispatched to the WASM, causing the perceived input lag after every reset. Measured costs in a long-running instance (3000 frames of gameplay):   bare c64_reset() with cart loaded  → 1400-3000 ms  ❌   c64_removeCartridge()              →    0 ms        ✅   c64_reset() with no cart           →  105-114 ms    ✅   c64_loadCartridge() after gameplay → 1489 ms        ❌  (O(frames) cost) Fast hard-reset sequence:   removeCartridge(0ms) → reset(109ms) → loadCartridge → debugger_play   Total ≈ 1600ms — dominated by loadCartridge, but event loop only blocks   109ms synchronously; the rest is inside the deferred setImmediate so   the frame loop continues between calls. Changes: - hard-reset and detach-crt now defer their WASM work via setImmediate   and return a Promise (same pattern as load-crt). - hard-reset uses fast path: removeCartridge → reset → loadCartridge,   avoiding the 3s bare c64_reset()-with-cart call. - currentCartBytes variable tracks the loaded cart bytes so hard-reset   can reload without reading from disk; seeded from gamePath at startup   and updated on every load-crt / cleared on detach-crt. - input-server.mjs awaits the onCommand Promise before broadcasting   cart-detached / machine-reset, so clients only hear the confirmation   after the WASM work is complete. (34e6e7a)
+- chore(docker): bind-mount src/headless, src/emulator, bin into container Source edits now take effect with `docker compose restart headless` instead of requiring a full rebuild.  No more stale-code surprises from Docker layer caching. Also document the correct build commands in AGENTS.md: - docker compose build --no-cache is separate from docker compose up - restart workflow for source changes vs rebuild for dependency changes (13dd69e)
+- fix(headless): restore input-lag sub-step yields after cart load / reset Three bugs caused input lag to persist for ~1 second after every game load or emulator reset: 1. Whole-frame elapsed guard suppressed all remaining setImmediate yields    The previous guard skipped yields when (Date.now() - iterStart) exceeded    the frame budget.  Because load-crt's setImmediate fires inside one of    the sub-step yields, iterStart is stale when the remaining sub-steps    run — so elapsedSoFar >> frameMs and ALL remaining yields are skipped    for that frame. 2. ROM boot frames also over-budget — lag persists for ~1 s    After a reset the C64 ROM boot sequence runs heavy code; each    debugger_update(5ms) can take 10-20ms wall-clock.  The whole-frame    guard suppressed yields for every boot frame, pushing worst-case    input latency back to one full frame (~20ms) for the entire boot period. 3. detach-crt / hard-reset lastTick reset was dead code    The timing reset at the bottom of onCommand was reached for the sync    reset paths, but immediately overwritten by lastTick = iterStart at    the top of the next frame loop iteration.  markEmulatorReset() is now    the single place that resets timing state for all paths. Fixes: - Replace whole-frame elapsed guard with per-sub-step guard: skip the   setImmediate only when the *just-completed* sub-step itself exceeded its   own subStepMs budget.  Slow earlier steps no longer suppress later ones. - Add POST_RESET_GRACE_FRAMES = 64 counter + markEmulatorReset() helper.   For the 64 frames after any reset/cart-load the per-sub-step guard is   bypassed entirely — every sub-step always yields regardless of how long   debugger_update took.  64 frames ≈ 1.28 s @ 50 fps, covering the full   ROM boot sequence. - Call markEmulatorReset() from all three reset paths (load-crt finally,   detach-crt, hard-reset), replacing the scattered lastTick resets. - Decrement postResetFrames once per frame after the loop body. - Update AGENTS.md to document the corrected yield guard pattern. (ccfbbf5)
+- chore(agents): document git workflow and update SID audio rules - Add mandatory Git workflow section: branch naming, conventional commits,   no-push-unless-asked, add-tests-on-confirmation, never-commit-to-master - Replace stale SID audio rule (cached-pointer approach, which causes the   looping-audio bug) with the correct two-stage JS ring buffer pattern - Update frame/timing rule to cover INPUT_SUBSTEPS sub-stepping and the   budget-aware yield (skip setImmediate when already over-budget) (474266d)
+- fix(headless): reset SID ring on cart load/reset to prevent stale audio loop - Add resetSidRing() helper that zeros sidSampleAccum, sidRingWrite/Read/Count   and fills sidFrameBuf with silence - Call it on every load-crt, detach-crt and hard-reset command so the JS-side   ring is flushed before the WASM SID's own write cursor resets; stale samples   from the previous game can no longer bleed into the new session - Skip setImmediate sub-step yields when the frame is already over-budget   (Date.now() - iterStart >= frameMs); this prevents yield overhead from   compounding on catch-up frames immediately after a cart load, which was   the root cause of input lag growing with each game load or reset (05dd467)
+- WIP: audio/video in sync, input lag increases over time (5ec882f)
+- feat(headless): added input and host api (773fdb5)
+- feat: c64-live integration (a1cdb21)
+- Merge pull request #21 from hayesmaker/feature/headless-web-rtc (8a9a4de)
+- feat: webrtc implemented end to end (df5e4c5)
+- chore: install @roamhq/wrtc (f3543bc)
+- refactor: trust types more (66ef55c)
+- chore: add MIT LICENSE file and SPDX headers to bin entry points (30dbb66)
+- chore(wiki): auto-generate Home.md from doc headings, no hardcoded list - Drop TITLES map and ORDER array from workflow and publish_wiki.sh - Title is now read from the first # heading of each .md file - PROJECT_OVERVIEW pinned first, CHANGELOG pinned last, rest alphabetical - Adding a new doc to docs/ is all that's needed — no workflow edits required - Fix doc headings: PROJECT_OVERVIEW, HEADLESS_INPUT, HEADLESS_RUNNING   had stale copy comments or non-ATX h1s that produced bad wiki titles (bdef473)
+- chore(wiki): add workflow_dispatch trigger for manual runs (8db4f82)
+- chore(wiki): publish all docs/ to wiki, clean up stale rewrite plan - Rename workflow to 'Publish docs to Wiki' - Trigger only on changes to docs/, CHANGELOG.md, or the workflow itself - Copy all docs/*.md + CHANGELOG.md to wiki on every qualifying push - Generate Home.md from scratch with ordered links to all pages - Fallback loop picks up any future docs not in the explicit order list - Remove debug/API-inspection steps from workflow - Sync tools/publish_wiki.sh to use identical logic - Remove stale docs/REWRITE_PLAN_V2..md (020962b)
+- chore: changelogs (auto) (414199c)
+
+## v0.6.2 - 2026-03-27T20:43:20+00:00
+
+- chore(release): 0.6.2 (d3cc8a0)
+- fix: serve correct mimetypes in serve mode (096516d)
+- chore: changelogs (auto) (68698eb)
+
+## v0.6.1 - 2026-03-27T20:36:27+00:00
 
 - chore(release): 0.6.1 (27df16c)
 - fix: serve path corrected for running emulator via npm (56b9f1a)
 - chore: updated changelogs (e9c6320)
 
-## v0.6.0 - 2026-03-27T20:21:42Z
+## v0.6.0 - 2026-03-27T20:21:42+00:00
 
 - chore(release): 0.6.0 (fce6cf9)
 - chore(release): 0.5.2 (cbf9175)
@@ -84,16 +292,16 @@ Headless multiplayer tested and working on C64cade. See CHANGELOG.md for specifi
 - chore: dockerized headless c64 player (7bc7770)
 - chore: cleanup source files (27925b4)
 
-## v0.5.1 - 2026-03-23T10:09:37Z
+## v0.5.1 - 2026-03-23T10:09:37+00:00
 
-## What's Changed
-* fix(browser): joystick keys detached when opening ui panels
+- chore(release): 0.5.1 (8f3dae2)
+- chore: update CHANGELOG.md (auto) (c9c5955)
+- fix: detatch keyboard input when ui panels present (baa80a1)
+- chore: fix node24 in deploy workflow (a948be5)
+- chore: force node24 fix (25d1bc8)
+- chore: update changelog (auto) [skip ci] (8e926b6)
 
-
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.5.0...v0.5.1
-
-## v0.5.0 - 2026-03-23T08:56:08Z
-
+## v0.5.0 - 2026-03-23T09:12:04+00:00
 
 - chore: fix typings and UI controller behavior for joystick/display settings (e843785)
 - Merge remote-tracking branch 'origin/master' (2f5150f)
@@ -104,33 +312,79 @@ Headless multiplayer tested and working on C64cade. See CHANGELOG.md for specifi
 - feat: simple input and display settings (c5e60b1)
 - chore(styles): extract inline CSS to module styles/ and import as raw (74f1d41)
 
+## v0.4.0 - 2026-03-22T23:27:35+00:00
 
+- chore(release): 0.4.0 (ccff6b7)
+- Merge pull request #17 from hayesmaker/feature/headless-cli-runner (7bcd326)
+- Merge branch 'master' into feature/headless-cli-runner (561a02b)
+- chore: stop auto generated changelogs prs (a9822ca)
+- chore: update changelog (auto) [skip ci] (0fefa3d)
+- chore: update changelog (auto) [skip ci] (8a8668f)
+- chore: update changelog (auto) [skip ci] (75373a5)
+- chore: update changelog (auto) [skip ci] (a87a12a)
+- Merge pull request #15 from hayesmaker/feature/headless-cli-runner (1b0b510)
+- chore(release): generate changelog inside release commit; add --local to generator (d5687a3)
+- Merge pull request #13 from hayesmaker/chore/update-changelog-2026-03-22T23-05-37-281Z-a1ccae7 (8f20c94)
+- chore: update changelog (auto) [skip ci] (a1ccae7)
+- Merge pull request #10 from hayesmaker/chore/update-changelog-2026-03-22T23-04-34-067Z-ae4bc22 (7365710)
+- Merge pull request #11 from hayesmaker/feature/headless-cli-runner (78df809)
+- chore: update changelog (auto) [skip ci] (ae4bc22)
+- Merge pull request #9 from hayesmaker/chore/update-changelog-2026-03-22T18-25-45-840Z-bdf7b14 (e6e66d4)
+- chore: release script enhancements (920a654)
+- chore: update changelog (auto) [skip ci] (bdf7b14)
+- Merge pull request #8 from hayesmaker/feature/headless-cli-runner (02ee198)
+- chore: docs re-org (2efa3c0)
+- chore(docs): keep CHANGELOG.md at repo root and update publish script (a2e1292)
+- chore(docs): remove docs/CHANGELOG.md (keep root CHANGELOG.md) (726a914)
+- chore(docs): move CHANGELOG.md back to repo root and restore generator output (27710f0)
+- chore(docs): move repo root markdown into docs/ and update imports/generator (a713e07)
+- chore(docs): add docs/ copies of repo root markdown and wiki publish helper (4089d45)
+- chore(tests): remove tests from src; canonical tests now under test/ (5aef5d6)
+- chore: remove duplicate cartridge in games/; use public/games as canonical asset (87bd78d)
+- chore(headless): prefer public/games for default cartridge; remove repo-level fallback (10b5c8f)
+- Merge pull request #6 from hayesmaker/chore/update-changelog-2026-03-21T15-22-06-743Z-5ae1fea (f887858)
+- chore: fix lints (7242ab0)
+- feat(headless): adds a headless c64 emulation mode (715f943)
+- feat(headless): headless runner first commit (acb9e7f)
+- chore: update changelog (auto) [skip ci] (5ae1fea)
 
-## v0.4.0 - 2026-03-22T23:27:35Z
+## v0.3.0 - 2026-03-21T15:16:11+00:00
 
-## What's Changed
-* chore: release script enhancements 
-* chore(release): generate changelog inside release commit
-* feature/headless cli runner 
+- chore(release): 0.3.0 (40d518c)
+- feat: audio support (ee0f378)
+- chore: filter changelogs from frontend (3192369)
+- fix: changelog requests (8be31d6)
+- chore: update changelog (auto) [skip ci] (ac19ea9)
+- ci: trigger changelog workflow (node24) (0853680)
+- ci: use Node 24 in changelog workflow (02065db)
+- chore: fix changelog action (5675eda)
 
+## v0.2.0 - 2026-03-21T13:25:25+00:00
 
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.3.0...v0.4.0
+- chore(release): 0.2.0 (991d9e7)
+- chore: prepare release 0.2.0 (b31be4b)
+- feat: adds cart loading support (559d866)
+- chore: update changelog (auto) [skip ci] (9b1c57e)
+- chore: update changelog (auto) [skip ci] (6c44232)
+- chore: fix wiki (a6b1c9d)
+- chore: link to overview from home wiki (bd91242)
+- chore: attempt to fix wiki publish (30de988)
+- chore: push plan to wiki (36e9639)
+- chore: added wiki project overview (865c003)
+- chore: added prettier linting and cleanup of source (c2e2199)
+- chore: page link in banner (6cad53a)
+- feat: power led favicon (b8b4825)
+- chore: regenerated lockfile (fa871eb)
 
-## v0.3.0 - 2026-03-21T15:16:11Z
+## v0.1.0 - 2026-03-20T23:42:38+00:00
 
-Added Audio support - Now load Robocop3.crt and enjoy!
-
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.2.0...v0.3.0
-
-## v0.2.0 - 2026-03-21T13:25:25Z
-
-**Full Changelog**: https://github.com/hayesmaker/c64-ready/compare/v0.1.0...v0.2.0
-
-## v0.1.0 - 2026-03-20T23:42:38Z
-
-First release of C64-ready. 
-
-Emulator working, and loading Legend of Wilf, with default keyboard controls.
-No Audio support.
-Github pages deployments.
+- build: bump version to 0.1.0 (ef6ee3f)
+- chore: ensure minimum node (2977a5e)
+- feat: added github pages deployment (c55c362)
+- chore: docs (2dff0bb)
+- c64 ready (8ff3291)
+- feat: c64-ready gif (eecdea5)
+- feat: render ticks and readme (696b107)
+- feat: larger canvas view (d1d8856)
+- feat: working proof of concept initial commit (89e9a6e)
 
