@@ -616,6 +616,15 @@ export function createWebRTCServer({
     function closePeer(reason) {
       clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
+      const detail = {
+        reason,
+        iceState: controller.iceState,
+        everConnected,
+        connected: controller.connected,
+        sessionId: controller.sessionKey ?? null,
+        signalingState: pc.signalingState,
+        connectionState: pc.connectionState,
+      };
       peerStatsPrev.delete(pc);
       if (controller.sessionKey) {
         const mapped = peerBySession.get(controller.sessionKey);
@@ -626,14 +635,16 @@ export function createWebRTCServer({
       if (!wasActive && !everConnected) {
         if (pendingPeers > 0) pendingPeers--;
       }
-      console.error(`[webrtc] closing peer (${remoteAddr}): ${reason}`);
-      logEv('webrtc-peer-closed', { addr: remoteAddr, reason });
+      console.error(
+        `[webrtc] closing peer (${remoteAddr}): ${reason} ice=${detail.iceState} everConnected=${detail.everConnected} signaling=${detail.signalingState} pc=${detail.connectionState}`,
+      );
+      logEv('webrtc-peer-closed', { addr: remoteAddr, ...detail });
       logLoadSnapshot('webrtc-load-change', { reason: `peer-closed:${reason}` });
       // Tell the browser the stream died so it can reconnect immediately
       // rather than sitting on a frozen frame.
       if (ws.readyState === ws.OPEN) {
         try {
-          ws.send(JSON.stringify({ type: 'peer-closed', reason }));
+          ws.send(JSON.stringify({ type: 'peer-closed', ...detail }));
         } catch (_) {}
       }
       pc.close();
