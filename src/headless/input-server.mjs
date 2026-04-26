@@ -1289,6 +1289,32 @@ export function createInputServer(opts = {}) {
         return;
       }
 
+      if (msg.type === 'save-snapshot') {
+        if (ws !== hostClient) return;
+        if (verbose) console.error('[input-server] save-snapshot');
+        logEv('cmd-save-snapshot', { host: hostUsername });
+        Promise.resolve()
+          .then(() => onCommand({ type: 'save-snapshot' }))
+          .then((result) => {
+            if (!result || ws.readyState !== ws.OPEN) return;
+            ws.send(
+              JSON.stringify({
+                type: 'snapshot-data',
+                filename: result.filename ?? 'snapshot.c64',
+                data: result.data ?? '',
+              }),
+            );
+          })
+          .catch((e) => {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({ type: 'snapshot-save-error', reason: String(e?.message ?? e) }));
+            }
+            if (verbose) console.error('[input-server] save-snapshot error:', e);
+            logEv('error', { kind: 'save-snapshot-failed', err: String(e?.message ?? e) });
+          });
+        return;
+      }
+
       // ── Input events ─────────────────────────────────────────────────────
       if (msg.type === 'joystick' || msg.type === 'key') {
         if (ws !== hostClient && ws !== p2Client) return;

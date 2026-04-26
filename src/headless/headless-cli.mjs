@@ -179,6 +179,11 @@ function inferLoadType(filename = '') {
   return 'crt';
 }
 
+function formatSnapshotFilename(now = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `snapshot-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.c64`;
+}
+
 function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -785,6 +790,17 @@ export async function runHeadless(options = {}) {
                 }
               });
             });
+          } else if (cmd.type === 'save-snapshot') {
+            const ptr = exports.c64_getSnapshot();
+            const byteLen = exports.c64_getSnapshotSize();
+            c64wasm.updateHeapViews();
+            heap = c64wasm.heap;
+            if (!heap) throw new Error('WASM heap unavailable');
+            const snapshot = heap.heapU8.slice(ptr, ptr + byteLen);
+            return {
+              filename: formatSnapshotFilename(),
+              data: Buffer.from(snapshot).toString('base64'),
+            };
           } else if (cmd.type === 'detach-crt') {
             const gapStart = Date.now();
             exports.c64_removeCartridge();
