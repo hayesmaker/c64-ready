@@ -257,5 +257,18 @@ describe('C64Player', () => {
     expect(player.getActiveGamepadIndex()).toBe(4);
   });
 
+  it('returns a snapshot from the emulator', () => {
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
+    const snapshot = new Uint8Array([1, 2, 3]);
+    const emulator = {
+      getSnapshot: vi.fn(() => snapshot),
+    };
+
+    (player as unknown as { emulator: typeof emulator }).emulator = emulator;
+
+    expect(player.getSnapshot()).toBe(snapshot);
+    expect(emulator.getSnapshot).toHaveBeenCalledOnce();
+  });
+
   // ...additional tests omitted for brevity
 });
