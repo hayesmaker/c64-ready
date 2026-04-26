@@ -4,8 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #103 from hayesmaker/fix/webrtc-failure-debug (0d68566)
+- fix(webrtc): include peer close diagnostics (fd36c9b)
+- Merge pull request #101 from hayesmaker/feature/gamepad-analog-sticks (b54a46d)
+- feat: left anaolog support for movement (a6f62e4)
+- Merge pull request #99 from hayesmaker/feature/gamepad-support (06643dc)
+- Merge branch 'feat/ui-gamepad-selector' into feature/gamepad-support (f06f1a6)
+- feat(ui-controller): add connected gamepad selector (583b51d)
+- feat: added gamepad buttons mapping to joystick (35d9546)
+- WIP: initial buttons press release test (a958fa3)
+- Merge pull request #98 from hayesmaker/chore/update-changelog-2026-04-22T14-40-46-866Z-904f20b (bd80a23)
+- refactor: type jank (5403251)
+- chore: update changelog (auto) (904f20b)
 - Merge pull request #97 from hayesmaker/fix/admin-status-normalize-username (7c11063)
 - fix(input): restore username normalization in admin status (3e0a4df)
+- feat: initial gamepad connect/disconnect detection (b69b2cc)
 - Merge pull request #96 from hayesmaker/chore/update-changelog-2026-04-21T19-33-07-906Z-b0548c5 (9ae3bed)
 - chore: update changelog (auto) (b0548c5)
 - Merge pull request #95 from hayesmaker/fix/spectator-admin-counts (17261da)
