@@ -735,6 +735,7 @@ export async function runHeadless(options = {}) {
                       exports.c64_setDriveEnabled(1);
                       exports.c64_insertDisk(ptr, byteLen);
                     } else if (loadType === 'snapshot') {
+                      exports.c64_reset();
                       exports.c64_loadSnapshot(ptr, byteLen);
                     } else {
                       throw new Error(`Unsupported load-file type: ${loadType}`);
