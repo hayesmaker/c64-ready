@@ -10,6 +10,10 @@ describe('UIController', () => {
       configurable: true,
       value: vi.fn(() => []),
     });
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:mock-snapshot'),
+      revokeObjectURL: vi.fn(),
+    });
   });
 
   function makeGamepad(index: number, id = `Pad ${index}`): Gamepad {
@@ -199,5 +203,23 @@ describe('UIController', () => {
     buttons = Array.from(document.querySelectorAll('.c64-gamepad-btn')) as HTMLButtonElement[];
     expect(buttons).toHaveLength(1);
     expect(buttons[0].textContent).toBe('5: Arcade Stick');
+  });
+
+  it('downloads a snapshot from the system actions section', () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const player = makePlayer({
+      getSnapshot: vi.fn(() => new Uint8Array([1, 2, 3, 4])),
+    });
+
+    const ui = new UIController();
+    ui.init(player);
+
+    const saveBtn = document.getElementById('c64-save-snapshot-btn') as HTMLButtonElement;
+    saveBtn.click();
+
+    expect(player.getSnapshot).toHaveBeenCalledOnce();
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    expect(clickSpy).toHaveBeenCalledOnce();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-snapshot');
   });
 });

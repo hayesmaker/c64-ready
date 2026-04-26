@@ -44,6 +44,11 @@ type ConnectedGamepad = {
   name: string;
 };
 
+function formatSnapshotFilename(now: Date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `snapshot-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.c64`;
+}
+
 export default class UIController {
   private helpOverlay: HTMLElement | null = null;
   private settingsOverlay: HTMLElement | null = null;
@@ -130,6 +135,20 @@ export default class UIController {
     );
 
     emptyState.hidden = gamepads.length > 0;
+  }
+
+  private downloadSnapshot(snapshot: Uint8Array): void {
+    const snapshotCopy = new Uint8Array(snapshot.byteLength);
+    snapshotCopy.set(snapshot);
+    const blob = new Blob([snapshotCopy], { type: 'application/bin' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = formatSnapshotFilename();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   private injectCSS(): void {
@@ -361,6 +380,7 @@ export default class UIController {
           <section class="c64-settings-section" data-settings-section="system" hidden>
             <label class="c64-section-label">System Actions</label>
             <div class="c64-system-actions">
+              <button class="c64-btn" id="c64-save-snapshot-btn">Save Snapshot</button>
               <button class="c64-btn" id="c64-detach-btn">Detach Cartridge</button>
               <button class="c64-btn" id="c64-reset-btn">Hard Reset</button>
               <button class="c64-btn" id="c64-reboot-btn">Reboot Emulator</button>
@@ -557,6 +577,7 @@ export default class UIController {
 
     const section = panel.querySelector('[data-settings-section="system"]');
     // Detach cartridge / hard reset controls
+    const saveSnapshotBtn = section?.querySelector('#c64-save-snapshot-btn') as HTMLButtonElement | null;
     const detachBtn = section?.querySelector('#c64-detach-btn') as HTMLButtonElement | null;
     const resetBtn = section?.querySelector('#c64-reset-btn') as HTMLButtonElement | null;
     const rebootBtn = section?.querySelector('#c64-reboot-btn') as HTMLButtonElement | null;
@@ -573,6 +594,22 @@ export default class UIController {
         const disabled = disableChecksToggle.checked;
         window.localStorage.setItem(CRT_PRELOAD_CHECKS_STORAGE_KEY, disabled ? '1' : '0');
         this.player?.setCrtPreloadChecksDisabled(disabled);
+      });
+    }
+    if (saveSnapshotBtn) {
+      saveSnapshotBtn.addEventListener('click', () => {
+        if (!this.player || typeof this.player.getSnapshot !== 'function') return;
+        const statusEl = document.getElementById('status');
+        try {
+          this.downloadSnapshot(this.player.getSnapshot());
+          if (statusEl) {
+            statusEl.textContent = 'Snapshot saved';
+          }
+        } catch (err) {
+          if (statusEl) {
+            statusEl.textContent = `Snapshot save failed: ${String((err as Error)?.message ?? err)}`;
+          }
+        }
       });
     }
     if (detachBtn) {

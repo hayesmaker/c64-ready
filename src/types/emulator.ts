@@ -57,7 +57,7 @@ export interface WASMExports {
 
   // Snapshot
   c64_getSnapshotSize(): number;
-  c64_getSnapshot(ptr: number): void;
+  c64_getSnapshot(): number;
   c64_loadSnapshot(ptr: number, len: number): void;
 
   // Data

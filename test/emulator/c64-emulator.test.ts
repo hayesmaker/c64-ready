@@ -14,6 +14,7 @@ describe('C64Emulator', () => {
     for (let i = 0; i < 16; i++) {
       heapU8[i] = i + 1;
     }
+    heapU8.set([9, 8, 7, 6], 8);
 
     const heapF32 = new Float32Array(4096 + 32);
     heapF32[0] = 0.25;
@@ -62,11 +63,9 @@ describe('C64Emulator', () => {
       c64_setFlagI: vi.fn(),
       c64_setFlagZ: vi.fn(),
       c64_setFlagC: vi.fn(),
+      c64_getSnapshot: vi.fn(() => 8),
       c64_getSnapshotSize: vi.fn(() => 4),
       malloc: vi.fn(() => 8),
-      c64_getSnapshot: vi.fn((ptr: number) => {
-        heapU8.set([9, 8, 7, 6], ptr);
-      }),
       free: vi.fn(),
     };
 
@@ -236,6 +235,7 @@ describe('C64Emulator', () => {
     const data = new Uint8Array([1, 2, 3, 4, 5]);
     emulator.loadGame({ type: 'snapshot', data });
 
+    expect(exports.c64_reset).toHaveBeenCalledTimes(1);
     expect(exports.c64_loadSnapshot).toHaveBeenCalledTimes(1);
     expect(exports.c64_loadSnapshot).toHaveBeenCalledWith(16, data.length);
   });

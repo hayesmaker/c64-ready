@@ -318,17 +318,15 @@ export class C64Emulator {
   getSnapshot(): Uint8Array {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
+    const ptr = x.c64_getSnapshot();
     const size = x.c64_getSnapshotSize();
-    const ptr = x.malloc(size);
-    x.c64_getSnapshot(ptr);
-    const snap = this.wasm.heap.heapU8.slice(ptr, ptr + size);
-    x.free(ptr);
-    return snap;
+    return this.wasm.heap.heapU8.slice(ptr, ptr + size);
   }
 
   private loadSnapshotData(ptr: number, len: number): void {
     const x = this.wasm.exports;
     if (!x) throw new Error('WASM not ready');
+    x.c64_reset();
     x.c64_loadSnapshot(ptr, len);
     this.frameCount = 0;
   }

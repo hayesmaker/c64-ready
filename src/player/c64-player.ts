@@ -279,6 +279,13 @@ export class C64Player {
     return this.inputHandler?.getActiveGamepadIndex() ?? -1;
   }
 
+  getSnapshot(): Uint8Array {
+    if (!this.emulator) {
+      throw new Error('Emulator not initialised');
+    }
+    return this.emulator.getSnapshot();
+  }
+
   setCrtPreloadChecksDisabled(disabled: boolean): void {
     this.disableCrtPreloadChecks = disabled;
     this.emulator?.setCrtPreloadChecksEnabled(!disabled);
