@@ -20,6 +20,7 @@
  */
 
 import http from 'http';
+import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import wrtc from '@roamhq/wrtc';
 
@@ -32,15 +33,51 @@ function parseCsvList(raw) {
     .filter(Boolean);
 }
 
+function normalizeTurnTtlSeconds(rawTtl, fallback = 24 * 3600) {
+  const parsed = Number.parseInt(String(rawTtl ?? ''), 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return fallback;
+}
+
+function buildTimedTurnCredentials({
+  secret,
+  ttlSeconds = 24 * 3600,
+  usernameLabel = 'c64live',
+  nowSeconds = Math.floor(Date.now() / 1000),
+} = {}) {
+  const safeSecret = String(secret ?? '').trim();
+  if (!safeSecret) throw new Error('TURN secret is required');
+
+  const safeLabel = String(usernameLabel ?? '').trim() || 'c64live';
+  const expiresAt = Math.floor(nowSeconds) + normalizeTurnTtlSeconds(ttlSeconds);
+  const username = `${expiresAt}:${safeLabel}`;
+  const credential = crypto
+    .createHmac('sha1', safeSecret)
+    .update(username)
+    .digest('base64');
+
+  return { username, credential };
+}
+
 function buildIceServers({
   iceStunUrls,
   iceTurnUrls,
+  iceTurnSecret,
+  iceTurnTtlSeconds,
+  iceTurnUsernameLabel,
   iceTurnUsername,
   iceTurnPassword,
   verbose = false,
 } = {}) {
   const stunUrls = parseCsvList(iceStunUrls ?? process.env.ICE_STUN_URLS);
   const turnUrls = parseCsvList(iceTurnUrls ?? process.env.ICE_TURN_URLS);
+  const turnSecret = String(iceTurnSecret ?? process.env.ICE_TURN_SECRET ?? '').trim();
+  const turnTtlSeconds = normalizeTurnTtlSeconds(
+    iceTurnTtlSeconds ?? process.env.ICE_TURN_TTL_SECONDS,
+  );
+  const turnUsernameLabel = String(
+    iceTurnUsernameLabel ?? process.env.ICE_TURN_USERNAME_LABEL ?? 'c64live',
+  ).trim();
   const turnUsername = String(iceTurnUsername ?? process.env.ICE_TURN_USERNAME ?? '').trim();
   const turnPassword = String(iceTurnPassword ?? process.env.ICE_TURN_PASSWORD ?? '').trim();
 
@@ -49,7 +86,18 @@ function buildIceServers({
     iceServers.push({ urls: stunUrls });
   }
 
-  if (turnUrls.length > 0 && turnUsername && turnPassword) {
+  if (turnUrls.length > 0 && turnSecret) {
+    const creds = buildTimedTurnCredentials({
+      secret: turnSecret,
+      ttlSeconds: turnTtlSeconds,
+      usernameLabel: turnUsernameLabel,
+    });
+    iceServers.push({
+      urls: turnUrls,
+      username: creds.username,
+      credential: creds.credential,
+    });
+  } else if (turnUrls.length > 0 && turnUsername && turnPassword) {
     iceServers.push({
       urls: turnUrls,
       username: turnUsername,
@@ -57,7 +105,7 @@ function buildIceServers({
     });
   } else if (turnUrls.length > 0 && verbose) {
     console.error(
-      '[webrtc] ICE_TURN_URLS provided without ICE_TURN_USERNAME/ICE_TURN_PASSWORD; skipping TURN',
+      '[webrtc] ICE_TURN_URLS provided without ICE_TURN_SECRET or ICE_TURN_USERNAME/ICE_TURN_PASSWORD; skipping TURN',
     );
   }
 
@@ -68,9 +116,13 @@ function buildIceServers({
   if (verbose) {
     const stunCount = stunUrls.length;
     const turnCount = turnUrls.length;
-    const turnEnabled = turnUrls.length > 0 && turnUsername && turnPassword;
+    const turnMode = turnUrls.length > 0 && turnSecret
+      ? 'timed'
+      : turnUrls.length > 0 && turnUsername && turnPassword
+        ? 'static'
+        : 'disabled';
     console.error(
-      `[webrtc] ICE config stunUrls=${stunCount} turnUrls=${turnCount} turnEnabled=${turnEnabled ? 'yes' : 'no'}`,
+      `[webrtc] ICE config stunUrls=${stunCount} turnUrls=${turnCount} turnMode=${turnMode}`,
     );
   }
 
@@ -92,6 +144,9 @@ function buildIceServers({
  * @param {number}   [opts.maxBitrateKbps=600]  SDP x-google-max-bitrate for VP8 answer
  * @param {string|string[]} [opts.iceStunUrls]  Optional STUN URL list
  * @param {string|string[]} [opts.iceTurnUrls]  Optional TURN URL list
+ * @param {string} [opts.iceTurnSecret]          Optional TURN shared secret for timed creds
+ * @param {number} [opts.iceTurnTtlSeconds]      Optional TURN credential TTL in seconds
+ * @param {string} [opts.iceTurnUsernameLabel]   Optional TURN username suffix for timed creds
  * @param {string} [opts.iceTurnUsername]        Optional TURN username
  * @param {string} [opts.iceTurnPassword]        Optional TURN credential/password
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
@@ -113,19 +168,27 @@ export function createWebRTCServer({
   maxBitrateKbps = 600,
   iceStunUrls,
   iceTurnUrls,
+  iceTurnSecret,
+  iceTurnTtlSeconds,
+  iceTurnUsernameLabel,
   iceTurnUsername,
   iceTurnPassword,
   onOffer,
   onPeerConnected,
   onDataChannelInput,
 } = {}) {
-  const iceServers = buildIceServers({
+  const buildRuntimeIceServers = () => buildIceServers({
     iceStunUrls,
     iceTurnUrls,
+    iceTurnSecret,
+    iceTurnTtlSeconds,
+    iceTurnUsernameLabel,
     iceTurnUsername,
     iceTurnPassword,
     verbose,
   });
+
+  const iceServers = buildRuntimeIceServers();
 
   /** Emit a structured [event] line — same format as input-server.mjs. */
   function logEv(tag, fields = {}) {
@@ -468,11 +531,13 @@ export function createWebRTCServer({
 
   const httpServer = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+      const requestIceServers = buildRuntimeIceServers();
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe, iceServers));
+      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe, requestIceServers));
     } else if (req.method === 'GET' && req.url === '/ice-config') {
+      const requestIceServers = buildRuntimeIceServers();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ iceServers }));
+      res.end(JSON.stringify({ iceServers: requestIceServers }));
     } else if (req.url === '/favicon.ico') {
       // Return a minimal 1×1 transparent ICO so browsers don't log a 404
       res.writeHead(204);
@@ -554,7 +619,7 @@ export function createWebRTCServer({
     logEv('webrtc-peer-connected', { addr: remoteAddr });
     logLoadSnapshot('webrtc-load-change', { reason: 'peer-connected' });
 
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection({ iceServers: buildRuntimeIceServers() });
     const controller = {
       pc,
       ws,

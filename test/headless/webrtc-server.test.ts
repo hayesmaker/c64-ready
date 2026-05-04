@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -80,6 +81,42 @@ describe('webrtc-server', () => {
         ],
       });
     } finally {
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
+
+  it('generates timed TURN credentials from ICE_TURN_SECRET on each ice-config request', async () => {
+    let srv: any;
+    const originalDateNow = Date.now;
+    try {
+      Date.now = () => 1_700_000_000_000;
+      srv = createWebRTCServer({
+        port: 19906,
+        verbose: false,
+        inputPort: 19907,
+        iceStunUrls: 'stun:relay2.example.net:3478',
+        iceTurnUrls: 'turn:relay2.example.net:3478?transport=tcp',
+        iceTurnSecret: 'shared-secret',
+        iceTurnTtlSeconds: 3600,
+        iceTurnUsernameLabel: 'c64live',
+      });
+
+      const res = await fetch('http://127.0.0.1:19906/ice-config');
+      expect(res.ok).toBe(true);
+      const payload = await res.json();
+      expect(payload.iceServers).toHaveLength(2);
+      expect(payload.iceServers[0]).toEqual({
+        urls: ['stun:relay2.example.net:3478'],
+      });
+
+      const turnServer = payload.iceServers[1];
+      expect(turnServer.urls).toEqual(['turn:relay2.example.net:3478?transport=tcp']);
+      expect(turnServer.username).toBe('1700003600:c64live');
+      expect(turnServer.credential).toBe(
+        crypto.createHmac('sha1', 'shared-secret').update('1700003600:c64live').digest('base64'),
+      );
+    } finally {
+      Date.now = originalDateNow;
       if (srv) await srv.close().catch(() => {});
     }
   });
