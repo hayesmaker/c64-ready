@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #114 from hayesmaker/feature/more-gamepad-buttons (9058293)
+- feat: added keyboard extra joy buttons X and C (da883f0)
+- feat(input): add POT-backed extra fire buttons (4d7558a)
+- Merge pull request #112 from hayesmaker/fix/ephemeral-turn-ice-refresh (f07ddf3)
+- fix(webrtc): refresh TURN creds per ice request (e63a8ad)
+- Merge pull request #110 from hayesmaker/chore/update-changelog-2026-04-26T15-44-12-302Z-5832202 (cf55c9d)
+- chore: update changelog (auto) (5832202)
 - Merge pull request #109 from hayesmaker/feat/live-snapshot-save (42c6441)
 - feat(headless): add live snapshot save command (a1dc54f)
 - Merge pull request #107 from hayesmaker/chore/release-1.1.0 (7c86a12)
