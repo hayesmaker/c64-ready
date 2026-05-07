@@ -12,6 +12,8 @@ export const JOYSTICK_DIRECTION = {
 } as const;
 
 export const JOYSTICK_FIRE_1 = 0x10 as const;
+export const JOYSTICK_FIRE_2 = 0x20 as const;
+export const JOYSTICK_FIRE_3 = 0x40 as const;
 
 /** Any valid joystick direction or fire bitmask */
 export type JoystickInput =
@@ -19,4 +21,6 @@ export type JoystickInput =
   | typeof JOYSTICK_DIRECTION.DOWN
   | typeof JOYSTICK_DIRECTION.LEFT
   | typeof JOYSTICK_DIRECTION.RIGHT
-  | typeof JOYSTICK_FIRE_1;
+  | typeof JOYSTICK_FIRE_1
+  | typeof JOYSTICK_FIRE_2
+  | typeof JOYSTICK_FIRE_3;

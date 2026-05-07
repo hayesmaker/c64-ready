@@ -259,6 +259,9 @@ export class C64Emulator {
   mousePosition(x: number, y: number): void {
     this.wasm.exports?.c64_mouse_position(x, y);
   }
+  setMousePortEnabled(port: JoystickPort, enabled: boolean): void {
+    this.wasm.exports?.c64_set_mouse_port_enabled(port - 1, enabled ? 1 : 0);
+  }
 
   // ---------------------------------------------------------------------------
   // Memory access
