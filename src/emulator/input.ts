@@ -46,6 +46,8 @@ export const MIXED_JOYSTICK_KEYS: Record<string, number> = {
   ArrowLeft: JOYSTICK_DIRECTION.LEFT,
   ArrowRight: JOYSTICK_DIRECTION.RIGHT,
   KeyZ: JOYSTICK_FIRE_1,
+  KeyX: JOYSTICK_FIRE_2,
+  KeyC: JOYSTICK_FIRE_3,
   ControlLeft: JOYSTICK_FIRE_1,
 };
 
