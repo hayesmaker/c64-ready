@@ -488,7 +488,7 @@ export function domKeyToC64Actions(
 
 type MappedControl = keyof typeof KEY_TO_JOYSTICK;
 
-const POT_INACTIVE = 512;
+const POT_INACTIVE = 128;
 const POT_ACTIVE = 0;
 
 export class EmulatorInput {
@@ -500,7 +500,12 @@ export class EmulatorInput {
   private updateFrame: number = -1;
   private gamepadIndex: number = -1;
   private gamepadPresses: Array<boolean> = [];
-  private gamepadAxes: Array<boolean> = [false, false, false, false];
+  /**
+   * Ultimate 8bitdo axes: 
+   * [LeftX, LeftX, LeftUp, LeftDown, L2, RightX, RightX, RightUp, RightDown, R2, DpadX, DpadX, DpadY, DpadY]
+  **/
+  private gamepadAxes: Array<boolean> = 
+    [false, false, false, false, false, false, false, false, false, false, false, false, false, false];
   private potFire2Pressed = false;
   private potFire3Pressed = false;
   private readonly pressedControls = new Set<MappedControl>();
@@ -567,7 +572,7 @@ export class EmulatorInput {
       for (let b = 0; b < gp.buttons.length; b++) {
         if (gp.buttons[b].pressed) {
           this.gamepadPresses[b] = true;
-          //console.log('Buttons Pressed', b, gp.buttons[b]);
+          console.log('Buttons Pressed', b, gp.buttons[b]);
           switch (b) {
             case 0:
               this.emulator.joystickPush(this.joystickPort, JOYSTICK_FIRE_1);
@@ -576,10 +581,14 @@ export class EmulatorInput {
               this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
               break;
             case 2:
-              this.pushJoystickInput(JOYSTICK_FIRE_2);
+              this.emulator.keyDown(C64_KEY.SPACE);
               break;
             case 3:
-              this.pushJoystickInput(JOYSTICK_FIRE_3);
+              //this.pushJoystickInput(JOYSTICK_FIRE_3);
+              break;
+            case 7:
+            case 9:  
+              this.emulator.keyDown(C64_KEY.RUN_STOP);
               break;
             case 14:
               this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
@@ -605,10 +614,15 @@ export class EmulatorInput {
               this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
               break;
             case 2:
-              this.releaseJoystickInput(JOYSTICK_FIRE_2);
+              this.emulator.keyUp(C64_KEY.SPACE);
+              //this.releaseJoystickInput(JOYSTICK_FIRE_2);
               break;
             case 3:
-              this.releaseJoystickInput(JOYSTICK_FIRE_3);
+              //this.releaseJoystickInput(JOYSTICK_FIRE_3);
+              break;
+            case 7:
+            case 9:
+              this.emulator.keyUp(C64_KEY.RUN_STOP);
               break;
             case 14:
               this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
@@ -628,7 +642,7 @@ export class EmulatorInput {
       }
     }
 
-    if (gp.axes[0] <= -0.5) {
+    if (gp.axes[0] <= -0.5 || gp.axes[6] <= -0.5) {
       this.gamepadAxes[0] = true;
       this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
     } else if (this.gamepadAxes[0] === true) {
@@ -636,7 +650,7 @@ export class EmulatorInput {
       this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
     }
 
-    if (gp.axes[0] >= 0.5) {
+    if (gp.axes[0] >= 0.5 || gp.axes[6] >= 0.5) {
       this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
       this.gamepadAxes[1] = true;
     } else if (this.gamepadAxes[1] === true) {
@@ -644,7 +658,7 @@ export class EmulatorInput {
       this.gamepadAxes[1] = false;
     }
 
-    if (gp.axes[1] <= -0.5) {
+    if (gp.axes[1] <= -0.5 || gp.axes[7] <= -0.5) {
       this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
       this.gamepadAxes[2] = true;
     } else if (this.gamepadAxes[2] === true) {
@@ -652,7 +666,7 @@ export class EmulatorInput {
       this.gamepadAxes[2] = false;
     }
 
-    if (gp.axes[1] >= 0.5) {
+    if (gp.axes[1] >= 0.5 || gp.axes[7] >= 0.5) {
       this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
       this.gamepadAxes[3] = true;
     } else if (this.gamepadAxes[3] === true) {
@@ -876,6 +890,16 @@ export class EmulatorInput {
     this.emulator.joystickRelease(this.joystickPort, input);
   }
 
+   private releaseAll(): void {
+    for (const control of this.pressedControls) {
+      this.releaseJoystickInput(KEY_TO_JOYSTICK[control]);
+    }
+    this.pressedControls.clear();
+    this.potFire2Pressed = false;
+    this.potFire3Pressed = false;
+    this.syncPotFireButtons();
+  }
+
   private syncPotFireButtons(): void {
     if (!this.potFire2Pressed && !this.potFire3Pressed) {
       this.emulator.setMousePortEnabled?.(this.joystickPort, false);
@@ -887,16 +911,6 @@ export class EmulatorInput {
       this.potFire2Pressed ? POT_ACTIVE : POT_INACTIVE,
       this.potFire3Pressed ? POT_ACTIVE : POT_INACTIVE,
     );
-  }
-
-  private releaseAll(): void {
-    for (const control of this.pressedControls) {
-      this.releaseJoystickInput(KEY_TO_JOYSTICK[control]);
-    }
-    this.pressedControls.clear();
-    this.potFire2Pressed = false;
-    this.potFire3Pressed = false;
-    this.syncPotFireButtons();
   }
 
   /** Set which joystick port keyboard controls should target (1 or 2). */
