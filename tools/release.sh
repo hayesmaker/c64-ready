@@ -11,9 +11,9 @@ Examples:
   ./tools/release.sh 1.2.3       # set explicit version 1.2.3
 
 This script runs `npm version` (which updates package.json and creates a git tag),
-then pushes the commit and tags to origin/master. By default it requires a clean
-working tree and that you are on branch 'master'. Use --no-push to skip pushing
-or --dry-run to only show the commands that would be run.
+then pushes the current branch and tag to origin. By default it requires a clean
+working tree. Use --no-push to skip pushing or --dry-run to only show the commands
+that would be run.
 USAGE
 }
 
@@ -55,19 +55,14 @@ else
 fi
 
 echo "Release helper: mode=${TYPE}, no_push=${NO_PUSH}, dry_run=${DRY_RUN}"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [[ "$BRANCH" == "HEAD" ]]; then
+  echo "Cannot release from a detached HEAD. Please check out a branch first." >&2
+  exit 1
+fi
 
 if [[ "$DRY_RUN" -ne 1 ]]; then
-  # Ensure we're on master
-  BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  if [[ "$BRANCH" != "master" ]]; then
-    echo "Warning: you are on branch '$BRANCH' (expected 'master')."
-    read -p "Continue anyway? [y/N] " ans
-    case "$ans" in
-      y|Y) echo "Continuing on $BRANCH" ;;
-      *) echo "Aborting."; exit 1 ;;
-    esac
-  fi
-
   # Ensure working tree is clean
   if [[ -n "$(git status --porcelain)" ]]; then
     echo "Working tree not clean. Please commit or stash changes before releasing." >&2
@@ -186,13 +181,13 @@ if [[ "$NO_PUSH" -eq 1 ]]; then
 fi
 
 # Push commit and tags
-PUSH_CMD_1=(git push origin master)
+PUSH_CMD_1=(git push origin "$BRANCH")
 # Ensure TAG is set (may be undefined in dry-run)
 TAG=${TAG:-v${PREDICTED_VERSION:-$(node -p "require('./package.json').version")}}
 # After amending tag we must force-push the tag to update remote
 PUSH_CMD_2=(git push --force origin "${TAG}")
 
-echo "Pushing to origin master and tags..."
+echo "Pushing to origin ${BRANCH} and tags..."
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Dry run: ${PUSH_CMD_1[*]}"
   echo "Dry run: ${PUSH_CMD_2[*]}"
@@ -204,8 +199,7 @@ fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Dry run complete. Predicted release: v${PREDICTED_VERSION}. (package.json unchanged)"
-  echo "When running without --dry-run the script will create tag v${PREDICTED_VERSION} and push it to origin/master."
+  echo "When running without --dry-run the script will create tag v${PREDICTED_VERSION} and push it to origin/${BRANCH}."
 else
   echo "Release ${TAG} complete. Create a GitHub Release from the tag via the web UI when ready."
 fi
-
