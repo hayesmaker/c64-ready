@@ -52,7 +52,15 @@
       "types": "./dist-ts/headless/input-bridge.d.ts",
       "import": "./dist-ts/headless/input-bridge.js"
     },
-    "./wasm": "./public/c64.wasm"
+    "./wasm": "./public/c64.wasm",
+    "./player": {
+      "import": "./dist-ts/src/player/c64-player.js"
+    },
+    "./dist-ts/src/player/c64-player.js": "./dist-ts/src/player/c64-player.js",
+    "./dist-ts/src/player/canvas-renderer.js": "./dist-ts/src/player/canvas-renderer.js",
+    "./dist-ts/src/player/audio-engine.js": "./dist-ts/src/player/audio-engine.js",
+    "./dist-ts/src/player/input-handler.js": "./dist-ts/src/player/input-handler.js",
+    "./dist-ts/src/player/ui-controller.js": "./dist-ts/src/player/ui-controller.js"
   },
   "files": [
     "LICENSE",
