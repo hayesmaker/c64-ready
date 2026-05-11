@@ -37,6 +37,9 @@
   },
   "exports": {
     ".": {
+      "import": "./dist-ts/src/player/index.js"
+    },
+    "./types": {
       "types": "./dist-ts/types/index.d.ts",
       "import": "./dist-ts/types/index.js"
     },
@@ -54,7 +57,7 @@
     },
     "./wasm": "./public/c64.wasm",
     "./player": {
-      "import": "./dist-ts/src/player/c64-player.js"
+      "import": "./dist-ts/src/player/index.js"
     },
     "./dist-ts/src/player/c64-player.js": "./dist-ts/src/player/c64-player.js",
     "./dist-ts/src/player/canvas-renderer.js": "./dist-ts/src/player/canvas-renderer.js",
