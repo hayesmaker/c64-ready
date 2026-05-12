@@ -363,6 +363,19 @@ describe('C64Player', () => {
     expect(emulator.getSnapshot).toHaveBeenCalledOnce();
   });
 
+  it('delegates SID voice enablement to the emulator', () => {
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
+    const emulator = {
+      setVoiceEnabled: vi.fn(),
+    };
+
+    (player as unknown as { emulator: typeof emulator }).emulator = emulator;
+
+    player.setVoiceEnabled(1, false);
+
+    expect(emulator.setVoiceEnabled).toHaveBeenCalledWith(1, false);
+  });
+
   it('destroy() tears down emulator, input, renderer and audio once', async () => {
     const emulator = makeFakeEmulator();
     vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);

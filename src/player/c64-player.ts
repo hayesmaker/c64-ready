@@ -281,6 +281,10 @@ export class C64Player {
     return this.emulator.getSnapshot();
   }
 
+  setVoiceEnabled(voice: number, enabled: boolean): void {
+    this.emulator?.setVoiceEnabled(voice, enabled);
+  }
+
   setCrtPreloadChecksDisabled(disabled: boolean): void {
     this.disableCrtPreloadChecks = disabled;
     this.emulator?.setCrtPreloadChecksEnabled(!disabled);

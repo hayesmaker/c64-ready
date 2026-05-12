@@ -161,6 +161,17 @@ export class C64Emulator {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
 
+    if (options.type === 'snapshot') {
+      x.c64_reset();
+      const ptr = this.wasm.allocAndWrite(options.data);
+      try {
+        this.loadSnapshotData(ptr, options.data.length);
+      } finally {
+        this.wasm.free(ptr);
+      }
+      return;
+    }
+
     const ptr = this.wasm.allocAndWrite(options.data);
     try {
       switch (options.type) {
@@ -183,9 +194,6 @@ export class C64Emulator {
             }
           }
           x.c64_loadCartridge(ptr, options.data.length);
-          break;
-        case 'snapshot':
-          this.loadSnapshotData(ptr, options.data.length);
           break;
       }
     } finally {
@@ -329,7 +337,6 @@ export class C64Emulator {
   private loadSnapshotData(ptr: number, len: number): void {
     const x = this.wasm.exports;
     if (!x) throw new Error('WASM not ready');
-    x.c64_reset();
     x.c64_loadSnapshot(ptr, len);
     this.frameCount = 0;
   }
@@ -382,7 +389,7 @@ export class C64Emulator {
     this.wasm.exports?.sid_setModel(model);
   }
   setVoiceEnabled(voice: number, enabled: boolean): void {
-    this.wasm.exports?.sid_setVoiceEnabled(enabled ? voice : 0);
+    this.wasm.exports?.sid_setVoiceEnabled(voice, enabled ? 1 : 0);
   }
 
   // ---------------------------------------------------------------------------

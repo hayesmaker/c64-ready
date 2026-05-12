@@ -36,6 +36,7 @@ describe('C64Emulator', () => {
       c64_getPixelBuffer: vi.fn(() => 0),
       sid_getAudioBuffer: vi.fn(() => 0),
       sid_dumpBuffer: vi.fn(() => 2),
+      sid_setVoiceEnabled: vi.fn(),
       c64_loadPRG: vi.fn(),
       c64_insertDisk: vi.fn(),
       c64_setDriveEnabled: vi.fn(),
@@ -238,6 +239,35 @@ describe('C64Emulator', () => {
     expect(exports.c64_reset).toHaveBeenCalledTimes(1);
     expect(exports.c64_loadSnapshot).toHaveBeenCalledTimes(1);
     expect(exports.c64_loadSnapshot).toHaveBeenCalledWith(16, data.length);
+  });
+
+  it('resets before writing snapshot bytes into WASM memory', async () => {
+    const calls: string[] = [];
+    const { wasm, exports } = makeFakeWasm();
+    exports.c64_reset.mockImplementation(() => calls.push('reset'));
+    (wasm.allocAndWrite as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      calls.push('allocAndWrite');
+      return 16;
+    });
+    exports.c64_loadSnapshot.mockImplementation(() => calls.push('loadSnapshot'));
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.loadGame({ type: 'snapshot', data: new Uint8Array([1, 2, 3]) });
+
+    expect(calls).toEqual(['reset', 'allocAndWrite', 'loadSnapshot']);
+  });
+
+  it('sets individual SID voice enabled flags', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    emulator.setVoiceEnabled(2, false);
+    emulator.setVoiceEnabled(3, true);
+
+    expect(exports.sid_setVoiceEnabled).toHaveBeenCalledWith(2, 0);
+    expect(exports.sid_setVoiceEnabled).toHaveBeenCalledWith(3, 1);
   });
 
   it('preserves running state across snapshot restore', async () => {

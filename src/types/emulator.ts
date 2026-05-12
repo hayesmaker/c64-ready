@@ -29,7 +29,7 @@ export interface WASMExports {
   sid_readNS(val: number): number;
   sid_setSampleRate(rate: number): number;
   sid_setModel(model: number): void;
-  sid_setVoiceEnabled(voice: number): number;
+  sid_setVoiceEnabled(voice: number, enabled: number): number;
   sid_setChannelBuffersEnabled(enabled: number): void;
   sid_getWaveformByte(index: number): number;
 
