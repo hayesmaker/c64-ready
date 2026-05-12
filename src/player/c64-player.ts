@@ -5,7 +5,7 @@ import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
 import type { InputMode } from '../emulator/input';
 import type CanvasRenderer from './canvas-renderer';
-import { AudioEngine } from './audio-engine';
+import { AudioEngine, type AudioEngineOptions } from './audio-engine';
 import InputHandler from './input-handler';
 import { getLoadTypeLabel, inferLoadTypeFromFilename } from './load-formats';
 
@@ -19,6 +19,7 @@ export interface C64PlayerOptions {
   gameType?: GameLoadOptions['type'];
   renderer: CanvasRenderer;
   onProgress?: ProgressCallback;
+  audio?: AudioEngineOptions;
 }
 
 export class C64Player {
@@ -26,12 +27,13 @@ export class C64Player {
   private inputHandler: InputHandler | null = null;
   private disableCrtPreloadChecks: boolean = false;
   private destroyed: boolean = false;
-  readonly audio = new AudioEngine();
+  readonly audio: AudioEngine;
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
 
   constructor(options: C64PlayerOptions) {
     this.options = { gameType: 'crt', ...options };
+    this.audio = new AudioEngine(options.audio);
   }
 
   async start(): Promise<void> {

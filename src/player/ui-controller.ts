@@ -1,5 +1,18 @@
-// Extracted CSS is loaded from a separate stylesheet to keep JS focused on behavior.
-import css from './styles/ui-controller.css?raw';
+const css = `
+.c64-help-btn,.c64-hamburger,.c64-unmute-btn{position:fixed;top:12px;width:36px;height:36px;border-radius:6px;border:2px solid #444;background:#111;color:#ddd;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:1000}.c64-help-btn{right:12px;border-radius:50%;color:#7b71d5;font-family:monospace;font-size:18px;font-weight:bold}.c64-hamburger{left:12px;font-family:monospace}.c64-unmute-btn{left:56px;color:#f44;z-index:1010}.c64-unmute-btn.hidden{opacity:0;pointer-events:none}.c64-help-overlay,.c64-menu-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1001;opacity:0;transition:opacity .25s ease;pointer-events:none}.c64-help-overlay.visible,.c64-menu-overlay.visible{opacity:1;pointer-events:auto}.c64-help-dialog,.c64-menu-panel{background:#1a1a2e;border:2px solid #555;border-radius:6px;padding:24px 32px;max-width:760px;width:90%;font-family:monospace;color:#ccc;position:relative}.c64-changelog-dialog{max-height:70vh;overflow:auto}.c64-help-dialog h2{margin:0 0 8px;font-size:16px;color:#7b71d5;letter-spacing:1px}.c64-help-dialog p{margin:0 0 16px;font-size:13px;line-height:1.5;color:#aaa}.c64-help-dialog a{color:#a8a8ff;text-decoration:none}.c64-help-controls,.c64-help-special{margin:0 0 12px;padding:0;list-style:none;font-size:13px}.c64-help-controls li,.c64-help-special li{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #2a2a3e}.c64-help-key{background:#2a2a3e;border:1px solid #444;border-radius:3px;padding:1px 8px;font-size:12px;color:#ddd}.c64-help-close{position:absolute;top:10px;right:14px;background:none;border:none;color:#888;font-size:20px;cursor:pointer}.c64-version{display:flex;justify-content:end;font-size:12px;color:#999;margin-top:36px}.c64-menu-overlay{align-items:flex-start;justify-content:flex-start;padding:48px 24px;background:rgba(0,0,0,.5);z-index:1002}.c64-menu-panel{min-width:320px;max-width:520px;padding:16px;background:#0f0f1a;border-color:#333}.c64-menu-header{display:flex;align-items:center;justify-content:space-between}.c64-settings-tabs,.c64-menu-actions,.c64-system-actions,.c64-radio-row,.c64-gamepad-list{display:flex;gap:8px;flex-wrap:wrap}.c64-settings-tab,.c64-btn,.c64-mute-btn{background:#222;border:1px solid #444;color:#ddd;padding:6px 10px;border-radius:4px;cursor:pointer}.c64-settings-tab.active,.c64-gamepad-btn.active{border-color:#7b71d5;color:#fff;background:#25253d}.c64-select{background:#171729;color:#ddd;border:1px solid #444;border-radius:4px;padding:4px 8px;font-family:monospace}.c64-form-row,.c64-audio-row,.c64-cart-preview{display:flex;align-items:center;gap:10px;margin-bottom:10px}.c64-section-label,.c64-audio-section label{display:block;margin:0 0 8px;font-size:13px;color:#aaa}.c64-section-hint,.c64-volume-label,.c64-cart-type{font-size:11px;color:#888}.c64-dragarea{border:2px dashed #2a2a3e;border-radius:6px;padding:12px;margin-top:12px;text-align:center;color:#aaa}.c64-dragarea.dragover{border-color:#7b71d5;color:#fff}.c64-file-input{display:none}.c64-volume-slider{flex:1}.c64-cart-filename{font-size:13px;color:#ccc;word-break:break-all}.c64-checkbox-row{display:inline-flex;gap:8px;align-items:center;color:#ccc;font-size:13px}
+`;
+
+export interface UIControllerOptions {
+  assetBaseUrl?: string;
+  appVersion?: string;
+  gitHash?: string;
+  changelogUrl?: string;
+}
+
+function resolveAssetUrl(baseUrl: string | undefined, path: string): string {
+  const base = baseUrl ?? '/';
+  return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
 
 const CONTROLS = [
   ['Move Up', '↑'],
@@ -54,6 +67,7 @@ export default class UIController {
   private settingsOverlay: HTMLElement | null = null;
   private fileInput: HTMLInputElement | null = null;
   private player: C64Player | null = null;
+  private readonly options: UIControllerOptions;
   // Save previous overflow styles so we can restore them when exiting full/stretch
   private savedHtmlOverflow: string | null = null;
   private savedBodyOverflow: string | null = null;
@@ -73,6 +87,10 @@ export default class UIController {
     this.connectedGamepads.delete(detail.index);
     this.renderGamepadButtons();
   };
+
+  constructor(options: UIControllerOptions = {}) {
+    this.options = options;
+  }
 
   init(player?: C64Player): void {
     this.player = player ?? null;
@@ -159,6 +177,12 @@ export default class UIController {
     document.head.appendChild(style);
   }
 
+  private getVersionLabel(): string {
+    const version = this.options.appVersion ?? '0.0.0';
+    const gitHash = this.options.gitHash;
+    return `v${version}${gitHash ? ` (build: ${gitHash})` : ''}`;
+  }
+
   private createButton(): void {
     const btn = document.createElement('button');
     btn.className = 'c64-help-btn';
@@ -193,11 +217,7 @@ export default class UIController {
         <ul class="c64-help-controls">${controlItems}</ul>
         <h2>SPECIAL KEYS</h2>
         <ul class="c64-help-special">${specialItems}</ul>
-        <div class="c64-version">${
-          'v' +
-          (import.meta.env.VITE_APP_VERSION ?? '0.0.0') +
-          (import.meta.env.VITE_GIT_HASH ? ` (build: ${import.meta.env.VITE_GIT_HASH})` : '')
-        }</div>
+        <div class="c64-version">${this.getVersionLabel()}</div>
       </div>
     `;
 
@@ -234,8 +254,11 @@ export default class UIController {
   private async loadAndShowChangelog(container: HTMLElement) {
     container.classList.add('visible');
     try {
-      const md = await import('../../CHANGELOG.md?raw');
-      const raw: string = md.default ?? md;
+      const res = await fetch(this.options.changelogUrl ?? resolveAssetUrl(this.options.assetBaseUrl, 'CHANGELOG.md'), {
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.text();
 
       // Filter: keep headers, blank lines, and only feat:/fix: bullet lines
       const filtered = raw
@@ -537,10 +560,7 @@ export default class UIController {
             .map((part) => encodeURIComponent(part))
             .join('/');
           const normalizedPath = encodedPath.replace(/^\/+/, '');
-          const url = `${import.meta.env.BASE_URL}tools/${normalizedPath}`.replace(
-            /([^:]\/)\/+/,
-            '$1',
-          );
+          const url = resolveAssetUrl(this.options.assetBaseUrl, `tools/${normalizedPath}`);
           return { name: filename, url, type } satisfies ToolItem;
         })
         .filter((v: ToolItem | null): v is ToolItem => !!v);
@@ -548,7 +568,7 @@ export default class UIController {
 
     const loadToolsManifest = async () => {
       try {
-        const url = `${import.meta.env.BASE_URL}tools/tools.json`.replace(/([^:]\/)\/+/, '$1');
+        const url = resolveAssetUrl(this.options.assetBaseUrl, 'tools/tools.json');
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const raw = await res.json();

@@ -412,10 +412,16 @@ npm install c64-ready
 
 The following sub-path exports are available:
 
-#### Shared types — `c64-ready`
+#### Shared types — `c64-ready/types`
 
 ```ts
-import type { C64Config, FrameBuffer, AudioBuffer, InputEvent, GameLoadOptions } from 'c64-ready';
+import type {
+  C64Config,
+  FrameBuffer,
+  AudioBuffer,
+  InputEvent,
+  GameLoadOptions,
+} from 'c64-ready/types';
 ```
 
 #### Low-level emulator — `c64-ready/emulator`
@@ -490,17 +496,13 @@ gamepad.on('buttondown', (btn) => ws.send(InputBridge.encodeJoystick(2, 'push', 
 gamepad.on('buttonup', (btn) => ws.send(InputBridge.encodeJoystick(2, 'release', btn.direction)));
 ```
 
-### Using the player in your own Vite app
+### Using the browser player in your own app
 
-The browser player (`src/player/*`) uses Vite-specific features (`?raw` CSS imports,
-`import.meta.env`) so it is **not** pre-compiled and is shipped as TypeScript source.
-Copy the files you need into your own Vite project and import them directly:
+The browser player is framework and build-engine agnostic. Import the player API from
+the package entrypoint in any browser app that can serve static assets:
 
 ```ts
-// In your Vite project (TypeScript + Vite)
-import { C64Player } from './vendor/c64-ready/src/player/c64-player';
-import CanvasRenderer from './vendor/c64-ready/src/player/canvas-renderer';
-import { AudioEngine } from './vendor/c64-ready/src/player/audio-engine';
+import { C64Player, CanvasRenderer } from 'c64-ready';
 
 const renderer = new CanvasRenderer('c64-canvas');
 const player = new C64Player({
@@ -512,8 +514,11 @@ const player = new C64Player({
 await player.start();
 ```
 
-Also copy `public/c64.wasm` and `public/audio-worklet-processor.js` into your project's
-public directory so they are served alongside your app.
+The package entrypoint also exports `AudioEngine`, `InputHandler`, `UIController`, and
+shared TypeScript types for custom integrations. Serve `c64.wasm` and
+`audio-worklet-processor.js` from your app's static asset directory so the browser can
+load the emulator core and audio worklet at runtime. If those assets are not served from
+the web root, pass `audio.assetBaseUrl` or `audio.workletUrl` to `C64Player`.
 
 ### Building before publish
 

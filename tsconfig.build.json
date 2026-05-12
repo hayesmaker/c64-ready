@@ -19,13 +19,12 @@
   "include": [
     "src/emulator/**/*",
     "src/headless/**/*.ts",
+    "src/player/**/*",
     "src/types/**/*"
   ],
   "exclude": [
     "src/**/*.test.ts",
     "src/main.ts",
-    "src/counter.ts",
-    "src/player/**/*"
+    "src/counter.ts"
   ]
 }
-
