@@ -11,6 +11,7 @@ describe('C64Player', () => {
     return {
       loadGame: vi.fn(),
       start: vi.fn(),
+      pause: vi.fn(),
       reboot: vi.fn().mockResolvedValue(undefined),
       setCrtPreloadChecksEnabled: vi.fn(),
       isRunning: vi.fn(() => true),
@@ -23,6 +24,7 @@ describe('C64Player', () => {
   function makeFakeRenderer() {
     return {
       attachTo: vi.fn(),
+      detach: vi.fn(),
     } as any;
   }
 
@@ -151,6 +153,97 @@ describe('C64Player', () => {
     expect(emulator.start).toHaveBeenCalledOnce();
   });
 
+  it('start() autoloads direct gameData when provided', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    vi.stubGlobal('fetch', vi.fn());
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '/games/ignored.crt',
+      gameData: makeCrtData(1, 1),
+      gameType: 'crt',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'crt', data: expect.any(Uint8Array) });
+    expect(emulator.start).toHaveBeenCalledOnce();
+  });
+
+  it('loads direct base64 data URLs for snapshots', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+    await player.loadGameData('data:application/octet-stream;base64,AQIDBA==', 'snapshot', 'test.snapshot');
+
+    expect(emulator.loadGame).toHaveBeenCalledWith({
+      type: 'snapshot',
+      data: new Uint8Array([1, 2, 3, 4]),
+    });
+  });
+
+  it('auto-types RUN after loading direct PRG data while running', async () => {
+    vi.useFakeTimers();
+    try {
+      const emulator = makeFakeEmulator();
+      vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+      const player = new C64Player({
+        wasmUrl: '/c64.wasm',
+        gameUrl: '',
+        renderer: makeFakeRenderer(),
+      });
+
+      await player.start();
+      const loadPromise = player.loadGameData(new Uint8Array([1, 2, 3, 4]), 'prg', 'demo.prg');
+      await vi.advanceTimersByTimeAsync(1500);
+      await loadPromise;
+
+      expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'prg', data: expect.any(Uint8Array) });
+      expect(emulator.keyDown).toHaveBeenCalled();
+      expect(emulator.keyUp).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('auto-types RUN after startup autoloads direct PRG data', async () => {
+    vi.useFakeTimers();
+    try {
+      const emulator = makeFakeEmulator();
+      vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+      const player = new C64Player({
+        wasmUrl: '/c64.wasm',
+        gameUrl: '',
+        gameData: new Uint8Array([1, 2, 3, 4]),
+        gameType: 'prg',
+        renderer: makeFakeRenderer(),
+      });
+
+      const startPromise = player.start();
+      await vi.advanceTimersByTimeAsync(1500);
+      await startPromise;
+
+      expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'prg', data: expect.any(Uint8Array) });
+      expect(emulator.start).toHaveBeenCalledOnce();
+      expect(emulator.keyDown).toHaveBeenCalled();
+      expect(emulator.keyUp).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reboot() re-instantiates the player runtime and emits c64-reboot', async () => {
     const emulator = makeFakeEmulator();
     vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
@@ -268,6 +361,29 @@ describe('C64Player', () => {
 
     expect(player.getSnapshot()).toBe(snapshot);
     expect(emulator.getSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('destroy() tears down emulator, input, renderer and audio once', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+    const renderer = makeFakeRenderer();
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer });
+    await player.start();
+
+    const inputHandler = {
+      detach: vi.fn(),
+    };
+    (player as unknown as { inputHandler: typeof inputHandler }).inputHandler = inputHandler;
+    const audioDestroy = vi.spyOn(player.audio, 'destroy').mockResolvedValue(undefined);
+
+    await player.destroy();
+    await player.destroy();
+
+    expect(emulator.pause).toHaveBeenCalledOnce();
+    expect(inputHandler.detach).toHaveBeenCalledOnce();
+    expect(renderer.detach).toHaveBeenCalledOnce();
+    expect(audioDestroy).toHaveBeenCalledOnce();
   });
 
   // ...additional tests omitted for brevity

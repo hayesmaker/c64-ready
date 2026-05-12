@@ -14,6 +14,8 @@ export type ProgressCallback = (percent: number, label: string) => void;
 export interface C64PlayerOptions {
   wasmUrl: string;
   gameUrl: string;
+  gameData?: Uint8Array<ArrayBufferLike> | ArrayBufferLike | string;
+  gameSource?: string;
   gameType?: GameLoadOptions['type'];
   renderer: CanvasRenderer;
   onProgress?: ProgressCallback;
@@ -23,6 +25,7 @@ export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
   private disableCrtPreloadChecks: boolean = false;
+  private destroyed: boolean = false;
   readonly audio = new AudioEngine();
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -32,18 +35,27 @@ export class C64Player {
   }
 
   async start(): Promise<void> {
-    const { wasmUrl, gameUrl, gameType, renderer, onProgress } = this.options;
+    this.destroyed = false;
+    const { wasmUrl, gameUrl, gameData, gameSource, gameType, renderer, onProgress } = this.options;
 
     onProgress?.(10, 'INITIALISING WASM...');
     this.emulator = await C64Emulator.load(wasmUrl);
     this.emulator.setCrtPreloadChecksEnabled(!this.disableCrtPreloadChecks);
     this.attachInputAndRenderer(this.emulator, renderer);
+    let shouldAutoRunPrgAfterStart = false;
 
-    if (gameUrl && gameUrl !== 'null') {
+    if (gameData !== undefined && gameData !== null) {
+      await this.loadGameData(gameData, gameType, gameSource ?? 'inline game data', onProgress);
+      shouldAutoRunPrgAfterStart = gameType === 'prg';
+    } else if (gameUrl && gameUrl !== 'null') {
       await this.loadGame(gameUrl, gameType, onProgress);
+      shouldAutoRunPrgAfterStart = gameType === 'prg';
     }
 
     this.emulator.start();
+    if (shouldAutoRunPrgAfterStart) {
+      await this.autoRunPrgIfRunning();
+    }
 
     // Initialise audio in the background — never blocks game startup
     this.initAudio();
@@ -122,31 +134,21 @@ export class C64Player {
     }
 
     onProgress?.(90, `INSERTING ${formatLoadProgressLabel(type)}...`);
-    this.assertSnapshotFormatSupported(data, type, url);
-    this.emitSnapshotLoadInfo(type, url);
-    try {
-      if (type === 'crt') {
-        const filename = url.split('/').pop() ?? url;
-        this.handleCrtPreloadChecks(data, filename, onProgress);
-      }
-      this.emulator.loadGame({ type, data });
-      if (type === 'prg') {
-        await this.autoRunPrgIfRunning();
-      }
-      onProgress?.(100, 'READY!');
-      // Notify UI that load succeeded
-      window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { url, type } }));
-    } catch (err) {
-      onProgress?.(0, 'FAILED');
-      console.error('Failed to insert cartridge or load game:', err);
-      // Surface a global event so UI can react if needed
-      window.dispatchEvent(
-        new CustomEvent('c64-load-error', {
-          detail: { error: err instanceof Error ? err.message : String(err), url, type },
-        }),
-      );
-      throw err;
-    }
+    await this.insertGameData(data, type, url, { url }, onProgress);
+  }
+
+  async loadGameData(
+    gameData: Uint8Array<ArrayBufferLike> | ArrayBufferLike | string,
+    type: GameLoadOptions['type'] = 'crt',
+    source: string = 'inline game data',
+    onProgress: ProgressCallback | undefined = this.options.onProgress,
+  ): Promise<void> {
+    if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
+
+    onProgress?.(20, 'LOADING GAME DATA...');
+    const data = normaliseGameData(gameData);
+    onProgress?.(90, `INSERTING ${formatLoadProgressLabel(type)}...`);
+    await this.insertGameData(data, type, source, { source }, onProgress);
   }
 
   // Load a game from a File/Blob provided by the user (drag & drop / file input)
@@ -159,34 +161,10 @@ export class C64Player {
       const ab = await file.arrayBuffer();
       const data = new Uint8Array(ab);
       onProgress?.(90, `INSERTING ${formatLoadProgressLabel(resolvedType)}...`);
-      this.assertSnapshotFormatSupported(data, resolvedType, file.name);
-      this.emitSnapshotLoadInfo(resolvedType, file.name);
-      try {
-        if (resolvedType === 'crt') {
-          this.handleCrtPreloadChecks(data, file.name, onProgress);
-        }
-        this.emulator.loadGame({ type: resolvedType, data });
-        if (resolvedType === 'prg') {
-          await this.autoRunPrgIfRunning();
-        }
-        onProgress?.(100, 'READY!');
-        window.dispatchEvent(
-          new CustomEvent('c64-close-dialog', { detail: { file: file.name, type: resolvedType } }),
-        );
-      } catch (err) {
-        onProgress?.(0, 'FAILED');
-        console.error('Failed to insert cartridge from file:', err);
-        window.dispatchEvent(
-          new CustomEvent('c64-load-error', {
-            detail: {
-              error: err instanceof Error ? err.message : String(err),
-              file: file.name,
-              type: resolvedType,
-            },
-          }),
-        );
-        throw err;
-      }
+      await this.insertGameData(data, resolvedType, file.name, { file: file.name }, onProgress);
+      window.dispatchEvent(
+        new CustomEvent('c64-close-dialog', { detail: { file: file.name, type: resolvedType } }),
+      );
     } catch (err) {
       onProgress?.(0, 'FAILED');
       throw err;
@@ -252,6 +230,23 @@ export class C64Player {
     }
   }
 
+  async destroy(): Promise<void> {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
+    try {
+      this.emulator?.pause();
+    } finally {
+      this.inputHandler?.detach();
+      this.inputHandler = null;
+      this.options.renderer.detach();
+      this.audio.onStateChange = undefined;
+      this.audio.setSidBufferReader(() => null);
+      await this.audio.destroy();
+      this.emulator = null;
+    }
+  }
+
   /**
    * Change which joystick port keyboard events map to (1 or 2).
    * Delegates to the InputHandler created during start().
@@ -279,7 +274,7 @@ export class C64Player {
     return this.inputHandler?.getActiveGamepadIndex() ?? -1;
   }
 
-  getSnapshot(): Uint8Array {
+  getSnapshot(): Uint8Array<ArrayBufferLike> {
     if (!this.emulator) {
       throw new Error('Emulator not initialised');
     }
@@ -295,6 +290,39 @@ export class C64Player {
     if (!this.emulator || !this.emulator.isRunning()) return;
     await waitMs(220);
     await this.typeCommand('run\n');
+  }
+
+  private async insertGameData(
+    data: Uint8Array<ArrayBufferLike>,
+    type: GameLoadOptions['type'],
+    source: string,
+    eventDetail: Record<string, unknown>,
+    onProgress?: ProgressCallback,
+  ): Promise<void> {
+    if (!this.emulator) throw new Error('Emulator not initialised — call start() first');
+
+    this.assertSnapshotFormatSupported(data, type, source);
+    this.emitSnapshotLoadInfo(type, source);
+    try {
+      if (type === 'crt') {
+        this.handleCrtPreloadChecks(data, source, onProgress);
+      }
+      this.emulator.loadGame({ type, data });
+      if (type === 'prg') {
+        await this.autoRunPrgIfRunning();
+      }
+      onProgress?.(100, 'READY!');
+      window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { ...eventDetail, type } }));
+    } catch (err) {
+      onProgress?.(0, 'FAILED');
+      console.error('Failed to insert cartridge or load game:', err);
+      window.dispatchEvent(
+        new CustomEvent('c64-load-error', {
+          detail: { error: err instanceof Error ? err.message : String(err), ...eventDetail, type },
+        }),
+      );
+      throw err;
+    }
   }
 
   private async typeCommand(command: string): Promise<void> {
@@ -426,6 +454,42 @@ function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normaliseGameData(
+  gameData: Uint8Array<ArrayBufferLike> | ArrayBufferLike | string,
+): Uint8Array<ArrayBufferLike> {
+  if (gameData instanceof Uint8Array) {
+    return gameData;
+  }
+
+  if (typeof gameData !== 'string') {
+    return new Uint8Array(gameData);
+  }
+
+  const trimmed = gameData.trim();
+  const base64Match = trimmed.match(/^data:[^,]*;base64,(.*)$/s);
+  const payload = base64Match ? base64Match[1] : trimmed;
+
+  if (base64Match || looksLikeBase64(payload)) {
+    const binary = globalThis.atob(payload.replace(/\s/g, ''));
+    return binaryStringToBytes(binary);
+  }
+
+  return binaryStringToBytes(gameData);
+}
+
+function binaryStringToBytes(value: string): Uint8Array<ArrayBufferLike> {
+  const data = new Uint8Array(value.length);
+  for (let i = 0; i < value.length; i++) {
+    data[i] = value.charCodeAt(i) & 0xff;
+  }
+  return data;
+}
+
+function looksLikeBase64(value: string): boolean {
+  const compact = value.replace(/\s/g, '');
+  return compact.length > 0 && compact.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
 }
 
 function hasViceSnapshotMagic(data: Uint8Array<ArrayBufferLike>): boolean {

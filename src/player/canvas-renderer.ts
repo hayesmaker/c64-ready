@@ -7,6 +7,7 @@ export default class CanvasRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
+  private attachedEmulator: C64Emulator | null = null;
 
   // Loader elements (created lazily)
   private loaderEl: HTMLElement | null = null;
@@ -116,13 +117,12 @@ export default class CanvasRenderer {
   }
 
   attachTo(emulator: C64Emulator): void {
+    this.detach();
+    this.attachedEmulator = emulator;
+
     emulator.onFrame = (frame) => {
       this.render(frame);
     };
-
-    if (this.animationFrameId !== null) {
-      cancelAnimationFrame(this.animationFrameId);
-    }
 
     let lastTimestamp = 0;
 
@@ -135,5 +135,17 @@ export default class CanvasRenderer {
     };
 
     this.animationFrameId = requestAnimationFrame(runFrame);
+  }
+
+  detach(): void {
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    if (this.attachedEmulator) {
+      this.attachedEmulator.onFrame = undefined;
+      this.attachedEmulator = null;
+    }
   }
 }
