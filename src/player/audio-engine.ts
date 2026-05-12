@@ -30,6 +30,11 @@ const DEFAULT_SAMPLE_RATE = 44_100;
 /** Function the AudioEngine calls to read the current SID audio buffer */
 export type SidBufferReader = () => Float32Array | null;
 
+export interface AudioEngineOptions {
+  workletUrl?: string;
+  assetBaseUrl?: string;
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
@@ -40,12 +45,17 @@ export class AudioEngine {
   private _suspended = true;
   private _initialised = false;
   private _ready = false;
+  private readonly options: AudioEngineOptions;
 
   /** Called when the worklet needs more samples */
   private _readSidBuffer: SidBufferReader | null = null;
 
   /** Optional callback fired whenever muted / volume / suspended state changes */
   onStateChange?: AudioStateChangeCallback;
+
+  constructor(options: AudioEngineOptions = {}) {
+    this.options = options;
+  }
 
   // ── Public getters ────────────────────────────────────────────────────────
 
@@ -114,8 +124,9 @@ export class AudioEngine {
 
   private async loadWorklet(): Promise<void> {
     if (!this.ctx || !this.gainNode) return;
-    const base = import.meta.env.BASE_URL ?? '/';
-    const processorUrl = `${base}audio-worklet-processor.js`.replace(/\/+/g, '/');
+    const base = this.options.assetBaseUrl ?? '/';
+    const processorUrl =
+      this.options.workletUrl ?? `${base.replace(/\/+$/, '')}/audio-worklet-processor.js`;
     await this.ctx.audioWorklet.addModule(processorUrl);
 
     this.workletNode = new AudioWorkletNode(this.ctx, 'c64-audio-processor', {

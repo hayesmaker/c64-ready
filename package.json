@@ -10,7 +10,7 @@
     "retro"
   ],
   "license": "MIT",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "type": "module",
   "engines": {
     "node": ">=24.14"
@@ -19,7 +19,7 @@
     "start": "npm run dev",
     "dev": "vite",
     "build": "tsc && vite build",
-    "headless:build": "npx tsc -p tsconfig.build.json",
+    "headless:build": "node -e \"require('node:fs').rmSync('dist-ts',{recursive:true,force:true})\" && npx tsc -p tsconfig.build.json && node tools/fix-esm-imports.mjs",
     "package:build": "npm run build && npm run headless:build",
     "headless:start": "node bin/headless.mjs",
     "release": "./tools/release.sh",
@@ -37,6 +37,10 @@
   },
   "exports": {
     ".": {
+      "types": "./dist-ts/player/index.d.ts",
+      "import": "./dist-ts/player/index.js"
+    },
+    "./types": {
       "types": "./dist-ts/types/index.d.ts",
       "import": "./dist-ts/types/index.js"
     },
@@ -52,7 +56,31 @@
       "types": "./dist-ts/headless/input-bridge.d.ts",
       "import": "./dist-ts/headless/input-bridge.js"
     },
-    "./wasm": "./public/c64.wasm"
+    "./wasm": "./public/c64.wasm",
+    "./player": {
+      "types": "./dist-ts/player/index.d.ts",
+      "import": "./dist-ts/player/index.js"
+    },
+    "./player/c64-player": {
+      "types": "./dist-ts/player/c64-player.d.ts",
+      "import": "./dist-ts/player/c64-player.js"
+    },
+    "./player/canvas-renderer": {
+      "types": "./dist-ts/player/canvas-renderer.d.ts",
+      "import": "./dist-ts/player/canvas-renderer.js"
+    },
+    "./player/audio-engine": {
+      "types": "./dist-ts/player/audio-engine.d.ts",
+      "import": "./dist-ts/player/audio-engine.js"
+    },
+    "./player/input-handler": {
+      "types": "./dist-ts/player/input-handler.d.ts",
+      "import": "./dist-ts/player/input-handler.js"
+    },
+    "./player/ui-controller": {
+      "types": "./dist-ts/player/ui-controller.d.ts",
+      "import": "./dist-ts/player/ui-controller.js"
+    }
   },
   "files": [
     "LICENSE",
