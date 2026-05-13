@@ -10,6 +10,7 @@ on:
       - 'src/headless/**'
       - 'src/emulator/**'
       - 'src/types/**'
+      - 'tools/fix-esm-imports.mjs'
       - 'public/**'
       - 'package.json'
       - 'package-lock.json'
