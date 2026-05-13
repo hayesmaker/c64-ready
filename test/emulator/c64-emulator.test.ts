@@ -45,6 +45,7 @@ describe('C64Emulator', () => {
       c64_ramRead: vi.fn(() => 0xab),
       c64_ramWrite: vi.fn(),
       c64_cpuRead: vi.fn(() => 0),
+      c64_cpuReadNS: vi.fn(() => 0xcd),
       c64_cpuWrite: vi.fn(),
       c64_setRegA: vi.fn(),
       c64_setRegX: vi.fn((v: number) => {
@@ -108,6 +109,15 @@ describe('C64Emulator', () => {
     expect(C64WASM.load).toHaveBeenCalledWith('/custom.wasm');
     expect(exports.c64_init).toHaveBeenCalledOnce();
     expect(emulator.ramRead(0)).toBe(0xab);
+  });
+
+  it('forwards non-side-effect CPU reads to WASM', async () => {
+    const { wasm, exports } = makeFakeWasm();
+    vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+    const emulator = await C64Emulator.load();
+
+    expect(emulator.cpuReadNS(0x1234)).toBe(0xcd);
+    expect(exports.c64_cpuReadNS).toHaveBeenCalledWith(0x1234);
   });
 
   it('does not tick when paused', async () => {

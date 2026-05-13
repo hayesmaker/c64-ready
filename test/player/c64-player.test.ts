@@ -18,6 +18,9 @@ describe('C64Player', () => {
       keyDown: vi.fn(),
       keyUp: vi.fn(),
       setSampleRate: vi.fn(),
+      ramRead: vi.fn(() => 0xab),
+      cpuRead: vi.fn(() => 0xbc),
+      cpuReadNS: vi.fn(() => 0xcd),
     } as any;
   }
 
@@ -361,6 +364,20 @@ describe('C64Player', () => {
 
     expect(player.getSnapshot()).toBe(snapshot);
     expect(emulator.getSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('delegates memory reads to the emulator', () => {
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
+    const emulator = makeFakeEmulator();
+
+    (player as unknown as { emulator: typeof emulator }).emulator = emulator;
+
+    expect(player.ramRead(0x1000)).toBe(0xab);
+    expect(player.cpuRead(0x1001)).toBe(0xbc);
+    expect(player.cpuReadNS(0x1002)).toBe(0xcd);
+    expect(emulator.ramRead).toHaveBeenCalledWith(0x1000);
+    expect(emulator.cpuRead).toHaveBeenCalledWith(0x1001);
+    expect(emulator.cpuReadNS).toHaveBeenCalledWith(0x1002);
   });
 
   it('delegates SID voice enablement to the emulator', () => {

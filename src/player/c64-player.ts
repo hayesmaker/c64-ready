@@ -283,6 +283,18 @@ export class C64Player {
     return this.emulator.getSnapshot();
   }
 
+  ramRead(addr: number): number {
+    return this.emulator?.ramRead(addr) ?? 0;
+  }
+
+  cpuRead(addr: number): number {
+    return this.emulator?.cpuRead(addr) ?? 0;
+  }
+
+  cpuReadNS(addr: number): number {
+    return this.emulator?.cpuReadNS(addr) ?? 0;
+  }
+
   setVoiceEnabled(voice: number, enabled: boolean): void {
     this.emulator?.setVoiceEnabled(voice, enabled);
   }
