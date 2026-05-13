@@ -18,9 +18,10 @@
   "scripts": {
     "start": "npm run dev",
     "dev": "vite",
-    "build": "tsc && vite build",
-    "headless:build": "node -e \"require('node:fs').rmSync('dist-ts',{recursive:true,force:true})\" && npx tsc -p tsconfig.build.json && node tools/fix-esm-imports.mjs",
-    "package:build": "npm run build && npm run headless:build",
+    "build": "tsc && vite build && npm run api:build",
+    "api:build": "node -e \"require('node:fs').rmSync('dist-ts',{recursive:true,force:true})\" && npx tsc -p tsconfig.build.json && node tools/fix-esm-imports.mjs",
+    "headless:build": "npx tsc -p tsconfig.build.json",
+    "package:build": "npm run build",
     "headless:start": "node bin/headless.mjs",
     "release": "./tools/release.sh",
     "preview": "vite preview",

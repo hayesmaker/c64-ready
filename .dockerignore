@@ -10,8 +10,6 @@ test
 docs
 scripts
 tools
-!tools/
-!tools/fix-esm-imports.mjs
 *.md
 *.log
 .env
