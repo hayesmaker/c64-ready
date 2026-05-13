@@ -19,8 +19,9 @@ describe('C64Player', () => {
       keyUp: vi.fn(),
       setSampleRate: vi.fn(),
       ramRead: vi.fn(() => 0xab),
-      cpuRead: vi.fn(() => 0xbc),
+      cpuRead: vi.fn(() => 0),
       cpuReadNS: vi.fn(() => 0xcd),
+      cpuWrite: vi.fn(),
     } as any;
   }
 
@@ -133,8 +134,11 @@ describe('C64Player', () => {
         type: 'prg',
         data: expect.any(Uint8Array),
       });
-      expect(emulator.keyDown).toHaveBeenCalled();
-      expect(emulator.keyUp).toHaveBeenCalled();
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 4);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'R'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'U'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'N'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 13);
     } finally {
       vi.useRealTimers();
     }
@@ -213,8 +217,39 @@ describe('C64Player', () => {
       await loadPromise;
 
       expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'prg', data: expect.any(Uint8Array) });
-      expect(emulator.keyDown).toHaveBeenCalled();
-      expect(emulator.keyUp).toHaveBeenCalled();
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 4);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'R'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'U'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'N'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 13);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for the C64 keyboard buffer before PRG auto-run', async () => {
+    vi.useFakeTimers();
+    try {
+      const emulator = makeFakeEmulator();
+      emulator.cpuRead.mockReturnValueOnce(1).mockReturnValue(0);
+      vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+      const player = new C64Player({
+        wasmUrl: '/c64.wasm',
+        gameUrl: '',
+        renderer: makeFakeRenderer(),
+      });
+
+      await player.start();
+      const loadPromise = player.loadGameData(new Uint8Array([1, 2, 3, 4]), 'prg', 'demo.prg');
+      await vi.advanceTimersByTimeAsync(650);
+      expect(emulator.cpuWrite).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(50);
+      await loadPromise;
+
+      expect(emulator.cpuRead).toHaveBeenCalledWith(0x00c6);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 4);
     } finally {
       vi.useRealTimers();
     }
@@ -240,8 +275,11 @@ describe('C64Player', () => {
 
       expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'prg', data: expect.any(Uint8Array) });
       expect(emulator.start).toHaveBeenCalledOnce();
-      expect(emulator.keyDown).toHaveBeenCalled();
-      expect(emulator.keyUp).toHaveBeenCalled();
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 4);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'R'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'U'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'N'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 13);
     } finally {
       vi.useRealTimers();
     }
@@ -369,6 +407,7 @@ describe('C64Player', () => {
   it('delegates memory reads to the emulator', () => {
     const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
     const emulator = makeFakeEmulator();
+    emulator.cpuRead.mockReturnValue(0xbc);
 
     (player as unknown as { emulator: typeof emulator }).emulator = emulator;
 
