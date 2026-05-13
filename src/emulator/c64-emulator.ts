@@ -284,6 +284,9 @@ export class C64Emulator {
   cpuRead(addr: number): number {
     return this.wasm.exports?.c64_cpuRead(addr) ?? 0;
   }
+  cpuReadNS(addr: number): number {
+    return this.wasm.exports?.c64_cpuReadNS(addr) ?? 0;
+  }
   cpuWrite(addr: number, v: number): void {
     this.wasm.exports?.c64_cpuWrite(addr, v);
   }

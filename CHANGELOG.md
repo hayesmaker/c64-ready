@@ -6,9 +6,15 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v2.1.0 - 2026-05-13T08:51:29+01:00
+
+- chore(release): 2.1.0 (1464962)
+- feat(emulator): expose memory read helpers (1e9196a)
+- Merge pull request #121 from hayesmaker/feat/player-export (a28cb6f)
+
 ## v2.0.0 - 2026-05-12T22:39:23+01:00
 
-- chore(release): 2.0.0 (02369dd)
+- chore(release): 2.0.0 (c1632f0)
 - removing ui-controller from player index (0265398)
 - feat(player): publish browser player API (79d6ff6)
 - fix(player): restore snapshots and SID voice controls (10e85f8)
