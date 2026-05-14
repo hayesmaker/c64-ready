@@ -526,13 +526,16 @@ To regenerate both the Vite browser bundle and the TypeScript API outputs in one
 
 ```zsh
 npm run package:build
-# equivalent to: npm run build && npm run headless:build
+# equivalent to: npm run build
 ```
 
 This produces:
 
 - `dist/` — Vite browser bundle (served by `c64-ready` CLI)
 - `dist-ts/` — compiled JS + `.d.ts` declarations (imported by API consumers)
+
+`npm run headless:build` is reserved for the Docker/headless TypeScript build and does
+not run the package ESM export rewrite step.
 
 ## Deployment
 

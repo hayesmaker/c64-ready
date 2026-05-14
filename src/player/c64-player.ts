@@ -1,5 +1,4 @@
 import { C64Emulator } from '../emulator/c64-emulator';
-import { domKeyToC64Actions } from '../emulator/input';
 import { getUnsupportedCrtReason, parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
@@ -10,6 +9,12 @@ import InputHandler from './input-handler';
 import { getLoadTypeLabel, inferLoadTypeFromFilename } from './load-formats';
 
 export type ProgressCallback = (percent: number, label: string) => void;
+
+const C64_KEYBOARD_BUFFER_LENGTH_ADDR = 0x00c6;
+const C64_KEYBOARD_BUFFER_ADDR = 0x0277;
+const C64_KEYBOARD_BUFFER_MAX_LENGTH = 8;
+const PRG_AUTORUN_DELAY_MS = 650;
+const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
 
 export interface C64PlayerOptions {
   wasmUrl: string;
@@ -306,8 +311,33 @@ export class C64Player {
 
   private async autoRunPrgIfRunning(): Promise<void> {
     if (!this.emulator || !this.emulator.isRunning()) return;
-    await waitMs(220);
-    await this.typeCommand('run\n');
+    await waitMs(PRG_AUTORUN_DELAY_MS);
+    await this.insertTextIntoKeyboardBuffer('run\n');
+  }
+
+  private async insertTextIntoKeyboardBuffer(text: string): Promise<void> {
+    if (!this.emulator) return;
+
+    const bytes = normaliseKeyboardBufferText(text);
+    while (bytes.length > 0) {
+      await this.waitForKeyboardBufferEmpty();
+
+      const chunk = bytes.splice(0, C64_KEYBOARD_BUFFER_MAX_LENGTH);
+      this.emulator.cpuWrite(C64_KEYBOARD_BUFFER_LENGTH_ADDR, chunk.length);
+      for (let i = 0; i < chunk.length; i += 1) {
+        this.emulator.cpuWrite(C64_KEYBOARD_BUFFER_ADDR + i, chunk[i]);
+      }
+    }
+  }
+
+  private async waitForKeyboardBufferEmpty(): Promise<void> {
+    const startedAt = Date.now();
+    while (this.emulator?.cpuRead(C64_KEYBOARD_BUFFER_LENGTH_ADDR)) {
+      if (Date.now() - startedAt >= PRG_AUTORUN_BUFFER_TIMEOUT_MS) {
+        throw new Error('Timed out waiting for C64 keyboard buffer before PRG auto-run');
+      }
+      await waitMs(50);
+    }
   }
 
   private async insertGameData(
@@ -340,30 +370,6 @@ export class C64Player {
         }),
       );
       throw err;
-    }
-  }
-
-  private async typeCommand(command: string): Promise<void> {
-    if (!this.emulator) return;
-
-    for (const char of command) {
-      const domKey = char === '\n' ? 'enter' : char;
-
-      const down = domKeyToC64Actions(domKey, false, 'keydown');
-      for (const act of down) {
-        if (act.action === 'press') this.emulator.keyDown(act.key);
-        else this.emulator.keyUp(act.key);
-      }
-
-      await waitMs(22);
-
-      const up = domKeyToC64Actions(domKey, false, 'keyup');
-      for (const act of up) {
-        if (act.action === 'press') this.emulator.keyDown(act.key);
-        else this.emulator.keyUp(act.key);
-      }
-
-      await waitMs(22);
     }
   }
 
@@ -472,6 +478,18 @@ function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normaliseKeyboardBufferText(text: string): number[] {
+  const bytes: number[] = [];
+  const normalised = text.toUpperCase().replace(/\r\n/g, '\n');
+
+  for (let i = 0; i < normalised.length; i += 1) {
+    const code = normalised.charCodeAt(i);
+    bytes.push(code === 10 ? 13 : code);
+  }
+
+  return bytes;
 }
 
 function normaliseGameData(

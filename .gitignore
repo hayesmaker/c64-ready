@@ -22,6 +22,7 @@ dist-*
 *.njsproj
 *.sln
 *.sw?
+*.tgz
 
 # Reference files
 temp/
