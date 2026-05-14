@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #127 from hayesmaker/fix/prg-auto-run-reliability (ac1ddb4)
+- chore: ignore tgz packs (cd11a92)
+- chore: ensure normal builds exports (396df3e)
+- fix(player): make PRG auto-run reliable (4532146)
+- Merge pull request #125 from hayesmaker/fix/headless-docker-build-tools (e295989)
+- chore: fix docker publish workflow (a8a0773)
+- Merge pull request #124 from hayesmaker/chore/update-changelog-2026-05-13T07-53-15-192Z-4e6e90f (a3c1275)
+- chore: update changelog (auto) (4e6e90f)
 - Merge pull request #123 from hayesmaker/feat/memory-read-api (e8ec073)
 
 ## v2.1.0 - 2026-05-13T08:51:29+01:00
