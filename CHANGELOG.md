@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #125 from hayesmaker/fix/headless-docker-build-tools (e295989)
+- chore: fix docker publish workflow (a8a0773)
+- Merge pull request #124 from hayesmaker/chore/update-changelog-2026-05-13T07-53-15-192Z-4e6e90f (a3c1275)
+- chore: update changelog (auto) (4e6e90f)
 - Merge pull request #123 from hayesmaker/feat/memory-read-api (e8ec073)
 
 ## v2.1.0 - 2026-05-13T08:51:29+01:00
