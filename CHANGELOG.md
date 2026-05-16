@@ -6,9 +6,16 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v2.2.0 - 2026-05-16T07:18:31+01:00
+
+- chore(release): 2.2.0 (e193ee5)
+- Merge pull request #131 from hayesmaker/feature/audo-diskload (855307e)
+- feat(headless): auto-load first mounted disk (de37688)
+- Merge pull request #129 from hayesmaker/chore/prep-fix-bump (f8898b6)
+
 ## v2.1.1 - 2026-05-14T18:17:10+01:00
 
-- chore(release): 2.1.1 (78f65ec)
+- chore(release): 2.1.1 (402ef33)
 - Merge pull request #128 from hayesmaker/chore/update-changelog-2026-05-14T17-13-29-305Z-aaa29f1 (9f6e274)
 - Merge branch 'master' into chore/update-changelog-2026-05-14T17-13-29-305Z-aaa29f1 (7e720dd)
 - chore: update changelog (auto) (aaa29f1)
