@@ -344,6 +344,8 @@ export class C64Player {
     await this.insertTextIntoKeyboardBuffer('LOAD"*",8,1');
     await waitMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
     await this.insertTextIntoKeyboardBuffer('\n');
+    await this.waitForKeyboardBufferEmpty();
+    await this.insertTextIntoKeyboardBuffer('run\n');
   }
 
   private async prepareFirstDiskLoad(): Promise<void> {
