@@ -30,6 +30,7 @@ describe('C64Emulator', () => {
         spReg = xReg;
       }),
       debugger_update: vi.fn(() => 1),
+      debugger_play: vi.fn(),
       debugger_step: vi.fn(() => {
         spReg = xReg;
       }),
@@ -142,6 +143,7 @@ describe('C64Emulator', () => {
     emulator.start();
     emulator.tick(10);
 
+    expect(exports.debugger_play).toHaveBeenCalledOnce();
     expect(exports.debugger_update).toHaveBeenCalledWith(10);
     expect(emulator.getFrameCount()).toBe(1);
     expect(onFrame).toHaveBeenCalledOnce();

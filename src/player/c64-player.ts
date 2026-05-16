@@ -14,6 +14,8 @@ const C64_KEYBOARD_BUFFER_LENGTH_ADDR = 0x00c6;
 const C64_KEYBOARD_BUFFER_ADDR = 0x0277;
 const C64_KEYBOARD_BUFFER_MAX_LENGTH = 8;
 const PRG_AUTORUN_DELAY_MS = 650;
+const DISK_AUTOLOAD_DELAY_MS = 1500;
+const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
 
 export interface C64PlayerOptions {
@@ -32,6 +34,9 @@ export class C64Player {
   private inputHandler: InputHandler | null = null;
   private disableCrtPreloadChecks: boolean = false;
   private destroyed: boolean = false;
+  private diskSessionActive: boolean = false;
+  private startupLoadInProgress: boolean = false;
+  private startupDiskAutoloadPending: boolean = false;
   readonly audio: AudioEngine;
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -52,16 +57,30 @@ export class C64Player {
     let shouldAutoRunPrgAfterStart = false;
 
     if (gameData !== undefined && gameData !== null) {
-      await this.loadGameData(gameData, gameType, gameSource ?? 'inline game data', onProgress);
+      this.startupLoadInProgress = true;
+      try {
+        await this.loadGameData(gameData, gameType, gameSource ?? 'inline game data', onProgress);
+      } finally {
+        this.startupLoadInProgress = false;
+      }
       shouldAutoRunPrgAfterStart = gameType === 'prg';
     } else if (gameUrl && gameUrl !== 'null') {
-      await this.loadGame(gameUrl, gameType, onProgress);
+      this.startupLoadInProgress = true;
+      try {
+        await this.loadGame(gameUrl, gameType, onProgress);
+      } finally {
+        this.startupLoadInProgress = false;
+      }
       shouldAutoRunPrgAfterStart = gameType === 'prg';
     }
 
     this.emulator.start();
     if (shouldAutoRunPrgAfterStart) {
       await this.autoRunPrgIfRunning();
+    }
+    if (this.startupDiskAutoloadPending) {
+      this.startupDiskAutoloadPending = false;
+      await this.autoLoadDiskIfRunning();
     }
 
     // Initialise audio in the background — never blocks game startup
@@ -201,6 +220,8 @@ export class C64Player {
     if (!this.emulator) return;
     try {
       this.emulator.removeCartridge();
+      this.diskSessionActive = false;
+      this.startupDiskAutoloadPending = false;
       window.dispatchEvent(new CustomEvent('c64-detach', { detail: {} }));
       window.dispatchEvent(new CustomEvent('c64-close-menu'));
     } catch (e) {
@@ -227,6 +248,8 @@ export class C64Player {
       await this.emulator.reboot();
       this.attachInputAndRenderer(this.emulator, this.options.renderer);
       this.emulator.start();
+      this.diskSessionActive = false;
+      this.startupDiskAutoloadPending = false;
       this.emulator.setSampleRate(this.audio.sampleRate);
       this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
       window.dispatchEvent(new CustomEvent('c64-reboot', { detail: {} }));
@@ -315,6 +338,25 @@ export class C64Player {
     await this.insertTextIntoKeyboardBuffer('run\n');
   }
 
+  private async autoLoadDiskIfRunning(): Promise<void> {
+    if (!this.emulator || !this.emulator.isRunning()) return;
+    await waitMs(DISK_AUTOLOAD_DELAY_MS);
+    await this.insertTextIntoKeyboardBuffer('LOAD"*",8,1');
+    await waitMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
+    await this.insertTextIntoKeyboardBuffer('\n');
+  }
+
+  private async prepareFirstDiskLoad(): Promise<void> {
+    if (!this.emulator || this.startupLoadInProgress) return;
+    try {
+      this.emulator.removeCartridge();
+    } catch {
+      this.emulator.reset();
+    }
+    this.emulator.start();
+    await waitMs(120);
+  }
+
   private async insertTextIntoKeyboardBuffer(text: string): Promise<void> {
     if (!this.emulator) return;
 
@@ -355,9 +397,22 @@ export class C64Player {
       if (type === 'crt') {
         this.handleCrtPreloadChecks(data, source, onProgress);
       }
+      const shouldAutoLoadDisk = type === 'd64' && !this.diskSessionActive;
+      if (shouldAutoLoadDisk) {
+        await this.prepareFirstDiskLoad();
+      }
       this.emulator.loadGame({ type, data });
       if (type === 'prg') {
+        this.diskSessionActive = false;
         await this.autoRunPrgIfRunning();
+      } else if (type === 'd64') {
+        this.diskSessionActive = true;
+        if (shouldAutoLoadDisk) {
+          if (this.startupLoadInProgress) this.startupDiskAutoloadPending = true;
+          else await this.autoLoadDiskIfRunning();
+        }
+      } else {
+        this.diskSessionActive = false;
       }
       onProgress?.(100, 'READY!');
       window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { ...eventDetail, type } }));

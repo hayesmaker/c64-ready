@@ -87,6 +87,7 @@ export class C64Emulator {
 
   start(): void {
     this.running = true;
+    this.wasm.exports?.debugger_play?.();
   }
   pause(): void {
     this.running = false;
