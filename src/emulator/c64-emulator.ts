@@ -330,7 +330,7 @@ export class C64Emulator {
   // Snapshot
   // ---------------------------------------------------------------------------
 
-  getSnapshot(): Uint8Array<ArrayBuffer> {
+  getSnapshot(): Uint8Array<ArrayBufferLike> {
     const x = this.wasm.exports;
     if (!x || !this.wasm.heap) throw new Error('WASM not ready');
     const ptr = x.c64_getSnapshot();

@@ -14,9 +14,9 @@
 import type { WASMExports } from '../types/emulator';
 
 export interface HeapViews {
-  heapU8: Uint8Array<ArrayBuffer>;
-  heapF32: Float32Array<ArrayBuffer>;
-  heapU32: Uint32Array<ArrayBuffer>;
+  heapU8: Uint8Array<ArrayBufferLike>;
+  heapF32: Float32Array<ArrayBufferLike>;
+  heapU32: Uint32Array<ArrayBufferLike>;
 }
 
 export class C64WASM {
@@ -78,7 +78,7 @@ export class C64WASM {
   // ---------------------------------------------------------------------------
 
   /** Allocate a buffer in WASM heap, write data, return pointer */
-  allocAndWrite(data: Uint8Array<ArrayBuffer>): number {
+  allocAndWrite(data: Uint8Array<ArrayBufferLike>): number {
     if (!this.exports || !this.heap) throw new Error('WASM not ready');
     const ptr = this.exports.malloc(data.length);
     // malloc may have grown memory, so refresh views before writing
