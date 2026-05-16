@@ -415,7 +415,9 @@ export class C64Player {
         this.diskSessionActive = false;
       }
       onProgress?.(100, 'READY!');
-      window.dispatchEvent(new CustomEvent('c64-load-success', { detail: { ...eventDetail, type } }));
+      window.dispatchEvent(
+        new CustomEvent('c64-load-success', { detail: { ...eventDetail, type } }),
+      );
     } catch (err) {
       onProgress?.(0, 'FAILED');
       console.error('Failed to insert cartridge or load game:', err);

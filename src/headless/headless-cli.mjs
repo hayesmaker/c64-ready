@@ -769,7 +769,9 @@ export async function runHeadless(options = {}) {
                       exports.c64_insertDisk(ptr, byteLen);
                       diskSessionActive = true;
                       if (autoLoadInsertedDisk) {
-                        await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: DISK_AUTOLOAD_SETTLE_MS });
+                        await typeCommandText(exports, 'LOAD"*",8,1\n', {
+                          settleMs: DISK_AUTOLOAD_SETTLE_MS,
+                        });
                       }
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();

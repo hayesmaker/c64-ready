@@ -162,7 +162,7 @@ export default class UIController {
     emptyState.hidden = gamepads.length > 0;
   }
 
-  private downloadSnapshot(snapshot: Uint8Array<any> ): void {
+  private downloadSnapshot(snapshot: Uint8Array<ArrayBuffer>): void {
     const snapshotCopy = new Uint8Array(snapshot.byteLength);
     snapshotCopy.set(snapshot);
     const blob = new Blob([snapshotCopy], { type: 'application/bin' });
@@ -261,9 +261,12 @@ export default class UIController {
   private async loadAndShowChangelog(container: HTMLElement) {
     container.classList.add('visible');
     try {
-      const res = await fetch(this.options.changelogUrl ?? resolveAssetUrl(this.options.assetBaseUrl, 'CHANGELOG.md'), {
-        cache: 'no-store',
-      });
+      const res = await fetch(
+        this.options.changelogUrl ?? resolveAssetUrl(this.options.assetBaseUrl, 'CHANGELOG.md'),
+        {
+          cache: 'no-store',
+        },
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw = await res.text();
 
@@ -327,13 +330,13 @@ export default class UIController {
       <div class="c64-menu-body">
         <div class="c64-settings-tabs" role="tablist" aria-label="Settings sections">
           ${sections
-      .map(
-        (section, i) =>
-          `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
-            i === 0 ? 'true' : 'false'
-          }">${section.label}</button>`,
-      )
-      .join('')}
+            .map(
+              (section, i) =>
+                `<button class="c64-settings-tab${i === 0 ? ' active' : ''}" data-settings-tab="${section.id}" role="tab" aria-selected="${
+                  i === 0 ? 'true' : 'false'
+                }">${section.label}</button>`,
+            )
+            .join('')}
         </div>
 
         <div class="c64-settings-sections">
@@ -604,7 +607,9 @@ export default class UIController {
 
     const section = panel.querySelector('[data-settings-section="system"]');
     // Detach cartridge / hard reset controls
-    const saveSnapshotBtn = section?.querySelector('#c64-save-snapshot-btn') as HTMLButtonElement | null;
+    const saveSnapshotBtn = section?.querySelector(
+      '#c64-save-snapshot-btn',
+    ) as HTMLButtonElement | null;
     const detachBtn = section?.querySelector('#c64-detach-btn') as HTMLButtonElement | null;
     const resetBtn = section?.querySelector('#c64-reset-btn') as HTMLButtonElement | null;
     const rebootBtn = section?.querySelector('#c64-reboot-btn') as HTMLButtonElement | null;

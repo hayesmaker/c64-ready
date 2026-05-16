@@ -380,7 +380,9 @@ export function createInputServer(opts = {}) {
   }
 
   function normalizeUsername(value) {
-    const username = String(value ?? '').trim().toLowerCase();
+    const username = String(value ?? '')
+      .trim()
+      .toLowerCase();
     return username || null;
   }
 
@@ -421,7 +423,8 @@ export function createInputServer(opts = {}) {
   }
 
   function handleInputTransportMessage({ msg, role, respond = null } = {}) {
-    if (!msg || (msg.type !== 'joystick' && msg.type !== 'key' && msg.type !== 'ping')) return false;
+    if (!msg || (msg.type !== 'joystick' && msg.type !== 'key' && msg.type !== 'ping'))
+      return false;
 
     if (msg.type === 'ping') {
       const now = Date.now();
@@ -463,9 +466,7 @@ export function createInputServer(opts = {}) {
             const hostLabel = hostAvg != null ? `${hostAvg}` : '--';
             const p2Label = p2Avg != null ? `${p2Avg}` : '--';
             if (logEvents || verbose) {
-              console.error(
-                `[event] input-latency host-avg=${hostLabel}ms p2-avg=${p2Label}ms`,
-              );
+              console.error(`[event] input-latency host-avg=${hostLabel}ms p2-avg=${p2Label}ms`);
             }
             _networkStats.host.avgLatency = hostAvg;
             _networkStats.p2.avgLatency = p2Avg;
@@ -519,7 +520,13 @@ export function createInputServer(opts = {}) {
   function handlePeerDataMessage({ addr = null, sessionId = null, msg, send = null } = {}) {
     const identity = getRoleByPeer({ addr, sessionId });
     if (!identity || (identity.role !== 'host' && identity.role !== 'p2')) return false;
-    return handleInputTransportMessage({ msg, role: identity.role, respond: send, isWebSocket: false, ws: identity.ws });
+    return handleInputTransportMessage({
+      msg,
+      role: identity.role,
+      respond: send,
+      isWebSocket: false,
+      ws: identity.ws,
+    });
   }
 
   function getWebrtcPeerCountByAddr() {
@@ -549,7 +556,11 @@ export function createInputServer(opts = {}) {
     const hostMeta = hostClient ? clientMeta.get(hostClient) : null;
     const p2Meta = p2Client ? clientMeta.get(p2Client) : null;
     const spectators = [];
-    const { snapshot: webrtcSnapshot, byAddr: webrtcByAddr, bySession: webrtcBySession } = getWebrtcPeerCountByAddr();
+    const {
+      snapshot: webrtcSnapshot,
+      byAddr: webrtcByAddr,
+      bySession: webrtcBySession,
+    } = getWebrtcPeerCountByAddr();
     const matchedPeerSlots = new Set();
     const webrtcPeers = Array.isArray(webrtcSnapshot?.peers) ? webrtcSnapshot.peers : [];
 
@@ -1088,7 +1099,11 @@ export function createInputServer(opts = {}) {
         const active = role === 'host' ? !!hostClient : !!p2Client;
         if (!active) {
           ws.send(
-            JSON.stringify({ type: 'admin-error', command: 'activity', reason: 'role-not-present' }),
+            JSON.stringify({
+              type: 'admin-error',
+              command: 'activity',
+              reason: 'role-not-present',
+            }),
           );
           return;
         }
@@ -1309,7 +1324,9 @@ export function createInputServer(opts = {}) {
           })
           .catch((e) => {
             if (ws.readyState === ws.OPEN) {
-              ws.send(JSON.stringify({ type: 'snapshot-save-error', reason: String(e?.message ?? e) }));
+              ws.send(
+                JSON.stringify({ type: 'snapshot-save-error', reason: String(e?.message ?? e) }),
+              );
             }
             if (verbose) console.error('[input-server] save-snapshot error:', e);
             logEv('error', { kind: 'save-snapshot-failed', err: String(e?.message ?? e) });
@@ -1441,7 +1458,9 @@ export function createInputServer(opts = {}) {
         _networkStatsTimer = null;
       }
       for (const client of wss.clients) {
-        try { client.terminate(); } catch (_) {}
+        try {
+          client.terminate();
+        } catch (_) {}
       }
       wss.close(() => resolve());
     });

@@ -79,7 +79,8 @@ export class C64WASM {
           overGrown = Math.min(overGrown, requestedSize + 100663296);
           const newSize = Math.min(
             maxHeapSize,
-            Math.ceil(Math.max(minHeapSize, requestedSize, overGrown) / PAGE_MULTIPLE) * PAGE_MULTIPLE,
+            Math.ceil(Math.max(minHeapSize, requestedSize, overGrown) / PAGE_MULTIPLE) *
+              PAGE_MULTIPLE,
           );
           try {
             mem.grow((newSize - mem.buffer.byteLength + 65535) >>> 16);
@@ -128,4 +129,3 @@ export class C64WASM {
 }
 
 export default C64WASM;
-
