@@ -196,6 +196,8 @@ function sleepMs(ms) {
 const DISK_AUTOLOAD_SETTLE_MS = 1500;
 const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const C64_KEYBOARD_BUFFER_LENGTH_ADDR = 0x00c6;
+const C64_KEYBOARD_BUFFER_ADDR = 0x0277;
+const C64_KEYBOARD_BUFFER_MAX_LENGTH = 8;
 const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
 
 async function typeCommandText(exports, text, opts = {}) {
@@ -236,13 +238,32 @@ async function waitForKeyboardBufferEmpty(exports, timeoutMs = PRG_AUTORUN_BUFFE
   }
 }
 
+async function insertTextIntoKeyboardBuffer(exports, text) {
+  if (!exports || typeof exports.c64_cpuWrite !== 'function') return;
+  const bytes = [];
+  const normalised = text.toUpperCase().replace(/\r\n/g, '\n');
+  for (let i = 0; i < normalised.length; i += 1) {
+    const code = normalised.charCodeAt(i);
+    bytes.push(code === 10 ? 13 : code);
+  }
+  while (bytes.length > 0) {
+    await waitForKeyboardBufferEmpty(exports);
+    const chunk = bytes.splice(0, C64_KEYBOARD_BUFFER_MAX_LENGTH);
+    exports.c64_cpuWrite(C64_KEYBOARD_BUFFER_LENGTH_ADDR, chunk.length);
+    for (let i = 0; i < chunk.length; i += 1) {
+      exports.c64_cpuWrite(C64_KEYBOARD_BUFFER_ADDR + i, chunk[i]);
+    }
+  }
+}
+
 async function autoLoadDiskWithRun(exports) {
   if (!exports) return;
-  await typeCommandText(exports, 'LOAD"*",8,1', { settleMs: DISK_AUTOLOAD_SETTLE_MS });
+  await sleepMs(DISK_AUTOLOAD_SETTLE_MS);
+  await insertTextIntoKeyboardBuffer(exports, 'LOAD"*",8,1');
   await sleepMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
-  await typeCommandText(exports, '\n');
+  await insertTextIntoKeyboardBuffer(exports, '\n');
   await waitForKeyboardBufferEmpty(exports);
-  await typeCommandText(exports, 'run\n');
+  await insertTextIntoKeyboardBuffer(exports, 'run\n');
 }
 
 // ── Build info ────────────────────────────────────────────────────────────────
@@ -819,14 +840,16 @@ export async function runHeadless(options = {}) {
                   // the audio RTP clock jumps forward by the same amount the video
                   // RTP clock advanced during the blockage.
                   resetSidRing();
-                  if (webrtcEncoder) {
-                    webrtcEncoder.pushSilenceForGap(gapMs);
-                    if (verbose)
-                      console.error(
-                        `[headless] pushed ${gapMs}ms silence to re-align audio RTP after cart load`,
-                      );
+                  if (loadType === 'crt' || loadType === 'snapshot') {
+                    if (webrtcEncoder) {
+                      webrtcEncoder.pushSilenceForGap(gapMs);
+                      if (verbose)
+                        console.error(
+                          `[headless] pushed ${gapMs}ms silence to re-align audio RTP after ${loadType} load`,
+                        );
+                    }
+                    if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
                   }
-                  if (webrtcServer) webrtcServer.forceKeyframe(webrtcEncoder?.videoTrack);
                   if (verbose)
                     console.error(
                       `[headless] file loaded: ${filename} (${loadType}, ${byteLen} bytes, gap=${gapMs}ms)`,
