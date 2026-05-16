@@ -26,50 +26,58 @@ export class FFmpegRunner {
   // Strategy B uses a named pipe (FIFO) for audio delivery.
   // Node opens the write end; ffmpeg opens the read end via a file path.
   // This is kernel-synchronised — no net.Server race, no unix socket.
-  _audioFifoPath = null;  // path to the FIFO
-  _audioFifoFd = null;    // write-end file descriptor (opened after ffmpeg starts)
+  _audioFifoPath = null; // path to the FIFO
+  _audioFifoFd = null; // write-end file descriptor (opened after ffmpeg starts)
   _audioFifoStream = null; // WriteStream wrapping the fd
   _liveAudio = false;
 
   // ── Process health ────────────────────────────────────────────────────────
   _diedResolve = null;
-  died = new Promise((resolve) => { this._diedResolve = resolve; });
+  died = new Promise((resolve) => {
+    this._diedResolve = resolve;
+  });
 
   async start(options = {}) {
-    const width      = options.width  || 384;
-    const height     = options.height || 272;
-    const fps        = options.fps    || 60;
-    const verbose    = !!options.verbose;
-    const audio      = !!options.audio;
+    const width = options.width || 384;
+    const height = options.height || 272;
+    const fps = options.fps || 60;
+    const verbose = !!options.verbose;
+    const audio = !!options.audio;
     const sampleRate = options.sampleRate || 44100;
 
-    this._audio      = audio;
+    this._audio = audio;
     this._sampleRate = sampleRate;
     this._audioChunks = [];
-    this._verbose    = verbose;
-    this._fps        = fps;
-    this._width      = width;
-    this._height     = height;
-    this._liveAudio  = false;
-    this._exitCode   = null;
-    this._stderr     = '';
-    this._audioFifoPath   = null;
-    this._audioFifoFd     = null;
+    this._verbose = verbose;
+    this._fps = fps;
+    this._width = width;
+    this._height = height;
+    this._liveAudio = false;
+    this._exitCode = null;
+    this._stderr = '';
+    this._audioFifoPath = null;
+    this._audioFifoFd = null;
     this._audioFifoStream = null;
 
     // Reset died promise for this run
-    this.died = new Promise((resolve) => { this._diedResolve = resolve; });
+    this.died = new Promise((resolve) => {
+      this._diedResolve = resolve;
+    });
 
     const isUrl = typeof options.output === 'string' && /^[a-zA-Z]+:\/\//.test(options.output);
     const outPath = isUrl
       ? options.output
-      : path.resolve(options.output || path.join(process.cwd(), 'temp', `c64-record-${Date.now()}.mp4`));
+      : path.resolve(
+          options.output || path.join(process.cwd(), 'temp', `c64-record-${Date.now()}.mp4`),
+        );
 
     if (!isUrl) {
-      try { await fs.mkdir(path.dirname(outPath), { recursive: true }); } catch (e) {}
+      try {
+        await fs.mkdir(path.dirname(outPath), { recursive: true });
+      } catch (e) {}
     }
 
-    this._isUrl   = isUrl;
+    this._isUrl = isUrl;
     this._outPath = outPath;
 
     // ── Raw mode ─────────────────────────────────────────────────────────────
@@ -117,22 +125,39 @@ export class FFmpegRunner {
             const reachable = await new Promise((resolve) => {
               const s = new net.Socket();
               s.setTimeout(2000);
-              s.once('connect', () => { s.destroy(); resolve(true); });
-              s.once('error', () => { s.destroy(); resolve(false); });
-              s.once('timeout', () => { s.destroy(); resolve(false); });
+              s.once('connect', () => {
+                s.destroy();
+                resolve(true);
+              });
+              s.once('error', () => {
+                s.destroy();
+                resolve(false);
+              });
+              s.once('timeout', () => {
+                s.destroy();
+                resolve(false);
+              });
               s.connect(port, host);
             });
             if (reachable) {
-              if (verbose) console.error(`[ffmpeg-runner] RTMP host ${host}:${port} reachable — waiting 5s for NMS to stabilise`);
+              if (verbose)
+                console.error(
+                  `[ffmpeg-runner] RTMP host ${host}:${port} reachable — waiting 5s for NMS to stabilise`,
+                );
               await new Promise((r) => setTimeout(r, 5000));
               break;
             }
-            if (verbose) console.error(`[ffmpeg-runner] RTMP host not ready, retrying in ${probeIntervalMs}ms...`);
+            if (verbose)
+              console.error(
+                `[ffmpeg-runner] RTMP host not ready, retrying in ${probeIntervalMs}ms...`,
+              );
             await new Promise((r) => setTimeout(r, probeIntervalMs));
             waited += probeIntervalMs;
           }
           if (waited >= maxWaitMs) {
-            console.error(`[ffmpeg-runner] RTMP host ${host}:${port} unreachable after ${maxWaitMs}ms`);
+            console.error(
+              `[ffmpeg-runner] RTMP host ${host}:${port} unreachable after ${maxWaitMs}ms`,
+            );
           }
         }
       }
@@ -151,23 +176,48 @@ export class FFmpegRunner {
       if (isUrl) args.push('-re');
       // Video input: stdin (fd0)
       args.push(
-        '-thread_queue_size', '512',
-        '-f', 'rawvideo', '-pix_fmt', 'rgba',
-        '-s', `${width}x${height}`, '-r', String(fps),
-        '-i', 'pipe:0',
+        '-thread_queue_size',
+        '512',
+        '-f',
+        'rawvideo',
+        '-pix_fmt',
+        'rgba',
+        '-s',
+        `${width}x${height}`,
+        '-r',
+        String(fps),
+        '-i',
+        'pipe:0',
       );
       // Audio input: fd3 pipe
       args.push(
-        '-thread_queue_size', '512',
-        '-f', 'f32le', '-ar', String(sampleRate), '-ac', '1',
-        '-i', 'pipe:3',
+        '-thread_queue_size',
+        '512',
+        '-f',
+        'f32le',
+        '-ar',
+        String(sampleRate),
+        '-ac',
+        '1',
+        '-i',
+        'pipe:3',
       );
       // Encoders
       args.push(
-        '-pix_fmt', 'yuv420p',
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-        '-g', String(Math.max(1, Math.round(fps))),
-        '-c:a', 'aac', '-b:a', '128k',
+        '-pix_fmt',
+        'yuv420p',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'ultrafast',
+        '-tune',
+        'zerolatency',
+        '-g',
+        String(Math.max(1, Math.round(fps))),
+        '-c:a',
+        'aac',
+        '-b:a',
+        '128k',
       );
       // Output format + destination
       if (isUrl) {
@@ -175,7 +225,11 @@ export class FFmpegRunner {
       }
       args.push('-y', outPath);
 
-      if (verbose) console.error(`[ffmpeg-runner] strategy B (pipe audio fd3, ${isUrl ? 'rtmp' : 'file'}):`, args.join(' '));
+      if (verbose)
+        console.error(
+          `[ffmpeg-runner] strategy B (pipe audio fd3, ${isUrl ? 'rtmp' : 'file'}):`,
+          args.join(' '),
+        );
 
       // Spawn with 4 stdio streams: [stdin, stdout, stderr, audioWrite]
       this.proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
@@ -195,24 +249,46 @@ export class FFmpegRunner {
       this._audioFifoPath = null;
       this._audioFifoFd = null;
 
-      this.proc.on('error', (err) => { this._stderr += `\nspawn error: ${String(err)}`; try { this.stdin = null; } catch (e) {} });
+      this.proc.on('error', (err) => {
+        this._stderr += `\nspawn error: ${String(err)}`;
+        try {
+          this.stdin = null;
+        } catch (e) {}
+      });
       this.proc.stdin && this.proc.stdin.on('error', () => {});
       try {
-        this.proc.stdout && this.proc.stdout.on('data', (d) => { this._stderr += String(d); if (verbose) process.stdout.write(d); });
-        this.proc.stderr && this.proc.stderr.on('data', (d) => { this._stderr += String(d); if (verbose) process.stderr.write(d); });
+        this.proc.stdout &&
+          this.proc.stdout.on('data', (d) => {
+            this._stderr += String(d);
+            if (verbose) process.stdout.write(d);
+          });
+        this.proc.stderr &&
+          this.proc.stderr.on('data', (d) => {
+            this._stderr += String(d);
+            if (verbose) process.stderr.write(d);
+          });
       } catch (e) {}
       this.proc.on('close', (code) => {
         this._exitCode = code;
-        try { this.stdin = null; } catch (e) {}
-        if (this._diedResolve) { this._diedResolve(code); this._diedResolve = null; }
+        try {
+          this.stdin = null;
+        } catch (e) {}
+        if (this._diedResolve) {
+          this._diedResolve(code);
+          this._diedResolve = null;
+        }
         if (code !== 0 && code !== null) {
-          console.error(`[ffmpeg-runner] ffmpeg exited unexpectedly (code ${code}): ${this._stderr.slice(-400)}`);
+          console.error(
+            `[ffmpeg-runner] ffmpeg exited unexpectedly (code ${code}): ${this._stderr.slice(-400)}`,
+          );
         }
         // Audio pipe (fd3) is owned by the child process — just null the ref.
         this._audioFifoStream = null;
         this._audioFifoFd = null;
       });
-      try { this.proc.stdin.setMaxListeners(100); } catch (e) {}
+      try {
+        this.proc.stdin.setMaxListeners(100);
+      } catch (e) {}
 
       // No silent pre-prime needed: ffmpeg reads video (pipe:0) and audio
       // (pipe:3) on independent threads, so neither blocks the other at
@@ -229,18 +305,36 @@ export class FFmpegRunner {
     const args = [];
     if (!verbose) args.push('-hide_banner', '-nostats', '-loglevel', 'warning');
     args.push(
-      '-f', 'rawvideo', '-pix_fmt', 'rgba',
-      '-s', `${width}x${height}`, '-r', String(fps),
-      '-i', 'pipe:0',
-      '-pix_fmt', 'yuv420p',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-      '-g', String(Math.max(1, Math.round(fps))),
+      '-f',
+      'rawvideo',
+      '-pix_fmt',
+      'rgba',
+      '-s',
+      `${width}x${height}`,
+      '-r',
+      String(fps),
+      '-i',
+      'pipe:0',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-tune',
+      'zerolatency',
+      '-g',
+      String(Math.max(1, Math.round(fps))),
       '-an',
     );
     if (isUrl) args.push('-f', 'flv');
     args.push('-y', outPath);
 
-    if (verbose) console.error(`[ffmpeg-runner] strategy A (video-only, ${isUrl ? 'rtmp' : 'file'}):`, args.join(' '));
+    if (verbose)
+      console.error(
+        `[ffmpeg-runner] strategy A (video-only, ${isUrl ? 'rtmp' : 'file'}):`,
+        args.join(' '),
+      );
 
     this.proc = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
     this.stdin = this.proc.stdin;
@@ -248,21 +342,43 @@ export class FFmpegRunner {
     this._stderr = '';
     this._exitCode = null;
 
-    this.proc.on('error', (err) => { this._stderr += `\nspawn error: ${String(err)}`; try { this.stdin = null; } catch (e) {} });
+    this.proc.on('error', (err) => {
+      this._stderr += `\nspawn error: ${String(err)}`;
+      try {
+        this.stdin = null;
+      } catch (e) {}
+    });
     this.proc.stdin && this.proc.stdin.on('error', () => {});
     try {
-      this.proc.stdout && this.proc.stdout.on('data', (d) => { this._stderr += String(d); if (verbose) process.stdout.write(d); });
-      this.proc.stderr && this.proc.stderr.on('data', (d) => { this._stderr += String(d); if (verbose) process.stderr.write(d); });
+      this.proc.stdout &&
+        this.proc.stdout.on('data', (d) => {
+          this._stderr += String(d);
+          if (verbose) process.stdout.write(d);
+        });
+      this.proc.stderr &&
+        this.proc.stderr.on('data', (d) => {
+          this._stderr += String(d);
+          if (verbose) process.stderr.write(d);
+        });
     } catch (e) {}
     this.proc.on('close', (code) => {
       this._exitCode = code;
-      try { this.stdin = null; } catch (e) {}
-      if (this._diedResolve) { this._diedResolve(code); this._diedResolve = null; }
+      try {
+        this.stdin = null;
+      } catch (e) {}
+      if (this._diedResolve) {
+        this._diedResolve(code);
+        this._diedResolve = null;
+      }
       if (code !== 0 && code !== null) {
-        console.error(`[ffmpeg-runner] ffmpeg exited unexpectedly (code ${code}): ${this._stderr.slice(-400)}`);
+        console.error(
+          `[ffmpeg-runner] ffmpeg exited unexpectedly (code ${code}): ${this._stderr.slice(-400)}`,
+        );
       }
     });
-    try { this.proc.stdin.setMaxListeners(100); } catch (e) {}
+    try {
+      this.proc.stdin.setMaxListeners(100);
+    } catch (e) {}
 
     return !!this.proc && !!this.proc.pid;
   }
@@ -278,7 +394,9 @@ export class FFmpegRunner {
     if (this._raw) {
       try {
         if (this._stream && !this._stream.destroyed)
-          this._stream.write(Buffer.from(videoFrame.buffer, videoFrame.byteOffset, videoFrame.byteLength));
+          this._stream.write(
+            Buffer.from(videoFrame.buffer, videoFrame.byteOffset, videoFrame.byteLength),
+          );
       } catch (e) {}
       return Promise.resolve(true);
     }
@@ -294,12 +412,12 @@ export class FFmpegRunner {
       if (this._liveAudio && this._audioFifoStream && !this._audioFifoStream.destroyed) {
         try {
           this._audioFifoStream.write(
-            Buffer.from(audioChunk.buffer, audioChunk.byteOffset, audioChunk.byteLength)
+            Buffer.from(audioChunk.buffer, audioChunk.byteOffset, audioChunk.byteLength),
           );
         } catch (e) {}
       } else if (!this._liveAudio) {
         this._audioChunks.push(
-          Buffer.from(audioChunk.buffer, audioChunk.byteOffset, audioChunk.byteLength)
+          Buffer.from(audioChunk.buffer, audioChunk.byteOffset, audioChunk.byteLength),
         );
       }
     }
@@ -344,8 +462,11 @@ export class FFmpegRunner {
           }, 100);
           const watchdog = setTimeout(() => {
             if (this.proc && this._exitCode === null) {
-              if (this._verbose) console.error('[ffmpeg-runner] stdin drain timeout — killing ffmpeg');
-              try { this.proc.kill('SIGTERM'); } catch (e) {}
+              if (this._verbose)
+                console.error('[ffmpeg-runner] stdin drain timeout — killing ffmpeg');
+              try {
+                this.proc.kill('SIGTERM');
+              } catch (e) {}
             }
             done(false);
           }, 15000);
@@ -353,7 +474,9 @@ export class FFmpegRunner {
         } else {
           setImmediate(() => resolve(true));
         }
-      } catch (e) { resolve(false); }
+      } catch (e) {
+        resolve(false);
+      }
     });
   }
 
@@ -365,22 +488,30 @@ export class FFmpegRunner {
         if (!this._stream || this._stream.destroyed) return false;
         this._stream.write(Buffer.from(frame.buffer ?? frame, frame.byteOffset, frame.byteLength));
         return true;
-      } catch (e) { return false; }
+      } catch (e) {
+        return false;
+      }
     }
     if (!this.stdin || this.stdin.destroyed) return false;
     try {
       this.stdin.write(Buffer.from(frame.buffer ?? frame, frame.byteOffset, frame.byteLength));
       return true;
-    } catch (e) { return false; }
+    } catch (e) {
+      return false;
+    }
   }
 
   tryWriteAudio(samples) {
     if (!this._audio) return false;
     if (this._liveAudio && this._audioFifoStream && !this._audioFifoStream.destroyed) {
       try {
-        this._audioFifoStream.write(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength));
+        this._audioFifoStream.write(
+          Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength),
+        );
         return true;
-      } catch (e) { return false; }
+      } catch (e) {
+        return false;
+      }
     }
     this._audioChunks.push(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength));
     return true;
@@ -408,13 +539,17 @@ export class FFmpegRunner {
     // ── Strategy B cleanup ────────────────────────────────────────────────
     if (this._liveAudio) {
       // Audio pipe (fd3) is owned by the child — end it to signal EOF to ffmpeg.
-      try { if (this._audioFifoStream && !this._audioFifoStream.destroyed) this._audioFifoStream.end(); } catch (e) {}
+      try {
+        if (this._audioFifoStream && !this._audioFifoStream.destroyed) this._audioFifoStream.end();
+      } catch (e) {}
       this._audioFifoStream = null;
       this._audioFifoFd = null;
     }
 
     // End video stdin
-    try { this.stdin.end(); } catch (e) {}
+    try {
+      this.stdin.end();
+    } catch (e) {}
 
     await new Promise((resolve, reject) => {
       const onClose = () => {
@@ -428,7 +563,12 @@ export class FFmpegRunner {
       };
       if (this._exitCode !== null) return onClose();
       this.proc.once('close', onClose);
-      setTimeout(() => { if (this.proc) try { this.proc.kill('SIGTERM'); } catch (e) {} }, 10000);
+      setTimeout(() => {
+        if (this.proc)
+          try {
+            this.proc.kill('SIGTERM');
+          } catch (e) {}
+      }, 10000);
     });
 
     if (this._liveAudio) return this._outPath;
@@ -439,4 +579,3 @@ export class FFmpegRunner {
 }
 
 export default FFmpegRunner;
-

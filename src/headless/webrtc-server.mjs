@@ -51,10 +51,7 @@ function buildTimedTurnCredentials({
   const safeLabel = String(usernameLabel ?? '').trim() || 'c64live';
   const expiresAt = Math.floor(nowSeconds) + normalizeTurnTtlSeconds(ttlSeconds);
   const username = `${expiresAt}:${safeLabel}`;
-  const credential = crypto
-    .createHmac('sha1', safeSecret)
-    .update(username)
-    .digest('base64');
+  const credential = crypto.createHmac('sha1', safeSecret).update(username).digest('base64');
 
   return { username, credential };
 }
@@ -116,11 +113,12 @@ function buildIceServers({
   if (verbose) {
     const stunCount = stunUrls.length;
     const turnCount = turnUrls.length;
-    const turnMode = turnUrls.length > 0 && turnSecret
-      ? 'timed'
-      : turnUrls.length > 0 && turnUsername && turnPassword
-        ? 'static'
-        : 'disabled';
+    const turnMode =
+      turnUrls.length > 0 && turnSecret
+        ? 'timed'
+        : turnUrls.length > 0 && turnUsername && turnPassword
+          ? 'static'
+          : 'disabled';
     console.error(
       `[webrtc] ICE config stunUrls=${stunCount} turnUrls=${turnCount} turnMode=${turnMode}`,
     );
@@ -177,16 +175,17 @@ export function createWebRTCServer({
   onPeerConnected,
   onDataChannelInput,
 } = {}) {
-  const buildRuntimeIceServers = () => buildIceServers({
-    iceStunUrls,
-    iceTurnUrls,
-    iceTurnSecret,
-    iceTurnTtlSeconds,
-    iceTurnUsernameLabel,
-    iceTurnUsername,
-    iceTurnPassword,
-    verbose,
-  });
+  const buildRuntimeIceServers = () =>
+    buildIceServers({
+      iceStunUrls,
+      iceTurnUrls,
+      iceTurnSecret,
+      iceTurnTtlSeconds,
+      iceTurnUsernameLabel,
+      iceTurnUsername,
+      iceTurnPassword,
+      verbose,
+    });
 
   const iceServers = buildRuntimeIceServers();
 
@@ -533,7 +532,9 @@ export function createWebRTCServer({
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       const requestIceServers = buildRuntimeIceServers();
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe, requestIceServers));
+      res.end(
+        buildBrowserHtml(inputPort, minBitrateKbpsSafe, maxBitrateKbpsSafe, requestIceServers),
+      );
     } else if (req.method === 'GET' && req.url === '/ice-config') {
       const requestIceServers = buildRuntimeIceServers();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

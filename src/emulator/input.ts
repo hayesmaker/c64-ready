@@ -501,11 +501,25 @@ export class EmulatorInput {
   private gamepadIndex: number = -1;
   private gamepadPresses: Array<boolean> = [];
   /**
-   * Ultimate 8bitdo axes: 
+   * Ultimate 8bitdo axes:
    * [LeftX, LeftX, LeftUp, LeftDown, L2, RightX, RightX, RightUp, RightDown, R2, DpadX, DpadX, DpadY, DpadY]
-  **/
-  private gamepadAxes: Array<boolean> = 
-    [false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+   **/
+  private gamepadAxes: Array<boolean> = [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ];
   private potFire2Pressed = false;
   private potFire3Pressed = false;
   private readonly pressedControls = new Set<MappedControl>();
@@ -587,7 +601,7 @@ export class EmulatorInput {
               //this.pushJoystickInput(JOYSTICK_FIRE_3);
               break;
             case 7:
-            case 9:  
+            case 9:
               this.emulator.keyDown(C64_KEY.RUN_STOP);
               break;
             case 14:
@@ -890,7 +904,7 @@ export class EmulatorInput {
     this.emulator.joystickRelease(this.joystickPort, input);
   }
 
-   private releaseAll(): void {
+  private releaseAll(): void {
     for (const control of this.pressedControls) {
       this.releaseJoystickInput(KEY_TO_JOYSTICK[control]);
     }

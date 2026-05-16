@@ -5,7 +5,7 @@ declare module './headless-cli.mjs' {
   export interface RunHeadlessOptions {
     argv?: string[];
     instantiateFn?: (
-      wasmBinary: ArrayBuffer | Uint8Array,
+      wasmBinary: ArrayBuffer | Uint8Array<ArrayBuffer>,
       importObject: unknown,
     ) => Promise<{ instance: { exports: unknown } }>;
     repoRoot?: string;

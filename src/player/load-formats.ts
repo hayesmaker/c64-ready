@@ -49,7 +49,7 @@ export function getAcceptForLoadTypeSelection(selection: LoadTypeSelection): str
   const exts =
     selection === 'auto'
       ? LOAD_FORMAT_OPTIONS.flatMap((f) => f.extensions)
-      : LOAD_FORMAT_OPTIONS.find((f) => f.type === selection)?.extensions ?? [];
+      : (LOAD_FORMAT_OPTIONS.find((f) => f.type === selection)?.extensions ?? []);
   return exts.join(',');
 }
 
