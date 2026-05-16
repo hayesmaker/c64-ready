@@ -28,6 +28,16 @@ function makeFakeInstantiate(extraExports: Record<string, unknown> = {}) {
 }
 
 describe('headless CLI', () => {
+  it('auto-loads only the first disk by default unless explicitly overridden', async () => {
+    // @ts-expect-error TS7016: module has no declaration file
+    const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
+
+    expect(mod.shouldAutoLoadDisk(undefined, false)).toBe(true);
+    expect(mod.shouldAutoLoadDisk(undefined, true)).toBe(false);
+    expect(mod.shouldAutoLoadDisk(true, true)).toBe(true);
+    expect(mod.shouldAutoLoadDisk(false, false)).toBe(false);
+  });
+
   it('runs with fake wasm instantiate and loads game', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..');
     const wasmPath = path.join(repoRoot, 'virtual', 'fake.wasm');
@@ -258,4 +268,3 @@ describe('headless CLI', () => {
     expect(onDataCalls.length).toBe(before);
   });
 });
-
