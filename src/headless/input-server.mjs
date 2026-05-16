@@ -1210,7 +1210,7 @@ export function createInputServer(opts = {}) {
           )
           .then(() => {
             currentCartFilename = loadFilename || null;
-            broadcastAll({ type: 'cart-loaded', filename: loadFilename });
+            broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType });
           })
           .catch((e) => {
             broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
@@ -1242,7 +1242,7 @@ export function createInputServer(opts = {}) {
           )
           .then(() => {
             currentCartFilename = loadFilename || null;
-            broadcastAll({ type: 'cart-loaded', filename: loadFilename });
+            broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: 'crt' });
           })
           .catch((e) => {
             broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
