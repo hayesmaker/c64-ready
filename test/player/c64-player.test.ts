@@ -147,7 +147,7 @@ describe('C64Player', () => {
     }
   });
 
-  it('auto-types LOAD command after loading the first D64 file only', async () => {
+  it('auto-types LOAD and queues RUN after loading the first D64 file only', async () => {
     vi.useFakeTimers();
     try {
       const emulator = makeFakeEmulator();
@@ -187,6 +187,11 @@ describe('C64Player', () => {
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, '1'.charCodeAt(0));
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 1);
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 13);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 4);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'R'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'U'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'N'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 13);
 
       emulator.cpuWrite.mockClear();
       const disk2 = {
@@ -347,7 +352,7 @@ describe('C64Player', () => {
     }
   });
 
-  it('auto-types LOAD command after startup autoloads direct D64 data', async () => {
+  it('auto-types LOAD and queues RUN after startup autoloads direct D64 data', async () => {
     vi.useFakeTimers();
     try {
       const emulator = makeFakeEmulator();
@@ -372,6 +377,11 @@ describe('C64Player', () => {
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 'D'.charCodeAt(0));
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 1);
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 13);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 4);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'R'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'U'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'N'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 13);
     } finally {
       vi.useRealTimers();
     }

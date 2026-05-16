@@ -6,9 +6,24 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v2.3.0 - 2026-05-16T11:00:04+01:00
+
+- chore(release): 2.3.0 (86ee789)
+- feat(headless): add auto-RUN after disk LOAD and fix audio startup race (062828d)
+- feat: autorun disk (a879c57)
+- Merge pull request #142 from hayesmaker/fix/array-buffer-typescript-failures (9db7b9b)
+- fix: another ArrayBuffer fixup (628da43)
+- Merge pull request #140 from hayesmaker/fix/array-buffer-typescript-failures (f5bd622)
+- fix: use array buffer like types (9e253fa)
+- Merge pull request #138 from hayesmaker/chore/cleanup-and-format (4f40388)
+- chore: code cleanup and lint fixing (2cb3c5a)
+- Merge pull request #136 from hayesmaker/feat/offline-disk-autoload (9850a8b)
+- feat: offline and headless disk autoload parity (8cba1cc)
+- Merge pull request #133 from hayesmaker/chore/bump-minor (85beda7)
+
 ## v2.2.0 - 2026-05-16T07:18:31+01:00
 
-- chore(release): 2.2.0 (e193ee5)
+- chore(release): 2.2.0 (e768bce)
 - Merge pull request #131 from hayesmaker/feature/audo-diskload (855307e)
 - feat(headless): auto-load first mounted disk (de37688)
 - Merge pull request #129 from hayesmaker/chore/prep-fix-bump (f8898b6)

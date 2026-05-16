@@ -103,14 +103,13 @@ export class C64Player {
       window.dispatchEvent(new CustomEvent('c64-audio-state', { detail: state }));
     };
 
+    this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
+
     // Fire-and-forget init
     this.audio.init().then((autoplayOk) => {
       if (!this.emulator) return;
       // Tell the SID what sample rate we're using (matches AudioContext)
       this.emulator.setSampleRate(this.audio.sampleRate);
-
-      // Give the engine a reader that snapshots the SID circular buffer
-      this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
 
       if (!autoplayOk) {
         window.dispatchEvent(new CustomEvent('c64-audio-suspended'));
@@ -344,6 +343,8 @@ export class C64Player {
     await this.insertTextIntoKeyboardBuffer('LOAD"*",8,1');
     await waitMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
     await this.insertTextIntoKeyboardBuffer('\n');
+    await this.waitForKeyboardBufferEmpty();
+    await this.insertTextIntoKeyboardBuffer('run\n');
   }
 
   private async prepareFirstDiskLoad(): Promise<void> {

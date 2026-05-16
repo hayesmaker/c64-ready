@@ -27,6 +27,7 @@ const player = new C64Player({
   gameUrl,
   gameType,
   renderer,
+  audio: { assetBaseUrl: base },
   onProgress: (pct, label) => renderer.setProgress(pct, label),
 });
 

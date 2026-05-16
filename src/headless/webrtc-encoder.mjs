@@ -166,6 +166,26 @@ export class WebRTCEncoder {
   }
 
   /**
+   * Push a small amount of silence so newly-created audio tracks have data
+   * before the main emulation loop delivers the first SID frame.
+   * @param {number} chunks Number of 10 ms audio chunks to push.
+   */
+  primeAudio(chunks = 1) {
+    if (!this.audioSource || chunks <= 0) return;
+    const chunkSize = this._audioChunkSize;
+    this._audioInt16.fill(0);
+    for (let i = 0; i < chunks; i++) {
+      this.audioSource.onData({
+        samples: this._audioInt16,
+        sampleRate: this._sampleRate,
+        bitsPerSample: 16,
+        channelCount: 1,
+        numberOfFrames: chunkSize,
+      });
+    }
+  }
+
+  /**
    * Set the frame rate used to compute video timestamps.
    * Must be called after init() if the fps differs from the default 50.
    * @param {number} fps

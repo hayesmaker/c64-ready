@@ -101,6 +101,7 @@ export class AudioEngine {
         this._suspended = this.ctx?.state === 'suspended';
         if (wasSuspended !== this._suspended) {
           this.fireStateChange();
+          this.feedWorklet();
         }
       });
 
@@ -140,6 +141,7 @@ export class AudioEngine {
     };
 
     this._ready = true;
+    this.feedWorklet();
   }
 
   // ── SID buffer reader ─────────────────────────────────────────────────────
@@ -150,6 +152,7 @@ export class AudioEngine {
    */
   setSidBufferReader(reader: SidBufferReader): void {
     this._readSidBuffer = reader;
+    this.feedWorklet();
   }
 
   // ── Sample feeding ────────────────────────────────────────────────────────
@@ -171,6 +174,7 @@ export class AudioEngine {
       await this.ctx.resume();
       this._suspended = this.ctx.state === 'suspended';
       this.fireStateChange();
+      this.feedWorklet();
     } catch (err) {
       console.error('AudioEngine: resume failed', err);
     }
