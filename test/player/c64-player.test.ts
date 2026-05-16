@@ -13,6 +13,9 @@ describe('C64Player', () => {
       start: vi.fn(),
       pause: vi.fn(),
       reboot: vi.fn().mockResolvedValue(undefined),
+      removeCartridge: vi.fn(),
+      reset: vi.fn(),
+      debuggerPlay: vi.fn(),
       setCrtPreloadChecksEnabled: vi.fn(),
       isRunning: vi.fn(() => true),
       keyDown: vi.fn(),
@@ -144,6 +147,65 @@ describe('C64Player', () => {
     }
   });
 
+  it('auto-types LOAD command after loading the first D64 file only', async () => {
+    vi.useFakeTimers();
+    try {
+      const emulator = makeFakeEmulator();
+      vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+      const player = new C64Player({
+        wasmUrl: '/c64.wasm',
+        gameUrl: '',
+        renderer: makeFakeRenderer(),
+      });
+
+      await player.start();
+      const disk1 = {
+        name: 'disk1.d64',
+        arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer),
+      } as unknown as File;
+
+      const firstLoad = player.loadFile(disk1, 'd64');
+      await vi.advanceTimersByTimeAsync(2500);
+      await firstLoad;
+
+      expect(emulator.removeCartridge).toHaveBeenCalledOnce();
+      expect(emulator.start).toHaveBeenCalledTimes(2);
+      expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'd64', data: expect.any(Uint8Array) });
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 8);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'L'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'O'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'A'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 'D'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027b, '"'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027c, '*'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027d, '"'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027e, ','.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 3);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, '8'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, ','.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, '1'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 1);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 13);
+
+      emulator.cpuWrite.mockClear();
+      const disk2 = {
+        name: 'disk2.d64',
+        arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([5, 6, 7, 8]).buffer),
+      } as unknown as File;
+
+      const secondLoad = player.loadFile(disk2, 'd64');
+      await vi.advanceTimersByTimeAsync(2500);
+      await secondLoad;
+
+      expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'd64', data: expect.any(Uint8Array) });
+      expect(emulator.removeCartridge).toHaveBeenCalledOnce();
+      expect(emulator.cpuWrite).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('starts emulator without autoload when gameUrl is empty', async () => {
     const emulator = makeFakeEmulator();
     vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
@@ -270,7 +332,7 @@ describe('C64Player', () => {
       });
 
       const startPromise = player.start();
-      await vi.advanceTimersByTimeAsync(1500);
+      await vi.advanceTimersByTimeAsync(2500);
       await startPromise;
 
       expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'prg', data: expect.any(Uint8Array) });
@@ -280,6 +342,36 @@ describe('C64Player', () => {
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0278, 'U'.charCodeAt(0));
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0279, 'N'.charCodeAt(0));
       expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 13);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('auto-types LOAD command after startup autoloads direct D64 data', async () => {
+    vi.useFakeTimers();
+    try {
+      const emulator = makeFakeEmulator();
+      vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+      const player = new C64Player({
+        wasmUrl: '/c64.wasm',
+        gameUrl: '',
+        gameData: new Uint8Array([1, 2, 3, 4]),
+        gameType: 'd64',
+        renderer: makeFakeRenderer(),
+      });
+
+      const startPromise = player.start();
+      await vi.advanceTimersByTimeAsync(3000);
+      await startPromise;
+
+      expect(emulator.loadGame).toHaveBeenCalledWith({ type: 'd64', data: expect.any(Uint8Array) });
+      expect(emulator.start).toHaveBeenCalledOnce();
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 8);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 'L'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x027a, 'D'.charCodeAt(0));
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x00c6, 1);
+      expect(emulator.cpuWrite).toHaveBeenCalledWith(0x0277, 13);
     } finally {
       vi.useRealTimers();
     }

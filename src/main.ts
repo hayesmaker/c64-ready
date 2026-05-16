@@ -31,7 +31,7 @@ const player = new C64Player({
 });
 
 // Initialise UI with reference to the player (for audio controls)
-new UIController().init(player);
+new UIController({ assetBaseUrl: base }).init(player);
 
 player
   .start()

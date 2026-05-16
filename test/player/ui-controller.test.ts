@@ -14,6 +14,7 @@ describe('UIController', () => {
       createObjectURL: vi.fn(() => 'blob:mock-snapshot'),
       revokeObjectURL: vi.fn(),
     });
+    window.localStorage.clear();
   });
 
   function makeGamepad(index: number, id = `Pad ${index}`): Gamepad {
@@ -222,4 +223,20 @@ describe('UIController', () => {
     expect(clickSpy).toHaveBeenCalledOnce();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-snapshot');
   });
+
+  it('loads the tools manifest relative to the configured asset base URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ tools: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const ui = new UIController({ assetBaseUrl: '/c64-ready/' });
+    ui.init(makePlayer());
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/c64-ready/tools/tools.json', { cache: 'no-store' });
+    });
+  });
+
 });

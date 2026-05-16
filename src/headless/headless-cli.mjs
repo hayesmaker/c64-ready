@@ -193,6 +193,8 @@ function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const DISK_AUTOLOAD_SETTLE_MS = 1500;
+
 async function typeCommandText(exports, text, opts = {}) {
   if (!exports) return;
   const settleMs = Number.isFinite(opts.settleMs) ? opts.settleMs : 120;
@@ -591,7 +593,7 @@ export async function runHeadless(options = {}) {
           exports.c64_setDriveEnabled(1);
           exports.c64_insertDisk(ptr, gameData.length);
           diskSessionActive = true;
-          await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: 250 });
+          await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: DISK_AUTOLOAD_SETTLE_MS });
         } else if (gameType === 'snapshot') {
           exports.c64_reset();
           exports.c64_loadSnapshot(ptr, gameData.length);
@@ -767,7 +769,7 @@ export async function runHeadless(options = {}) {
                       exports.c64_insertDisk(ptr, byteLen);
                       diskSessionActive = true;
                       if (autoLoadInsertedDisk) {
-                        await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: 250 });
+                        await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: DISK_AUTOLOAD_SETTLE_MS });
                       }
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();
