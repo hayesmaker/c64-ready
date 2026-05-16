@@ -162,7 +162,7 @@ export default class UIController {
     emptyState.hidden = gamepads.length > 0;
   }
 
-  private downloadSnapshot(snapshot: Uint8Array<ArrayBuffer>): void {
+  private downloadSnapshot(snapshot: Uint8Array<ArrayBufferLike>): void {
     const snapshotCopy = new Uint8Array(snapshot.byteLength);
     snapshotCopy.set(snapshot);
     const blob = new Blob([snapshotCopy], { type: 'application/bin' });
