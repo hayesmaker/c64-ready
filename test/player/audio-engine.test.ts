@@ -138,6 +138,18 @@ describe('AudioEngine', () => {
     );
   });
 
+  it('loads the worklet processor relative to assetBaseUrl', async () => {
+    const mocks = makeMockAudioContext('running');
+    installMocks(mocks);
+
+    const engine = new AudioEngine({ assetBaseUrl: '/c64-ready/' });
+    await engine.init();
+
+    expect(mocks.mockCtx.audioWorklet.addModule).toHaveBeenCalledWith(
+      '/c64-ready/audio-worklet-processor.js',
+    );
+  });
+
   it('connects the audio graph: worklet → gain → destination', async () => {
     const mocks = makeMockAudioContext('running');
     installMocks(mocks);
@@ -280,7 +292,7 @@ describe('AudioEngine', () => {
     expect(engine.muted).toBe(false);
   });
 
-  it('setSidBufferReader registers a reader', async () => {
+  it('setSidBufferReader registers a reader and primes the worklet', async () => {
     const mocks = makeMockAudioContext('running');
     installMocks(mocks);
 
@@ -290,14 +302,52 @@ describe('AudioEngine', () => {
     const reader = vi.fn(() => new Float32Array(4096));
     engine.setSidBufferReader(reader);
 
+    expect(reader).toHaveBeenCalledOnce();
+    expect(mocks.mockPort.postMessage).toHaveBeenCalledOnce();
+
     // Simulate the worklet requesting samples
     mocks.mockPort.onmessage?.({ data: 'need-samples' });
 
-    expect(reader).toHaveBeenCalledOnce();
+    expect(reader).toHaveBeenCalledTimes(2);
     expect(mocks.mockPort.postMessage).toHaveBeenCalled();
     const posted = mocks.mockPort.postMessage.mock.calls[0][0];
     expect(posted).toBeInstanceOf(Float32Array);
     expect(posted.length).toBe(4096);
+  });
+
+  it('resume() primes the worklet after autoplay suspension clears', async () => {
+    const mocks = makeMockAudioContext('suspended');
+    mocks.mockCtx.resume = vi.fn(async () => {
+      /* stays suspended during init */
+    });
+    installMocks(mocks);
+
+    const engine = new AudioEngine();
+    await engine.init();
+    const reader = vi.fn(() => new Float32Array(4096));
+    engine.setSidBufferReader(reader);
+    expect(reader).not.toHaveBeenCalled();
+
+    Object.defineProperty(mocks.mockCtx, 'state', { get: () => 'running', configurable: true });
+    mocks.mockCtx.resume = vi.fn(async () => {});
+    await engine.resume();
+
+    expect(reader).toHaveBeenCalledOnce();
+    expect(mocks.mockPort.postMessage).toHaveBeenCalledOnce();
+  });
+
+  it('statechange primes the worklet when initial resume succeeds', async () => {
+    const mocks = makeMockAudioContext('suspended');
+    installMocks(mocks);
+
+    const engine = new AudioEngine();
+    const reader = vi.fn(() => new Float32Array(4096));
+    engine.setSidBufferReader(reader);
+    await engine.init();
+
+    expect(engine.suspended).toBe(false);
+    expect(reader).toHaveBeenCalledOnce();
+    expect(mocks.mockPort.postMessage).toHaveBeenCalledOnce();
   });
 
   it('does not feed worklet when suspended', async () => {
@@ -360,4 +410,3 @@ describe('AudioEngine', () => {
     expect(engine.suspended).toBe(true);
   });
 });
-

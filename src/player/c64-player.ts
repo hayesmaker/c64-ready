@@ -103,14 +103,13 @@ export class C64Player {
       window.dispatchEvent(new CustomEvent('c64-audio-state', { detail: state }));
     };
 
+    this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
+
     // Fire-and-forget init
     this.audio.init().then((autoplayOk) => {
       if (!this.emulator) return;
       // Tell the SID what sample rate we're using (matches AudioContext)
       this.emulator.setSampleRate(this.audio.sampleRate);
-
-      // Give the engine a reader that snapshots the SID circular buffer
-      this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
 
       if (!autoplayOk) {
         window.dispatchEvent(new CustomEvent('c64-audio-suspended'));

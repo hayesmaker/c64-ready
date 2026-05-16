@@ -96,6 +96,23 @@ describe('WebRTCEncoder', () => {
     expect(enc.audioSource._calls.length).toBe(0);
   });
 
+  it('primeAudio: pushes one 10ms silence chunk by default', () => {
+    const enc = makeEncoder(44100, 50);
+    enc.primeAudio();
+
+    expect(enc.audioSource._calls.length).toBe(1);
+    expect(enc.audioSource._calls[0].numberOfFrames).toBe(441);
+    expect(enc.audioSource._calls[0].sampleRate).toBe(44100);
+  });
+
+  it('primeAudio: can push multiple startup chunks', () => {
+    const enc = makeEncoder(48000, 50);
+    enc.primeAudio(3);
+
+    expect(enc.audioSource._calls.length).toBe(3);
+    expect(enc.audioSource._calls.every((call) => call.numberOfFrames === 480)).toBe(true);
+  });
+
   it('pushSilenceForGap: negative gap pushes nothing', () => {
     const enc = makeEncoder(44100, 50);
     enc.pushSilenceForGap(-500);
@@ -160,4 +177,3 @@ describe('WebRTCEncoder', () => {
     expect(src._calls.length).toBe(2);
   });
 });
-

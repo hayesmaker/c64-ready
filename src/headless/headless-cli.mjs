@@ -194,6 +194,9 @@ function sleepMs(ms) {
 }
 
 const DISK_AUTOLOAD_SETTLE_MS = 1500;
+const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
+const C64_KEYBOARD_BUFFER_LENGTH_ADDR = 0x00c6;
+const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
 
 async function typeCommandText(exports, text, opts = {}) {
   if (!exports) return;
@@ -220,6 +223,26 @@ async function typeCommandText(exports, text, opts = {}) {
     if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
     if (keyDelayMs > 0) await sleepMs(keyDelayMs);
   }
+}
+
+async function waitForKeyboardBufferEmpty(exports, timeoutMs = PRG_AUTORUN_BUFFER_TIMEOUT_MS) {
+  if (!exports || typeof exports.c64_cpuRead !== 'function') return;
+  const startedAt = Date.now();
+  while (exports.c64_cpuRead(C64_KEYBOARD_BUFFER_LENGTH_ADDR)) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error('Timed out waiting for C64 keyboard buffer before auto-RUN');
+    }
+    await sleepMs(50);
+  }
+}
+
+async function autoLoadDiskWithRun(exports) {
+  if (!exports) return;
+  await typeCommandText(exports, 'LOAD"*",8,1', { settleMs: DISK_AUTOLOAD_SETTLE_MS });
+  await sleepMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
+  await typeCommandText(exports, '\n');
+  await waitForKeyboardBufferEmpty(exports);
+  await typeCommandText(exports, 'run\n');
 }
 
 // ── Build info ────────────────────────────────────────────────────────────────
@@ -593,7 +616,7 @@ export async function runHeadless(options = {}) {
           exports.c64_setDriveEnabled(1);
           exports.c64_insertDisk(ptr, gameData.length);
           diskSessionActive = true;
-          await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: DISK_AUTOLOAD_SETTLE_MS });
+          await autoLoadDiskWithRun(exports);
         } else if (gameType === 'snapshot') {
           exports.c64_reset();
           exports.c64_loadSnapshot(ptr, gameData.length);
@@ -769,9 +792,7 @@ export async function runHeadless(options = {}) {
                       exports.c64_insertDisk(ptr, byteLen);
                       diskSessionActive = true;
                       if (autoLoadInsertedDisk) {
-                        await typeCommandText(exports, 'LOAD"*",8,1\n', {
-                          settleMs: DISK_AUTOLOAD_SETTLE_MS,
-                        });
+                        await autoLoadDiskWithRun(exports);
                       }
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();
@@ -917,6 +938,7 @@ export async function runHeadless(options = {}) {
 
       webrtcEncoder = new WebRTCEncoder();
       webrtcEncoder.init({ width: 384, height: 272, sampleRate: 44100 });
+      webrtcEncoder.primeAudio();
 
       const { videoTrack, audioTrack } = webrtcEncoder;
 
@@ -937,6 +959,7 @@ export async function runHeadless(options = {}) {
         },
         onPeerConnected(pc) {
           if (verbose) console.error('[webrtc] peer ICE connected');
+          webrtcEncoder?.primeAudio?.();
           if (webrtcServer) {
             // New peers can attach mid-GOP and sit on a black frame until the
             // next natural keyframe arrives. Force one on join so the decoder
