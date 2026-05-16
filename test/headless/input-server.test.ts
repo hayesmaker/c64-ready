@@ -279,6 +279,43 @@ describe('input-server', () => {
     spectWs.close();
   });
 
+  it('forwards autoLoadDisk on load-file commands', async () => {
+    const port = nextPort();
+    const commands: any[] = [];
+
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => {
+        commands.push(cmd);
+      },
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    send(hostWs, {
+      type: 'load-file',
+      filename: 'disk1.d64',
+      fileType: 'd64',
+      autoLoadDisk: true,
+      data: Buffer.from([1, 2, 3, 4]).toString('base64'),
+    });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded');
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({
+      type: 'load-file',
+      filename: 'disk1.d64',
+      fileType: 'd64',
+      autoLoadDisk: true,
+    });
+
+    hostWs.close();
+  });
+
   // ── cart-detached sent AFTER onCommand Promise resolves ───────────────────
 
   it('broadcasts cart-detached only after the async onCommand Promise resolves for detach-crt', async () => {

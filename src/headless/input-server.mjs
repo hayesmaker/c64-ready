@@ -17,7 +17,7 @@ import { randomBytes } from 'crypto';
  * @param {number}   [opts.port=9001]
  * @param {Function} opts.onInput
  * @param {Function} [opts.onCommand]  Called with emulator commands from the host:
- *                                     { type: 'load-crt'|'detach-crt'|'hard-reset'|'reboot', ... }
+ *                                     { type: 'load-crt'|'load-file'|'detach-crt'|'hard-reset'|'reboot', ... }
  * @param {boolean}  [opts.verbose]
  * @param {number}   [opts.hostTimeoutMs=300000]
  * @param {Function} [opts.validateKickToken]
@@ -1179,6 +1179,7 @@ export function createInputServer(opts = {}) {
         logEv('cmd-load-file', {
           filename: loadFilename || '?',
           fileType,
+          autoLoadDisk: msg.autoLoadDisk ?? '-',
           dataLen: (msg.data ?? '').length,
         });
         broadcastAll({ type: 'cart-loading', filename: loadFilename });
@@ -1188,6 +1189,7 @@ export function createInputServer(opts = {}) {
               type: 'load-file',
               filename: loadFilename,
               fileType,
+              autoLoadDisk: msg.autoLoadDisk,
               data: msg.data ?? '',
             }),
           )

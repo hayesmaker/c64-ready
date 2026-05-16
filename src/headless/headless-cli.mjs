@@ -179,6 +179,11 @@ function inferLoadType(filename = '') {
   return 'crt';
 }
 
+export function shouldAutoLoadDisk(autoLoadDisk, diskSessionActive) {
+  if (typeof autoLoadDisk === 'boolean') return autoLoadDisk;
+  return !diskSessionActive;
+}
+
 function formatSnapshotFilename(now = new Date()) {
   const pad = (value) => String(value).padStart(2, '0');
   return `snapshot-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.c64`;
@@ -469,6 +474,7 @@ export async function runHeadless(options = {}) {
   let c64wasm = null; // ← hoisted: needed by onCommand for allocAndWrite
   let C64WASMClass = null;
   let wrapperUsed = false;
+  let diskSessionActive = false;
   // SID audio constants — hoisted so the SID-cache block and the frame loop
   // both see them regardless of declaration order.
   const SID_BUFFER_SIZE = 4096;
@@ -558,22 +564,38 @@ export async function runHeadless(options = {}) {
       try {
         const gameData = await fs.readFile(gamePath);
         const gameArr = new Uint8Array(gameData);
-        const cartInfo = parseCrtInfo(gameArr, path.basename(gamePath));
-        if (cartInfo) {
-          console.error(cartInfo.line);
-          const unsupportedReason = getUnsupportedCrtReason(cartInfo);
-          if (unsupportedReason) {
-            throw new Error(unsupportedReason);
+        const gameType = inferLoadType(gamePath);
+        if (gameType === 'crt') {
+          const cartInfo = parseCrtInfo(gameArr, path.basename(gamePath));
+          if (cartInfo) {
+            console.error(cartInfo.line);
+            const unsupportedReason = getUnsupportedCrtReason(cartInfo);
+            if (unsupportedReason) {
+              throw new Error(unsupportedReason);
+            }
           }
         }
         const ptr = c64wasm.allocAndWrite(gameArr);
         c64wasm.updateHeapViews();
         heap = c64wasm.heap;
-        exports.c64_loadCartridge(ptr, gameData.length);
-        // free(ptr), c64_reset, debugger_set_speed, debugger_play intentionally
-        // omitted: c64_loadCartridge already resets and resumes the machine
-        // internally. Calling them re-triggers the ROM boot sequence — the same
-        // root cause of post-load input lag fixed for the load-crt command path.
+        if (gameType === 'crt') {
+          exports.c64_loadCartridge(ptr, gameData.length);
+          // free(ptr), c64_reset, debugger_set_speed, debugger_play intentionally
+          // omitted: c64_loadCartridge already resets and resumes the machine
+          // internally. Calling them re-triggers the ROM boot sequence — the same
+          // root cause of post-load input lag fixed for the load-crt command path.
+        } else if (gameType === 'prg') {
+          exports.c64_loadPRG(ptr, gameData.length, 1);
+          await typeCommandText(exports, 'run\n');
+        } else if (gameType === 'd64') {
+          exports.c64_setDriveEnabled(1);
+          exports.c64_insertDisk(ptr, gameData.length);
+          diskSessionActive = true;
+          await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: 250 });
+        } else if (gameType === 'snapshot') {
+          exports.c64_reset();
+          exports.c64_loadSnapshot(ptr, gameData.length);
+        }
       } catch (e) {
         out.push(`Failed to load game: ${String(e)}`);
       }
@@ -719,6 +741,8 @@ export async function runHeadless(options = {}) {
                     exports.c64_removeCartridge();
                     exports.c64_reset();
                   }
+                  const autoLoadInsertedDisk =
+                    loadType === 'd64' && shouldAutoLoadDisk(cmd.autoLoadDisk, diskSessionActive);
                   const ptr = c64wasm.allocAndWrite(arr);
                   c64wasm.updateHeapViews();
                   heap = c64wasm.heap;
@@ -733,15 +757,22 @@ export async function runHeadless(options = {}) {
                         }
                       }
                       exports.c64_loadCartridge(ptr, byteLen);
+                      diskSessionActive = false;
                     } else if (loadType === 'prg') {
                       exports.c64_loadPRG(ptr, byteLen, 1);
+                      diskSessionActive = false;
                       await typeCommandText(exports, 'run\n');
                     } else if (loadType === 'd64') {
                       exports.c64_setDriveEnabled(1);
                       exports.c64_insertDisk(ptr, byteLen);
+                      diskSessionActive = true;
+                      if (autoLoadInsertedDisk) {
+                        await typeCommandText(exports, 'LOAD"*",8,1\n', { settleMs: 250 });
+                      }
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();
                       exports.c64_loadSnapshot(ptr, byteLen);
+                      diskSessionActive = false;
                     } else {
                       throw new Error(`Unsupported load-file type: ${loadType}`);
                     }
@@ -807,6 +838,7 @@ export async function runHeadless(options = {}) {
             exports.c64_reset(); // return to clean BASIC prompt
             const gapMs = Date.now() - gapStart;
             resetSidRing();
+            diskSessionActive = false;
             if (webrtcEncoder) {
               webrtcEncoder.pushSilenceForGap(gapMs);
               if (verbose) console.error(`[headless] pushed ${gapMs}ms silence after detach`);
@@ -836,6 +868,7 @@ export async function runHeadless(options = {}) {
             c64wasm = next;
             exports = c64wasm.exports;
             heap = c64wasm.heap;
+            diskSessionActive = false;
             exports.c64_init();
             exports.sid_setSampleRate(44100);
             exports.debugger_set_speed(100);
