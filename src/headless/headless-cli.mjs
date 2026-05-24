@@ -256,13 +256,17 @@ async function insertTextIntoKeyboardBuffer(exports, text) {
   }
 }
 
-export async function autoLoadDiskWithRun(exports) {
+export async function autoLoadDiskWithRun(exports, { isCancelled = () => false } = {}) {
   if (!exports) return;
   await sleepMs(DISK_AUTOLOAD_READY_DELAY_MS);
+  if (isCancelled()) return;
   await insertTextIntoKeyboardBuffer(exports, 'LOAD"*",8,1');
+  if (isCancelled()) return;
   await sleepMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
+  if (isCancelled()) return;
   await insertTextIntoKeyboardBuffer(exports, '\n');
   await waitForKeyboardBufferEmpty(exports);
+  if (isCancelled()) return;
   await insertTextIntoKeyboardBuffer(exports, 'run\n');
 }
 
@@ -529,6 +533,7 @@ export async function runHeadless(options = {}) {
   let C64WASMClass = null;
   let wrapperUsed = false;
   let diskSessionActive = false;
+  let mediaCommandEpoch = 0;
   // SID audio constants — hoisted so the SID-cache block and the frame loop
   // both see them regardless of declaration order.
   const SID_BUFFER_SIZE = 4096;
@@ -645,7 +650,8 @@ export async function runHeadless(options = {}) {
           exports.c64_setDriveEnabled(1);
           exports.c64_insertDisk(ptr, gameData.length);
           diskSessionActive = true;
-          await autoLoadDiskWithRun(exports);
+          const loadEpoch = mediaCommandEpoch;
+          await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
         } else if (gameType === 'snapshot') {
           exports.c64_reset();
           exports.c64_loadSnapshot(ptr, gameData.length);
@@ -772,7 +778,12 @@ export async function runHeadless(options = {}) {
         },
         onCommand: async (cmd) => {
           if (!exports) return;
+          if (cmd.type === 'hard-reset' || cmd.type === 'reboot' || cmd.type === 'detach-crt') {
+            mediaCommandEpoch += 1;
+          }
           if (cmd.type === 'load-file' || cmd.type === 'load-crt') {
+            mediaCommandEpoch += 1;
+            const loadEpoch = mediaCommandEpoch;
             const requestedType =
               cmd.type === 'load-crt' ? 'crt' : (cmd.fileType ?? inferLoadType(cmd.filename));
             // Decode base64 → Uint8Array immediately and release the large
@@ -827,7 +838,7 @@ export async function runHeadless(options = {}) {
                       exports.c64_insertDisk(ptr, byteLen);
                       diskSessionActive = true;
                       if (autoLoadInsertedDisk) {
-                        await autoLoadDiskWithRun(exports);
+                        await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
                       }
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();

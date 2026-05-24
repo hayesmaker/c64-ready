@@ -840,4 +840,35 @@ describe('input-server', () => {
 
     hostWs.close();
   });
+
+  it('stops attract mode when the host hard-resets the emulator', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const loadedPromise = nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.source === 'attract-mode');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await loadedPromise;
+
+    const offPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && !m.attractMode?.active);
+    const resetPromise = nextMsg(hostWs, (m) => m.type === 'machine-reset');
+    send(hostWs, { type: 'hard-reset' });
+    const offStatus = await offPromise;
+    await resetPromise;
+
+    expect(offStatus.attractMode.reason).toBe('manual-reset');
+    expect(commands.some((cmd) => cmd.type === 'hard-reset')).toBe(true);
+
+    hostWs.close();
+  });
 });

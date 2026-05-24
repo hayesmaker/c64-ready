@@ -171,6 +171,7 @@ export function createInputServer(opts = {}) {
   let attractStatus = { active: false };
   let attractPlaylist = null;
   let attractCursor = null;
+  let attractGeneration = 0;
 
   function clearAttractTimer() {
     if (attractTimer) clearTimeout(attractTimer);
@@ -251,6 +252,7 @@ export function createInputServer(opts = {}) {
 
   function stopAttractMode({ broadcast = true, reason = 'stopped' } = {}) {
     const wasActive = !!attractStatus.active;
+    attractGeneration += 1;
     clearAttractTimer();
     attractStatus = { active: false, reason, updatedAt: Date.now() };
     attractPlaylist = null;
@@ -478,8 +480,10 @@ export function createInputServer(opts = {}) {
   async function runLoadFileCommand({ filename, fileType, data, autoLoadDisk, source = 'host' }) {
     const loadFilename = filename ?? '';
     const loadType = fileType ?? 'crt';
+    const generation = attractGeneration;
     broadcastAll({ type: 'cart-loading', filename: loadFilename });
     try {
+      if (source === 'attract-mode' && generation !== attractGeneration) return false;
       await onCommand({
         type: 'load-file',
         filename: loadFilename,
@@ -487,6 +491,7 @@ export function createInputServer(opts = {}) {
         autoLoadDisk,
         data: data ?? '',
       });
+      if (source === 'attract-mode' && generation !== attractGeneration) return false;
       currentCartFilename = loadFilename || null;
       broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: loadType, source });
       return true;
@@ -529,6 +534,7 @@ export function createInputServer(opts = {}) {
   }
 
   async function loadAttractEntry(itemIndex, fileIndex, { mountOnly = false, rebootBeforeLoad = false } = {}) {
+    const generation = attractGeneration;
     const item = getAttractItem(itemIndex);
     const file = getAttractFile(item, fileIndex);
     const filename = file.filename ?? file.url.split('/').pop();
@@ -543,6 +549,7 @@ export function createInputServer(opts = {}) {
     const data = await fetchAttractFileBase64(url);
 
     if (rebootBeforeLoad) await runRebootCommand({ source: 'attract-mode', stopAttract: false });
+    if (generation !== attractGeneration) return;
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();
     await runLoadFileCommand({
@@ -552,11 +559,13 @@ export function createInputServer(opts = {}) {
       autoLoadDisk: fileType === 'd64' ? !mountOnly : undefined,
       source: 'attract-mode',
     });
+    if (generation !== attractGeneration) return;
     scheduleAttractAdvance();
   }
 
   async function startAttractMode() {
     if (!attractEnabled) throw new Error('Attract Mode is not configured');
+    attractGeneration += 1;
     clearAttractTimer();
     const manifest = await fetchAttractJson(resolveAttractUrl(attractManifest));
     if (!Array.isArray(manifest) || manifest.length === 0) {
@@ -583,14 +592,17 @@ export function createInputServer(opts = {}) {
   }
 
   async function advanceAttractMode() {
+    const generation = attractGeneration;
     if (!attractStatus.active || !attractPlaylist || !attractCursor) return;
     const item = getAttractItem(attractCursor.itemIndex);
     const nextFileIndex = attractCursor.fileIndex + 1;
     if (nextFileIndex < item.files.length) {
+      if (generation !== attractGeneration) return;
       await loadAttractEntry(attractCursor.itemIndex, nextFileIndex, { mountOnly: true });
       return;
     }
     const nextItemIndex = (attractCursor.itemIndex + 1) % attractPlaylist.items.length;
+    if (generation !== attractGeneration) return;
     await loadAttractEntry(nextItemIndex, 0, { rebootBeforeLoad: true });
   }
 
@@ -1519,6 +1531,7 @@ export function createInputServer(opts = {}) {
         if (ws !== hostClient) return;
         if (verbose) console.error('[input-server] hard-reset');
         logEv('cmd-hard-reset', { host: hostUsername });
+        stopAttractMode({ reason: 'manual-reset' });
         Promise.resolve()
           .then(() => runHardResetCommand())
           .catch((e) => {
