@@ -163,6 +163,26 @@ describe('headless CLI', () => {
     await pending;
   });
 
+  it('cancels delayed disk autoload before writing keyboard commands', async () => {
+    vi.useFakeTimers();
+    // @ts-expect-error TS7016: module has no declaration file
+    const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
+    const writes: Array<{ addr: number; value: number }> = [];
+    let cancelled = false;
+    const fakeExports = {
+      c64_cpuRead: () => 0,
+      c64_cpuWrite: (addr: number, value: number) => writes.push({ addr, value }),
+    };
+
+    const pending = mod.autoLoadDiskWithRun(fakeExports, { isCancelled: () => cancelled });
+    await vi.advanceTimersByTimeAsync(mod.DISK_AUTOLOAD_READY_DELAY_MS - 1);
+    cancelled = true;
+    await vi.advanceTimersByTimeAsync(1);
+
+    await pending;
+    expect(writes).toHaveLength(0);
+  });
+
   // ── SID ring pre-prime: ring is filled before the frame loop starts ──────
 
   it('pre-primes the SID ring before the frame loop so audio frames are never silent', async () => {
