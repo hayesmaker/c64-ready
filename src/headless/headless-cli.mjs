@@ -339,6 +339,8 @@ export async function runHeadless(options = {}) {
   let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
   let logFile = false;
   let logRetainDays = 7;
+  let hostTimeoutMs = Number(process.env.HOST_TIMEOUT_MS ?? '');
+  if (!Number.isFinite(hostTimeoutMs) || hostTimeoutMs <= 0) hostTimeoutMs = undefined;
   let attractModeEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.ATTRACT_MODE_ENABLED ?? '').toLowerCase());
   let attractModeAutostart = ['1', 'true', 'yes', 'on'].includes(String(process.env.ATTRACT_MODE_AUTOSTART ?? '').toLowerCase());
   let attractModeBaseUrl = process.env.ATTRACT_MODE_BASE_URL ?? '';
@@ -359,6 +361,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--log-events') logEvents = true;
     else if (a === '--log-file') logFile = true;
     else if (a === '--log-retain-days') logRetainDays = Number(argv[++i]);
+    else if (a === '--host-timeout-ms') hostTimeoutMs = Number(argv[++i]);
     else if (a === '--fps') fps = Number(argv[++i]);
     else if (a === '--input') enableInput = true;
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
@@ -377,6 +380,7 @@ export async function runHeadless(options = {}) {
       return { ok: false, output: 'help' };
     }
   }
+  if (!Number.isFinite(hostTimeoutMs) || hostTimeoutMs <= 0) hostTimeoutMs = undefined;
   const adminTokenSafe = String(adminToken ?? '').trim();
 
   const webrtcMinBitrateKbpsSafe =
@@ -759,6 +763,7 @@ export async function runHeadless(options = {}) {
         port: wsPort,
         verbose,
         logEvents,
+        hostTimeoutMs,
         validateKickToken,
         validateAdminToken: (token) => {
           if (!adminTokenSafe) return false;
