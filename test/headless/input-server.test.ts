@@ -726,9 +726,11 @@ describe('input-server', () => {
     await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
 
     const statusPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    const rebootedPromise = nextMsg(hostWs, (m) => m.type === 'machine-rebooted' && m.source === 'attract-mode');
     const loadedPromise = nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.source === 'attract-mode');
     send(hostWs, { type: 'attract-mode', action: 'on' });
     const status = await statusPromise;
+    await rebootedPromise;
     const loaded = await loadedPromise;
 
     expect(status.attractMode).toMatchObject({
@@ -740,7 +742,8 @@ describe('input-server', () => {
       fileIndex: 0,
     });
     expect(loaded).toMatchObject({ filename: 'first-demo.d64', fileType: 'd64' });
-    expect(commands[0]).toMatchObject({
+    expect(commands[0]).toMatchObject({ type: 'reboot' });
+    expect(commands[1]).toMatchObject({
       type: 'load-file',
       filename: 'first-demo.d64',
       fileType: 'd64',
@@ -769,7 +772,9 @@ describe('input-server', () => {
     const { ws: hostWs } = await connect(port);
     send(hostWs, { type: 'host', username: 'alice' });
     await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const firstRebootPromise = nextMsg(hostWs, (m) => m.type === 'machine-rebooted' && m.source === 'attract-mode');
     send(hostWs, { type: 'attract-mode', action: 'on' });
+    await firstRebootPromise;
     await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
 
     await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo-side-b.d64');
@@ -780,15 +785,27 @@ describe('input-server', () => {
       autoLoadDisk: false,
     });
 
+    const secondRebootPromise = nextMsg(hostWs, (m) => m.type === 'machine-rebooted' && m.source === 'attract-mode');
     await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'second-demo.prg');
-    expect(commands.some((cmd) => cmd.type === 'hard-reset')).toBe(true);
+    await secondRebootPromise;
     expect(commands.find((cmd) => cmd.filename === 'second-demo.prg')).toMatchObject({
       type: 'load-file',
       fileType: 'prg',
     });
 
+    const loopRebootPromise = nextMsg(hostWs, (m) => m.type === 'machine-rebooted' && m.source === 'attract-mode');
     await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
-    expect(commands.filter((cmd) => cmd.type === 'load-file' && cmd.filename === 'first-demo.d64')).toHaveLength(2);
+    await loopRebootPromise;
+    expect(commands.filter((cmd) => cmd.type === 'load-file' && cmd.filename === 'first-demo.d64').length).toBeGreaterThanOrEqual(2);
+    expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(0, 7)).toEqual([
+      'reboot',
+      'first-demo.d64',
+      'first-demo-side-b.d64',
+      'reboot',
+      'second-demo.prg',
+      'reboot',
+      'first-demo.d64',
+    ]);
 
     hostWs.close();
   });

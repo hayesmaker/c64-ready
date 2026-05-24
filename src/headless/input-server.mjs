@@ -509,8 +509,8 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'machine-reset', source });
   }
 
-  async function runRebootCommand({ source = 'host' } = {}) {
-    stopAttractMode({ reason: 'reboot' });
+  async function runRebootCommand({ source = 'host', stopAttract = true } = {}) {
+    if (stopAttract) stopAttractMode({ reason: 'reboot' });
     await onCommand({ type: 'reboot' });
     currentCartFilename = null;
     broadcastAll({ type: 'machine-rebooted', source });
@@ -528,7 +528,7 @@ export function createInputServer(opts = {}) {
     if (typeof attractTimer.unref === 'function') attractTimer.unref();
   }
 
-  async function loadAttractEntry(itemIndex, fileIndex, { mountOnly = false, resetBeforeLoad = false } = {}) {
+  async function loadAttractEntry(itemIndex, fileIndex, { mountOnly = false, rebootBeforeLoad = false } = {}) {
     const item = getAttractItem(itemIndex);
     const file = getAttractFile(item, fileIndex);
     const filename = file.filename ?? file.url.split('/').pop();
@@ -542,7 +542,7 @@ export function createInputServer(opts = {}) {
     const url = resolveAttractFileUrl(item, file);
     const data = await fetchAttractFileBase64(url);
 
-    if (resetBeforeLoad) await runHardResetCommand({ source: 'attract-mode' });
+    if (rebootBeforeLoad) await runRebootCommand({ source: 'attract-mode', stopAttract: false });
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();
     await runLoadFileCommand({
@@ -571,7 +571,7 @@ export function createInputServer(opts = {}) {
       throw new Error('Attract Mode playlist has no demos');
     }
     attractPlaylist = { ...playlist, _playlistPath: playlistPath };
-    await loadAttractEntry(0, 0);
+    await loadAttractEntry(0, 0, { rebootBeforeLoad: true });
   }
 
   function startAttractModeIfRoomEmpty(reason = 'empty-room') {
@@ -591,7 +591,7 @@ export function createInputServer(opts = {}) {
       return;
     }
     const nextItemIndex = (attractCursor.itemIndex + 1) % attractPlaylist.items.length;
-    await loadAttractEntry(nextItemIndex, 0, { resetBeforeLoad: true });
+    await loadAttractEntry(nextItemIndex, 0, { rebootBeforeLoad: true });
   }
 
   let clientCount = 0;
