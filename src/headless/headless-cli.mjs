@@ -333,6 +333,10 @@ export async function runHeadless(options = {}) {
   let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
   let logFile = false;
   let logRetainDays = 7;
+  let attractModeEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.ATTRACT_MODE_ENABLED ?? '').toLowerCase());
+  let attractModeAutostart = ['1', 'true', 'yes', 'on'].includes(String(process.env.ATTRACT_MODE_AUTOSTART ?? '').toLowerCase());
+  let attractModeBaseUrl = process.env.ATTRACT_MODE_BASE_URL ?? '';
+  let attractModeManifest = process.env.ATTRACT_MODE_PLAYLIST_MANIFEST ?? 'playlists.json';
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wasm' || a === '-w') wasmArg = argv[++i];
@@ -359,6 +363,10 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
     else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
     else if (a === '--admin-token') adminToken = argv[++i] ?? '';
+    else if (a === '--attract-mode') attractModeEnabled = true;
+    else if (a === '--attract-mode-autostart') attractModeAutostart = true;
+    else if (a === '--attract-mode-base-url') attractModeBaseUrl = argv[++i] ?? '';
+    else if (a === '--attract-mode-manifest') attractModeManifest = argv[++i] ?? 'playlists.json';
     else if (a === '--help' || a === '-h') {
       return { ok: false, output: 'help' };
     }
@@ -756,6 +764,12 @@ export async function runHeadless(options = {}) {
         getWebrtcPeerSnapshot: () => getWebrtcPeerSnapshot(),
         disconnectWebrtcPeersByAddr: (addr, reason) => disconnectWebrtcPeersByAddr(addr, reason),
         disconnectAllWebrtcPeers: (reason) => disconnectAllWebrtcPeers(reason),
+        attractMode: {
+          enabled: attractModeEnabled,
+          autostart: attractModeAutostart,
+          baseUrl: attractModeBaseUrl,
+          manifest: attractModeManifest,
+        },
         onCommand: async (cmd) => {
           if (!exports) return;
           if (cmd.type === 'load-file' || cmd.type === 'load-crt') {
