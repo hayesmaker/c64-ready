@@ -204,6 +204,20 @@ export function createInputServer(opts = {}) {
     return `${attractBaseUrl}/${suffix}`;
   }
 
+  function joinEncodedPath(...parts) {
+    return parts
+      .filter(Boolean)
+      .map((part) => String(part).replace(/^\/+|\/+$/g, ''))
+      .filter(Boolean)
+      .map((part) => part.split('/').filter(Boolean).map(encodeURIComponent).join('/'))
+      .join('/');
+  }
+
+  function resolveAttractRootUrl(...parts) {
+    const base = new URL(attractBaseUrl);
+    return `${base.origin}/${joinEncodedPath(...parts)}`;
+  }
+
   async function fetchAttractJson(url) {
     logEv('attract-fetch-json-start', { url });
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -255,7 +269,11 @@ export function createInputServer(opts = {}) {
 
   function resolveAttractFileUrl(item, file) {
     if (file.url) return file.url;
-    return resolveAttractUrl(attractPlaylist.basePath, item.path, file.path, file.filename);
+    const basePath = attractPlaylist.basePath ?? '';
+    if (String(basePath).startsWith('/')) {
+      return resolveAttractRootUrl(basePath, item.path, file.path, file.filename);
+    }
+    return resolveAttractUrl(basePath, item.path, file.path, file.filename);
   }
 
   function setAttractStatus({ item, file, itemIndex, fileIndex, filename }) {

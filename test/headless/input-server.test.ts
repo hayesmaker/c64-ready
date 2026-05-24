@@ -83,10 +83,10 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch() {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract' } = {}) {
     const playlist = {
       name: 'Test Playlist',
-      basePath: 'demos',
+      basePath,
       items: [
         {
           name: 'First Demo',
@@ -105,12 +105,16 @@ describe('input-server', () => {
         },
       ],
     };
+    const origin = new URL(baseUrl).origin;
+    const relativeFileBase = `${baseUrl.replace(/\/+$/, '')}/demos`;
+    const rootFileBase = `${origin}${String(basePath).replace(/\/+$/, '')}`;
+    const fileBase = String(basePath).startsWith('/') ? rootFileBase : relativeFileBase;
     const files: Record<string, string> = {
-      'https://cdn.example.test/attract/playlists.json': JSON.stringify(['playlist_test.json']),
-      'https://cdn.example.test/attract/playlist_test.json': JSON.stringify(playlist),
-      'https://cdn.example.test/attract/demos/first-demo/first-demo.d64': 'first-disk',
-      'https://cdn.example.test/attract/demos/first-demo/first-demo-side-b.d64': 'second-disk',
-      'https://cdn.example.test/attract/demos/second-demo/second-demo.prg': 'second-demo',
+      [`${baseUrl.replace(/\/+$/, '')}/playlists.json`]: JSON.stringify(['playlist_test.json']),
+      [`${baseUrl.replace(/\/+$/, '')}/playlist_test.json`]: JSON.stringify(playlist),
+      [`${fileBase}/first-demo/first-demo.d64`]: 'first-disk',
+      [`${fileBase}/first-demo/first-demo-side-b.d64`]: 'second-disk',
+      [`${fileBase}/second-demo/second-demo.prg`]: 'second-demo',
     };
     const fetchMock = vi.fn(async (url: string) => {
       const value = files[String(url)];
@@ -791,6 +795,34 @@ describe('input-server', () => {
       'first-demo.d64',
       'auto-load-disk',
     ]);
+
+    hostWs.close();
+  });
+
+  it('resolves root-relative playlist basePath from the configured site origin', async () => {
+    const fetchMock = stubAttractModeFetch({
+      basePath: '/attract-mode/demos',
+      baseUrl: 'https://www.c64cade.com/attract-mode',
+    });
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      attractMode: { enabled: true, baseUrl: 'https://www.c64cade.com/attract-mode' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://www.c64cade.com/attract-mode/demos/first-demo/first-demo.d64',
+    );
 
     hostWs.close();
   });
