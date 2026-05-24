@@ -33,6 +33,7 @@ import { randomBytes } from 'crypto';
  * @param {boolean}  [opts.attractMode.autostart]
  * @param {string}   [opts.attractMode.baseUrl]
  * @param {string}   [opts.attractMode.manifest]
+ * @param {number}   [opts.diskAutoloadDelayMs]
  * @param {string}   [opts.serverVersion]   Package version string, e.g. '0.7.0'
  * @param {string}   [opts.serverGitHash]   Abbreviated git commit hash, e.g. '16e86cd'
  * @returns {{ wss: WebSocketServer, close: () => Promise<void> }}
@@ -135,6 +136,9 @@ export function createInputServer(opts = {}) {
   const wss = new WebSocketServer({ port });
   const HOST_RECONNECT_GRACE = opts.hostReconnectGraceMs ?? 8_000;
   const P2_RECONNECT_GRACE = opts.p2ReconnectGraceMs ?? HOST_RECONNECT_GRACE;
+  const DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS = Number.isFinite(opts.diskAutoloadDelayMs)
+    ? Math.max(0, Number(opts.diskAutoloadDelayMs))
+    : 8_000;
 
   // ── Room state ────────────────────────────────────────────────────────────
   let hostClient = null;
@@ -176,6 +180,10 @@ export function createInputServer(opts = {}) {
   function clearAttractTimer() {
     if (attractTimer) clearTimeout(attractTimer);
     attractTimer = null;
+  }
+
+  function sleepMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   function attractStatusPayload() {
@@ -494,6 +502,11 @@ export function createInputServer(opts = {}) {
       if (source === 'attract-mode' && generation !== attractGeneration) return false;
       currentCartFilename = loadFilename || null;
       broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: loadType, source });
+      if (loadType === 'd64' && autoLoadDisk) {
+        await sleepMs(DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS);
+        if (source === 'attract-mode' && generation !== attractGeneration) return false;
+        await onCommand({ type: 'auto-load-disk' });
+      }
       return true;
     } catch (e) {
       broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e), source });

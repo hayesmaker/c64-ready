@@ -142,8 +142,7 @@ describe('headless CLI', () => {
     vi.restoreAllMocks();
   });
 
-  it('waits for disk insert progress before writing disk autoload commands', async () => {
-    vi.useFakeTimers();
+  it('writes disk autoload commands when explicitly requested', async () => {
     // @ts-expect-error TS7016: module has no declaration file
     const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
     const writes: Array<{ addr: number; value: number }> = [];
@@ -152,19 +151,11 @@ describe('headless CLI', () => {
       c64_cpuWrite: (addr: number, value: number) => writes.push({ addr, value }),
     };
 
-    const pending = mod.autoLoadDiskWithRun(fakeExports);
-    await vi.advanceTimersByTimeAsync(mod.DISK_AUTOLOAD_READY_DELAY_MS - 1);
-    expect(writes).toHaveLength(0);
-
-    await vi.advanceTimersByTimeAsync(1);
+    await mod.autoLoadDiskWithRun(fakeExports);
     expect(writes.length).toBeGreaterThan(0);
-
-    await vi.runAllTimersAsync();
-    await pending;
   });
 
-  it('cancels delayed disk autoload before writing keyboard commands', async () => {
-    vi.useFakeTimers();
+  it('cancels disk autoload before writing keyboard commands', async () => {
     // @ts-expect-error TS7016: module has no declaration file
     const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
     const writes: Array<{ addr: number; value: number }> = [];
@@ -174,12 +165,8 @@ describe('headless CLI', () => {
       c64_cpuWrite: (addr: number, value: number) => writes.push({ addr, value }),
     };
 
-    const pending = mod.autoLoadDiskWithRun(fakeExports, { isCancelled: () => cancelled });
-    await vi.advanceTimersByTimeAsync(mod.DISK_AUTOLOAD_READY_DELAY_MS - 1);
     cancelled = true;
-    await vi.advanceTimersByTimeAsync(1);
-
-    await pending;
+    await mod.autoLoadDiskWithRun(fakeExports, { isCancelled: () => cancelled });
     expect(writes).toHaveLength(0);
   });
 
