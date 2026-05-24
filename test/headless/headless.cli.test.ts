@@ -138,7 +138,29 @@ describe('headless CLI', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('waits for disk insert progress before writing disk autoload commands', async () => {
+    vi.useFakeTimers();
+    // @ts-expect-error TS7016: module has no declaration file
+    const mod = (await import('../../src/headless/headless-cli.mjs')) as any;
+    const writes: Array<{ addr: number; value: number }> = [];
+    const fakeExports = {
+      c64_cpuRead: () => 0,
+      c64_cpuWrite: (addr: number, value: number) => writes.push({ addr, value }),
+    };
+
+    const pending = mod.autoLoadDiskWithRun(fakeExports);
+    await vi.advanceTimersByTimeAsync(mod.DISK_AUTOLOAD_READY_DELAY_MS - 1);
+    expect(writes).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(writes.length).toBeGreaterThan(0);
+
+    await vi.runAllTimersAsync();
+    await pending;
   });
 
   // ── SID ring pre-prime: ring is filled before the frame loop starts ──────
