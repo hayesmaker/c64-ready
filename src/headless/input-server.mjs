@@ -648,7 +648,7 @@ export function createInputServer(opts = {}) {
       filename,
       fileType,
       data,
-      autoLoadDisk: fileType === 'd64' ? !mountOnly : undefined,
+      autoLoadDisk: fileType === 'd64' ? (!mountOnly || file.reboot === true) : undefined,
       source: 'attract-mode',
     });
     if (generation !== attractGeneration) return;
