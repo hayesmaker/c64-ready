@@ -258,14 +258,18 @@ async function insertTextIntoKeyboardBuffer(exports, text) {
 export async function autoLoadDiskWithRun(exports, { isCancelled = () => false } = {}) {
   if (!exports) return;
   if (isCancelled()) return;
+  console.error('[event] disk-autoload keyboard-load-start command=LOAD"*",8,1');
   await insertTextIntoKeyboardBuffer(exports, 'LOAD"*",8,1');
   if (isCancelled()) return;
   await sleepMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
   if (isCancelled()) return;
+  console.error('[event] disk-autoload keyboard-return');
   await insertTextIntoKeyboardBuffer(exports, '\n');
   await waitForKeyboardBufferEmpty(exports);
   if (isCancelled()) return;
+  console.error('[event] disk-autoload keyboard-run');
   await insertTextIntoKeyboardBuffer(exports, 'run\n');
+  console.error('[event] disk-autoload done');
 }
 
 // ── Build info ────────────────────────────────────────────────────────────────
@@ -829,8 +833,12 @@ export async function runHeadless(options = {}) {
                       diskSessionActive = false;
                       await typeCommandText(exports, 'run\n');
                     } else if (loadType === 'd64') {
+                      if (logEvents)
+                        console.error(`[event] disk-mount-start filename=${filename} bytes=${byteLen}`);
                       exports.c64_setDriveEnabled(1);
                       exports.c64_insertDisk(ptr, byteLen);
+                      if (logEvents)
+                        console.error(`[event] disk-mount-done filename=${filename} bytes=${byteLen}`);
                       diskSessionActive = true;
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();
@@ -888,7 +896,9 @@ export async function runHeadless(options = {}) {
             });
           } else if (cmd.type === 'auto-load-disk') {
             const loadEpoch = mediaCommandEpoch;
+            if (logEvents) console.error('[event] disk-autoload command-start');
             await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
+            if (logEvents) console.error('[event] disk-autoload command-done');
           } else if (cmd.type === 'save-snapshot') {
             const ptr = exports.c64_getSnapshot();
             const byteLen = exports.c64_getSnapshotSize();

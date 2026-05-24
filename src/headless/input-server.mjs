@@ -205,15 +205,32 @@ export function createInputServer(opts = {}) {
   }
 
   async function fetchAttractJson(url) {
+    logEv('attract-fetch-json-start', { url });
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    logEv('attract-fetch-json-done', {
+      url,
+      status: res.status,
+      contentType: res.headers?.get?.('content-type') ?? '-',
+      contentLength: res.headers?.get?.('content-length') ?? '-',
+    });
     if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
     return res.json();
   }
 
   async function fetchAttractFileBase64(url) {
+    logEv('attract-fetch-file-start', { url });
     const res = await fetch(url);
+    const contentType = res.headers?.get?.('content-type') ?? '-';
+    const contentLength = res.headers?.get?.('content-length') ?? '-';
     if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
+    logEv('attract-fetch-file-done', {
+      url,
+      status: res.status,
+      contentType,
+      contentLength,
+      bytes: buf.length,
+    });
     return buf.toString('base64');
   }
 
@@ -492,6 +509,14 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'cart-loading', filename: loadFilename });
     try {
       if (source === 'attract-mode' && generation !== attractGeneration) return false;
+      if (source === 'attract-mode') {
+        logEv('attract-load-file-start', {
+          filename: loadFilename,
+          fileType: loadType,
+          autoLoadDisk: autoLoadDisk ?? '-',
+          base64Len: (data ?? '').length,
+        });
+      }
       await onCommand({
         type: 'load-file',
         filename: loadFilename,
@@ -502,10 +527,25 @@ export function createInputServer(opts = {}) {
       if (source === 'attract-mode' && generation !== attractGeneration) return false;
       currentCartFilename = loadFilename || null;
       broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: loadType, source });
+      if (source === 'attract-mode') {
+        logEv('attract-cart-loaded-broadcast', {
+          filename: loadFilename,
+          fileType: loadType,
+          autoLoadDisk: autoLoadDisk ?? '-',
+        });
+      }
       if (loadType === 'd64' && autoLoadDisk) {
+        if (source === 'attract-mode') {
+          logEv('attract-autoload-delay-start', {
+            filename: loadFilename,
+            delayMs: DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS,
+          });
+        }
         await sleepMs(DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS);
         if (source === 'attract-mode' && generation !== attractGeneration) return false;
+        if (source === 'attract-mode') logEv('attract-autoload-command-send', { filename: loadFilename });
         await onCommand({ type: 'auto-load-disk' });
+        if (source === 'attract-mode') logEv('attract-autoload-command-done', { filename: loadFilename });
       }
       return true;
     } catch (e) {
@@ -559,6 +599,17 @@ export function createInputServer(opts = {}) {
           ? 'crt'
           : 'crt';
     const url = resolveAttractFileUrl(item, file);
+    logEv('attract-entry-selected', {
+      playlist: attractPlaylist?.name ?? '-',
+      demo: item.group ? `${item.name} - ${item.group}` : item.name,
+      itemIndex,
+      fileIndex,
+      filename,
+      fileType,
+      url,
+      mountOnly,
+      rebootBeforeLoad,
+    });
     const data = await fetchAttractFileBase64(url);
 
     if (rebootBeforeLoad) await runRebootCommand({ source: 'attract-mode', stopAttract: false });
@@ -581,12 +632,14 @@ export function createInputServer(opts = {}) {
     attractGeneration += 1;
     clearAttractTimer();
     const manifest = await fetchAttractJson(resolveAttractUrl(attractManifest));
+    logEv('attract-manifest-loaded', { count: Array.isArray(manifest) ? manifest.length : '-' });
     if (!Array.isArray(manifest) || manifest.length === 0) {
       throw new Error('No Attract Mode playlists configured');
     }
     const playlistEntry = chooseRandom(manifest);
     const playlistPath = typeof playlistEntry === 'string' ? playlistEntry : playlistEntry?.filename;
     if (!playlistPath) throw new Error('Invalid Attract Mode playlist entry');
+    logEv('attract-playlist-selected', { playlistPath });
     const playlist = await fetchAttractJson(resolveAttractUrl(playlistPath));
     if (!playlist?.name) throw new Error('Attract Mode playlist is missing a name');
     if (!Array.isArray(playlist.items) || playlist.items.length === 0) {
