@@ -28,6 +28,11 @@ import { randomBytes } from 'crypto';
  * @param {Function} [opts.getWebrtcPeerSnapshot]
  * @param {Function} [opts.disconnectWebrtcPeersByAddr]
  * @param {Function} [opts.disconnectAllWebrtcPeers]
+ * @param {Object}   [opts.attractMode]
+ * @param {boolean}  [opts.attractMode.enabled]
+ * @param {boolean}  [opts.attractMode.autostart]
+ * @param {string}   [opts.attractMode.baseUrl]
+ * @param {string}   [opts.attractMode.manifest]
  * @param {string}   [opts.serverVersion]   Package version string, e.g. '0.7.0'
  * @param {string}   [opts.serverGitHash]   Abbreviated git commit hash, e.g. '16e86cd'
  * @returns {{ wss: WebSocketServer, close: () => Promise<void> }}
@@ -157,6 +162,103 @@ export function createInputServer(opts = {}) {
   // Seeded from opts.initialCartFilename when a default game is pre-loaded.
   let currentCartFilename = opts.initialCartFilename ?? null;
 
+  // ── Attract mode ──────────────────────────────────────────────────────────
+  const attractConfig = opts.attractMode ?? {};
+  const attractEnabled = !!attractConfig.enabled && !!String(attractConfig.baseUrl ?? '').trim();
+  const attractBaseUrl = String(attractConfig.baseUrl ?? '').replace(/\/+$/, '');
+  const attractManifest = String(attractConfig.manifest ?? 'playlists.json').replace(/^\/+/, '');
+  let attractTimer = null;
+  let attractStatus = { active: false };
+  let attractPlaylist = null;
+  let attractCursor = null;
+
+  function clearAttractTimer() {
+    if (attractTimer) clearTimeout(attractTimer);
+    attractTimer = null;
+  }
+
+  function attractStatusPayload() {
+    return { ...attractStatus };
+  }
+
+  function broadcastAttractMode() {
+    broadcastAll({ type: 'attract-mode-status', attractMode: attractStatusPayload() });
+  }
+
+  function resolveAttractUrl(...parts) {
+    const suffix = parts
+      .filter(Boolean)
+      .map((part) => String(part).replace(/^\/+|\/+$/g, ''))
+      .filter(Boolean)
+      .map((part) => part.split('/').filter(Boolean).map(encodeURIComponent).join('/'))
+      .join('/');
+    return `${attractBaseUrl}/${suffix}`;
+  }
+
+  async function fetchAttractJson(url) {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async function fetchAttractFileBase64(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.toString('base64');
+  }
+
+  function chooseRandom(items) {
+    return items[Math.floor(Math.random() * items.length)];
+  }
+
+  function getAttractItem(itemIndex) {
+    const item = attractPlaylist?.items?.[itemIndex];
+    if (!item?.name) throw new Error('Attract Mode demo is missing a name');
+    if (!Array.isArray(item.files) || item.files.length === 0) {
+      throw new Error(`${item.name} has no files`);
+    }
+    return item;
+  }
+
+  function getAttractFile(item, fileIndex) {
+    const file = item.files?.[fileIndex];
+    if (!file?.filename && !file?.url) throw new Error(`${item.name} has an invalid file entry`);
+    return file;
+  }
+
+  function resolveAttractFileUrl(item, file) {
+    if (file.url) return file.url;
+    return resolveAttractUrl(attractPlaylist.basePath, item.path, file.path, file.filename);
+  }
+
+  function setAttractStatus({ item, file, itemIndex, fileIndex, filename }) {
+    const duration = Number(file.duration) > 0 ? Number(file.duration) : 300;
+    attractCursor = { itemIndex, fileIndex, filename, duration };
+    attractStatus = {
+      active: true,
+      playlistName: attractPlaylist.name,
+      demoName: item.group ? `${item.name} - ${item.group}` : item.name,
+      playlistPath: attractPlaylist._playlistPath ?? null,
+      itemIndex,
+      fileIndex,
+      filename,
+      duration,
+      startedAt: Date.now(),
+      nextAdvanceAt: Date.now() + duration * 1000,
+    };
+  }
+
+  function stopAttractMode({ broadcast = true, reason = 'stopped' } = {}) {
+    const wasActive = !!attractStatus.active;
+    clearAttractTimer();
+    attractStatus = { active: false, reason, updatedAt: Date.now() };
+    attractPlaylist = null;
+    attractCursor = null;
+    if (broadcast && wasActive) broadcastAttractMode();
+    return wasActive;
+  }
+
   function hostPort() {
     return portOverrideEnabled ? overrideHostPort : portsSwapped ? 1 : 2;
   }
@@ -211,6 +313,7 @@ export function createInputServer(opts = {}) {
     clearP2Timeout();
     broadcastAll({ type: 'player2-left', username: leaving, reason: 'timeout' });
     broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+    startAttractModeIfRoomEmpty('p2-timeout');
   }
 
   // ── Host reconnect grace period helpers ───────────────────────────────────
@@ -297,6 +400,7 @@ export function createInputServer(opts = {}) {
     // Broadcast host-left with reason so clients can show a contextual notice
     broadcastAll({ type: 'host-left', username: leaving, reason: 'timeout' });
     broadcastAll({ type: 'p2-slot-status', open: false });
+    startAttractModeIfRoomEmpty('host-timeout');
   }
 
   function kickHostByReason(reason = 'admin-kick') {
@@ -369,6 +473,125 @@ export function createInputServer(opts = {}) {
       !(p2Client && p2Client.readyState === p2Client.OPEN) &&
       !p2GraceTimer
     );
+  }
+
+  async function runLoadFileCommand({ filename, fileType, data, autoLoadDisk, source = 'host' }) {
+    const loadFilename = filename ?? '';
+    const loadType = fileType ?? 'crt';
+    broadcastAll({ type: 'cart-loading', filename: loadFilename });
+    try {
+      await onCommand({
+        type: 'load-file',
+        filename: loadFilename,
+        fileType: loadType,
+        autoLoadDisk,
+        data: data ?? '',
+      });
+      currentCartFilename = loadFilename || null;
+      broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: loadType, source });
+      return true;
+    } catch (e) {
+      broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e), source });
+      if (verbose) console.error('[input-server] load-file error:', e);
+      logEv('error', {
+        kind: 'load-file-failed',
+        filename: loadFilename,
+        fileType: loadType,
+        source,
+        err: String(e?.message ?? e),
+      });
+      throw e;
+    }
+  }
+
+  async function runHardResetCommand({ source = 'host' } = {}) {
+    await onCommand({ type: 'hard-reset' });
+    broadcastAll({ type: 'machine-reset', source });
+  }
+
+  async function runRebootCommand({ source = 'host' } = {}) {
+    stopAttractMode({ reason: 'reboot' });
+    await onCommand({ type: 'reboot' });
+    currentCartFilename = null;
+    broadcastAll({ type: 'machine-rebooted', source });
+  }
+
+  function scheduleAttractAdvance() {
+    clearAttractTimer();
+    if (!attractStatus.active || !attractCursor) return;
+    attractTimer = setTimeout(() => {
+      advanceAttractMode().catch((err) => {
+        console.error('[input-server] attract mode advance failed:', err?.message ?? err);
+        stopAttractMode({ reason: 'error' });
+      });
+    }, attractCursor.duration * 1000);
+    if (typeof attractTimer.unref === 'function') attractTimer.unref();
+  }
+
+  async function loadAttractEntry(itemIndex, fileIndex, { mountOnly = false, resetBeforeLoad = false } = {}) {
+    const item = getAttractItem(itemIndex);
+    const file = getAttractFile(item, fileIndex);
+    const filename = file.filename ?? file.url.split('/').pop();
+    const fileType = String(filename).toLowerCase().endsWith('.d64')
+      ? 'd64'
+      : String(filename).toLowerCase().endsWith('.prg')
+        ? 'prg'
+        : String(filename).toLowerCase().endsWith('.crt')
+          ? 'crt'
+          : 'crt';
+    const url = resolveAttractFileUrl(item, file);
+    const data = await fetchAttractFileBase64(url);
+
+    if (resetBeforeLoad) await runHardResetCommand({ source: 'attract-mode' });
+    setAttractStatus({ item, file, itemIndex, fileIndex, filename });
+    broadcastAttractMode();
+    await runLoadFileCommand({
+      filename,
+      fileType,
+      data,
+      autoLoadDisk: fileType === 'd64' ? !mountOnly : undefined,
+      source: 'attract-mode',
+    });
+    scheduleAttractAdvance();
+  }
+
+  async function startAttractMode() {
+    if (!attractEnabled) throw new Error('Attract Mode is not configured');
+    clearAttractTimer();
+    const manifest = await fetchAttractJson(resolveAttractUrl(attractManifest));
+    if (!Array.isArray(manifest) || manifest.length === 0) {
+      throw new Error('No Attract Mode playlists configured');
+    }
+    const playlistEntry = chooseRandom(manifest);
+    const playlistPath = typeof playlistEntry === 'string' ? playlistEntry : playlistEntry?.filename;
+    if (!playlistPath) throw new Error('Invalid Attract Mode playlist entry');
+    const playlist = await fetchAttractJson(resolveAttractUrl(playlistPath));
+    if (!playlist?.name) throw new Error('Attract Mode playlist is missing a name');
+    if (!Array.isArray(playlist.items) || playlist.items.length === 0) {
+      throw new Error('Attract Mode playlist has no demos');
+    }
+    attractPlaylist = { ...playlist, _playlistPath: playlistPath };
+    await loadAttractEntry(0, 0);
+  }
+
+  function startAttractModeIfRoomEmpty(reason = 'empty-room') {
+    if (!attractEnabled || attractStatus.active || hostClient || p2Client) return;
+    startAttractMode().catch((err) => {
+      console.error(`[input-server] attract mode ${reason} start failed:`, err?.message ?? err);
+      stopAttractMode({ reason: 'error' });
+    });
+  }
+
+  async function advanceAttractMode() {
+    if (!attractStatus.active || !attractPlaylist || !attractCursor) return;
+    const item = getAttractItem(attractCursor.itemIndex);
+    const nextFileIndex = attractCursor.fileIndex + 1;
+    if (nextFileIndex < item.files.length) {
+      await loadAttractEntry(attractCursor.itemIndex, nextFileIndex, { mountOnly: true });
+      return;
+    }
+    const nextItemIndex = (attractCursor.itemIndex + 1) % attractPlaylist.items.length;
+    await loadAttractEntry(nextItemIndex, 0, { resetBeforeLoad: true });
   }
 
   let clientCount = 0;
@@ -641,6 +864,7 @@ export function createInputServer(opts = {}) {
       },
       webrtc: webrtcSnapshot,
       runtime: getRuntimeStats?.() ?? null,
+      attractMode: attractStatusPayload(),
       sampledAt: Date.now(),
     };
   }
@@ -651,6 +875,12 @@ export function createInputServer(opts = {}) {
     // Start input flood logging
     _startInputLog();
     _startNetworkStatsTicker();
+    if (attractEnabled && attractConfig.autostart) {
+      startAttractMode().catch((err) => {
+        console.error('[input-server] attract mode autostart failed:', err?.message ?? err);
+        stopAttractMode({ reason: 'error' });
+      });
+    }
   });
 
   wss.on('connection', (ws, req) => {
@@ -1118,6 +1348,34 @@ export function createInputServer(opts = {}) {
         return;
       }
 
+      if (msg.type === 'admin-attract-mode') {
+        const valid = validateAdminToken(msg.token ?? '');
+        if (!valid) {
+          ws.send(
+            JSON.stringify({ type: 'admin-error', command: 'attract-mode', reason: 'invalid-token' }),
+          );
+          return;
+        }
+        setWsIdentity(ws, 'admin', null);
+        const action = String(msg.action ?? '').toLowerCase();
+        if (action === 'on') {
+          startAttractMode()
+            .then(() => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() })))
+            .catch((e) => {
+              stopAttractMode({ reason: 'error' });
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'admin-error', command: 'attract-mode', reason: String(e?.message ?? e) }));
+              }
+            });
+          return;
+        }
+        if (action === 'off') {
+          stopAttractMode({ reason: 'admin' });
+          ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() }));
+        }
+        return;
+      }
+
       if (msg.type === 'admin-kick-all') {
         const valid = validateAdminToken(msg.token ?? '');
         if (!valid) {
@@ -1185,6 +1443,25 @@ export function createInputServer(opts = {}) {
       }
 
       // ── Emulator commands (host only) ─────────────────────────────────────
+      if (msg.type === 'attract-mode') {
+        if (ws !== hostClient) return;
+        const action = String(msg.action ?? '').toLowerCase();
+        if (action === 'on') {
+          startAttractMode().catch((e) => {
+            stopAttractMode({ reason: 'error' });
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({ type: 'attract-mode-error', reason: String(e?.message ?? e) }));
+            }
+          });
+          return;
+        }
+        if (action === 'off') {
+          stopAttractMode({ reason: 'manual' });
+          return;
+        }
+        return;
+      }
+
       if (msg.type === 'load-file') {
         if (ws !== hostClient) return;
         const loadFilename = msg.filename ?? '';
@@ -1197,31 +1474,13 @@ export function createInputServer(opts = {}) {
           autoLoadDisk: msg.autoLoadDisk ?? '-',
           dataLen: (msg.data ?? '').length,
         });
-        broadcastAll({ type: 'cart-loading', filename: loadFilename });
-        Promise.resolve()
-          .then(() =>
-            onCommand({
-              type: 'load-file',
-              filename: loadFilename,
-              fileType,
-              autoLoadDisk: msg.autoLoadDisk,
-              data: msg.data ?? '',
-            }),
-          )
-          .then(() => {
-            currentCartFilename = loadFilename || null;
-            broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType });
-          })
-          .catch((e) => {
-            broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
-            if (verbose) console.error('[input-server] load-file error:', e);
-            logEv('error', {
-              kind: 'load-file-failed',
-              filename: loadFilename,
-              fileType,
-              err: String(e?.message ?? e),
-            });
-          });
+        if (attractStatus.active) stopAttractMode({ reason: 'manual-load' });
+        runLoadFileCommand({
+          filename: loadFilename,
+          fileType,
+          autoLoadDisk: msg.autoLoadDisk,
+          data: msg.data ?? '',
+        }).catch(() => {});
         return;
       }
 
@@ -1230,29 +1489,12 @@ export function createInputServer(opts = {}) {
         if (verbose) console.error(`[input-server] load-crt: ${msg.filename ?? '?'}`);
         logEv('cmd-load-crt', { filename: msg.filename ?? '?', dataLen: (msg.data ?? '').length });
         const loadFilename = msg.filename ?? '';
-        broadcastAll({ type: 'cart-loading', filename: loadFilename });
-        Promise.resolve()
-          .then(() =>
-            onCommand({
-              type: 'load-file',
-              filename: loadFilename,
-              fileType: 'crt',
-              data: msg.data ?? '',
-            }),
-          )
-          .then(() => {
-            currentCartFilename = loadFilename || null;
-            broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: 'crt' });
-          })
-          .catch((e) => {
-            broadcastAll({ type: 'cart-load-error', reason: String(e?.message ?? e) });
-            if (verbose) console.error('[input-server] load-crt error:', e);
-            logEv('error', {
-              kind: 'load-crt-failed',
-              filename: loadFilename,
-              err: String(e?.message ?? e),
-            });
-          });
+        if (attractStatus.active) stopAttractMode({ reason: 'manual-load' });
+        runLoadFileCommand({
+          filename: loadFilename,
+          fileType: 'crt',
+          data: msg.data ?? '',
+        }).catch(() => {});
         return;
       }
 
@@ -1278,10 +1520,7 @@ export function createInputServer(opts = {}) {
         if (verbose) console.error('[input-server] hard-reset');
         logEv('cmd-hard-reset', { host: hostUsername });
         Promise.resolve()
-          .then(() => onCommand({ type: 'hard-reset' }))
-          .then(() => {
-            broadcastAll({ type: 'machine-reset' });
-          })
+          .then(() => runHardResetCommand())
           .catch((e) => {
             if (verbose) console.error('[input-server] hard-reset error:', e);
             logEv('error', { kind: 'hard-reset-failed', err: String(e?.message ?? e) });
@@ -1294,11 +1533,7 @@ export function createInputServer(opts = {}) {
         if (verbose) console.error('[input-server] reboot');
         logEv('cmd-reboot', { host: hostUsername });
         Promise.resolve()
-          .then(() => onCommand({ type: 'reboot' }))
-          .then(() => {
-            currentCartFilename = null;
-            broadcastAll({ type: 'machine-rebooted' });
-          })
+          .then(() => runRebootCommand())
           .catch((e) => {
             if (verbose) console.error('[input-server] reboot error:', e);
             logEv('error', { kind: 'reboot-failed', err: String(e?.message ?? e) });
@@ -1426,6 +1661,7 @@ export function createInputServer(opts = {}) {
           effectiveHostPort: hostPort(),
           effectiveP2Port: p2Port(),
         },
+        attractMode: attractStatusPayload(),
         ...(currentCartFilename ? { cartFilename: currentCartFilename } : {}),
         joystickBitmask: { up: 0x1, down: 0x2, left: 0x4, right: 0x8, fire: 0x10 },
         ...(serverVersion ? { serverVersion } : {}),
@@ -1445,6 +1681,7 @@ export function createInputServer(opts = {}) {
       clearP2Timeout();
       clearGrace();
       clearP2Grace();
+      clearAttractTimer();
       if (_inputLogTimer) {
         clearInterval(_inputLogTimer);
         _inputLogTimer = null;

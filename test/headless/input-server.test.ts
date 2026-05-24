@@ -9,7 +9,7 @@
  *  - hello handshake carries expected fields.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 
 // Dynamic import so the ES module resolves in Vitest's Node context.
@@ -79,7 +79,55 @@ describe('input-server', () => {
   afterEach(async () => {
     await Promise.all(servers.map((s) => s.close().catch(() => {})));
     servers.length = 0;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
+
+  function stubAttractModeFetch() {
+    const playlist = {
+      name: 'Test Playlist',
+      basePath: 'demos',
+      items: [
+        {
+          name: 'First Demo',
+          group: 'Demo Group',
+          path: 'first-demo',
+          files: [
+            { filename: 'first-demo.d64', duration: 0.1 },
+            { filename: 'first-demo-side-b.d64', duration: 0.1 },
+          ],
+        },
+        {
+          name: 'Second Demo',
+          group: 'Next Group',
+          path: 'second-demo',
+          files: [{ filename: 'second-demo.prg', duration: 0.1 }],
+        },
+      ],
+    };
+    const files: Record<string, string> = {
+      'https://cdn.example.test/attract/playlists.json': JSON.stringify(['playlist_test.json']),
+      'https://cdn.example.test/attract/playlist_test.json': JSON.stringify(playlist),
+      'https://cdn.example.test/attract/demos/first-demo/first-demo.d64': 'first-disk',
+      'https://cdn.example.test/attract/demos/first-demo/first-demo-side-b.d64': 'second-disk',
+      'https://cdn.example.test/attract/demos/second-demo/second-demo.prg': 'second-demo',
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      const value = files[String(url)];
+      if (value == null) return { ok: false, status: 404 };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => JSON.parse(value),
+        arrayBuffer: async () => Buffer.from(value).buffer.slice(
+          Buffer.from(value).byteOffset,
+          Buffer.from(value).byteOffset + Buffer.from(value).byteLength,
+        ),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
 
   // ── Hello handshake ────────────────────────────────────────────────────────
 
@@ -644,5 +692,135 @@ describe('input-server', () => {
     hostWs.close();
     blockedWs.close();
     afterGraceWs.close();
+  });
+
+  it('includes backend attract mode state in hello messages', async () => {
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+    });
+    servers.push(srv);
+
+    const { ws, hello } = await connect(port);
+    expect(hello.attractMode).toMatchObject({ active: false });
+
+    ws.close();
+  });
+
+  it('lets the host start and stop backend attract mode', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const statusPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    const loadedPromise = nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.source === 'attract-mode');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    const status = await statusPromise;
+    const loaded = await loadedPromise;
+
+    expect(status.attractMode).toMatchObject({
+      active: true,
+      playlistName: 'Test Playlist',
+      demoName: 'First Demo - Demo Group',
+      filename: 'first-demo.d64',
+      itemIndex: 0,
+      fileIndex: 0,
+    });
+    expect(loaded).toMatchObject({ filename: 'first-demo.d64', fileType: 'd64' });
+    expect(commands[0]).toMatchObject({
+      type: 'load-file',
+      filename: 'first-demo.d64',
+      fileType: 'd64',
+      autoLoadDisk: true,
+    });
+
+    send(hostWs, { type: 'attract-mode', action: 'off' });
+    const offStatus = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && !m.attractMode?.active);
+    expect(offStatus.attractMode.reason).toBe('manual');
+
+    hostWs.close();
+  });
+
+  it('advances attract mode disks and loops playlist demos', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo-side-b.d64');
+    expect(commands.some((cmd) => cmd.type === 'hard-reset')).toBe(false);
+    expect(commands.find((cmd) => cmd.filename === 'first-demo-side-b.d64')).toMatchObject({
+      type: 'load-file',
+      fileType: 'd64',
+      autoLoadDisk: false,
+    });
+
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'second-demo.prg');
+    expect(commands.some((cmd) => cmd.type === 'hard-reset')).toBe(true);
+    expect(commands.find((cmd) => cmd.filename === 'second-demo.prg')).toMatchObject({
+      type: 'load-file',
+      fileType: 'prg',
+    });
+
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+    expect(commands.filter((cmd) => cmd.type === 'load-file' && cmd.filename === 'first-demo.d64')).toHaveLength(2);
+
+    hostWs.close();
+  });
+
+  it('stops attract mode when the host reboots the emulator', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const loadedPromise = nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.source === 'attract-mode');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await loadedPromise;
+
+    const offPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && !m.attractMode?.active);
+    const rebootedPromise = nextMsg(hostWs, (m) => m.type === 'machine-rebooted');
+    send(hostWs, { type: 'reboot' });
+    const offStatus = await offPromise;
+    await rebootedPromise;
+
+    expect(offStatus.attractMode.reason).toBe('reboot');
+    expect(commands.some((cmd) => cmd.type === 'reboot')).toBe(true);
+
+    hostWs.close();
   });
 });
