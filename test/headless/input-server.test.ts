@@ -979,4 +979,71 @@ describe('input-server', () => {
 
     hostWs.close();
   });
+
+  it('lets the host start attract mode at a specific demo index', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const statusPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    send(hostWs, { type: 'attract-mode', action: 'on', demoIndex: 1 });
+    const status = await statusPromise;
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'second-demo.prg');
+
+    expect(status.attractMode).toMatchObject({
+      active: true,
+      playlistName: 'Test Playlist',
+      demoName: 'Second Demo - Next Group',
+      filename: 'second-demo.prg',
+      itemIndex: 1,
+      fileIndex: 0,
+    });
+    // first command must be reboot (before loading the selected demo)
+    expect(commands[0]).toMatchObject({ type: 'reboot' });
+    // next command must load second-demo.prg
+    expect(commands.find((c) => c.type === 'load-file')).toMatchObject({
+      filename: 'second-demo.prg',
+      fileType: 'prg',
+    });
+
+    hostWs.close();
+  });
+
+  it('signals error when attract mode demo index is out of bounds', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const errPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-error');
+    send(hostWs, { type: 'attract-mode', action: 'on', demoIndex: 99 });
+    const err = await errPromise;
+
+    expect(err.action).toBe('on');
+    expect(err.reason).toContain('out of bounds');
+
+    hostWs.close();
+  });
 });

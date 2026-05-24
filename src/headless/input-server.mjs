@@ -651,7 +651,7 @@ export function createInputServer(opts = {}) {
     scheduleAttractAdvance();
   }
 
-  async function startAttractMode() {
+  async function startAttractMode(demoIndex = 0) {
     if (!attractEnabled) throw new Error('Attract Mode is not configured');
     attractGeneration += 1;
     clearAttractTimer();
@@ -669,8 +669,11 @@ export function createInputServer(opts = {}) {
     if (!Array.isArray(playlist.items) || playlist.items.length === 0) {
       throw new Error('Attract Mode playlist has no demos');
     }
+    if (demoIndex < 0 || demoIndex >= playlist.items.length) {
+      throw new Error(`Demo index ${demoIndex} is out of bounds (playlist has ${playlist.items.length} demos)`);
+    }
     attractPlaylist = { ...playlist, _playlistPath: playlistPath };
-    await loadAttractEntry(0, 0, { rebootBeforeLoad: true });
+    await loadAttractEntry(demoIndex, 0, { rebootBeforeLoad: true });
   }
 
   function startAttractModeIfRoomEmpty(reason = 'empty-room') {
@@ -1460,8 +1463,9 @@ export function createInputServer(opts = {}) {
         }
         setWsIdentity(ws, 'admin', null);
         const action = String(msg.action ?? '').toLowerCase();
+        const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
         if (action === 'on') {
-          startAttractMode()
+          startAttractMode(demoIndex)
             .then(() => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() })))
             .catch((e) => {
               stopAttractMode({ reason: 'error' });
@@ -1554,9 +1558,10 @@ export function createInputServer(opts = {}) {
           return;
         }
         const action = String(msg.action ?? '').toLowerCase();
-        logEv('cmd-attract-mode', { action, host: hostUsername ?? '-' });
+        const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
+        logEv('cmd-attract-mode', { action, host: hostUsername ?? '-', demoIndex: demoIndex ?? '-' });
         if (action === 'on') {
-          startAttractMode()
+          startAttractMode(demoIndex)
             .then(() => {
               if (ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({ type: 'attract-mode-ok', action, attractMode: attractStatusPayload() }));
