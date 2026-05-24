@@ -765,6 +765,114 @@ describe('input-server', () => {
     hostWs.close();
   });
 
+  it('starts attract mode when the host times out and the room is empty', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const status = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(status.attractMode).toMatchObject({ active: true, itemIndex: 0 });
+
+    hostWs.close();
+  });
+
+  it('does not start attract mode on host timeout while player 2 remains', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 80,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const { ws: p2Ws } = await connect(port);
+    send(p2Ws, { type: 'join-p2-open', username: 'active-p2' });
+    await nextMsg(p2Ws, (m) => m.type === 'join-p2-confirmed');
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    send(p2Ws, { type: 'joystick', action: 'push', direction: 'left' });
+
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const msgs = await collectMsgs(p2Ws, 20);
+    expect(msgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+
+    hostWs.close();
+    p2Ws.close();
+  });
+
+  it('starts attract mode after the empty-room delay when the host leaves voluntarily', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'leaving-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'host-leave' });
+
+    const earlyMsgs = await collectMsgs(hostWs, 20);
+    expect(earlyMsgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+    const status = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(status.attractMode).toMatchObject({ active: true, itemIndex: 0, fileIndex: 0 });
+
+    hostWs.close();
+  });
+
+  it('starts attract mode after host reconnect grace expires and the room stays empty', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      hostReconnectGraceMs: 20,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'dropped-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const { ws: spectatorWs } = await connect(port);
+    hostWs.close();
+
+    await nextMsg(spectatorWs, (m) => m.type === 'host-left' && m.reason === 'disconnect');
+    const status = await nextMsg(spectatorWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(status.attractMode).toMatchObject({ active: true, itemIndex: 0, fileIndex: 0 });
+
+    spectatorWs.close();
+  });
+
   it('broadcasts disk loaded before sending disk autoload command', async () => {
     stubAttractModeFetch();
     const port = nextPort();

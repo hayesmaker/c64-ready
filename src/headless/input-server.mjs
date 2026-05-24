@@ -172,6 +172,7 @@ export function createInputServer(opts = {}) {
   const attractBaseUrl = String(attractConfig.baseUrl ?? '').replace(/\/+$/, '');
   const attractManifest = String(attractConfig.manifest ?? 'playlists.json').replace(/^\/+/, '');
   let attractTimer = null;
+  let emptyRoomAttractTimer = null;
   let attractStatus = { active: false };
   let attractPlaylist = null;
   let attractCursor = null;
@@ -180,6 +181,11 @@ export function createInputServer(opts = {}) {
   function clearAttractTimer() {
     if (attractTimer) clearTimeout(attractTimer);
     attractTimer = null;
+  }
+
+  function clearEmptyRoomAttractTimer() {
+    if (emptyRoomAttractTimer) clearTimeout(emptyRoomAttractTimer);
+    emptyRoomAttractTimer = null;
   }
 
   function sleepMs(ms) {
@@ -297,6 +303,7 @@ export function createInputServer(opts = {}) {
     const wasActive = !!attractStatus.active;
     attractGeneration += 1;
     clearAttractTimer();
+    clearEmptyRoomAttractTimer();
     attractStatus = { active: false, reason, updatedAt: Date.now() };
     attractPlaylist = null;
     attractCursor = null;
@@ -387,6 +394,7 @@ export function createInputServer(opts = {}) {
     logEv('host-grace-expired', { username: leaving });
     broadcastAll({ type: 'host-left', username: leaving, reason: 'disconnect' });
     broadcastAll({ type: 'p2-slot-status', open: false });
+    scheduleAttractModeIfRoomEmpty('host-disconnect');
   }
 
   // Called on host WS close — starts grace period, notifies clients.
@@ -411,6 +419,7 @@ export function createInputServer(opts = {}) {
     logEv('p2-grace-expired', { username: leaving });
     broadcastAll({ type: 'player2-left', username: leaving, reason: 'disconnect' });
     broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+    scheduleAttractModeIfRoomEmpty('p2-disconnect');
   }
 
   function onP2Disconnect(leaving) {
@@ -472,6 +481,7 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'host-left', username: leaving, reason });
     broadcastAll({ type: 'p2-slot-status', open: false });
     if (addr) disconnectWebrtcPeersByAddr(addr, reason);
+    scheduleAttractModeIfRoomEmpty(`host-${reason}`);
     return { kicked: true, username: leaving, addr };
   }
 
@@ -494,6 +504,7 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'player2-left', username: leaving, reason });
     broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
     if (addr) disconnectWebrtcPeersByAddr(addr, reason);
+    scheduleAttractModeIfRoomEmpty(`p2-${reason}`);
     return { kicked: true, username: leaving, addr };
   }
 
@@ -681,11 +692,42 @@ export function createInputServer(opts = {}) {
   }
 
   function startAttractModeIfRoomEmpty(reason = 'empty-room') {
-    if (!attractEnabled || attractStatus.active || hostClient || p2Client) return;
+    if (!attractEnabled || attractStatus.active || hostClient || p2Client) {
+      logEv('attract-empty-room-start-skipped', {
+        reason,
+        attractEnabled,
+        active: !!attractStatus.active,
+        hasHost: !!hostClient,
+        hasP2: !!p2Client,
+      });
+      return;
+    }
+    clearEmptyRoomAttractTimer();
+    logEv('attract-empty-room-start', { reason });
     startAttractMode().catch((err) => {
       console.error(`[input-server] attract mode ${reason} start failed:`, err?.message ?? err);
       stopAttractMode({ reason: 'error' });
     });
+  }
+
+  function scheduleAttractModeIfRoomEmpty(reason = 'empty-room') {
+    clearEmptyRoomAttractTimer();
+    if (!attractEnabled || attractStatus.active || hostClient || p2Client) {
+      logEv('attract-empty-room-schedule-skipped', {
+        reason,
+        attractEnabled,
+        active: !!attractStatus.active,
+        hasHost: !!hostClient,
+        hasP2: !!p2Client,
+      });
+      return;
+    }
+    logEv('attract-empty-room-scheduled', { reason, delayMs: HOST_TIMEOUT });
+    emptyRoomAttractTimer = setTimeout(() => {
+      emptyRoomAttractTimer = null;
+      startAttractModeIfRoomEmpty(reason);
+    }, HOST_TIMEOUT);
+    if (typeof emptyRoomAttractTimer.unref === 'function') emptyRoomAttractTimer.unref();
   }
 
   async function advanceAttractMode() {
@@ -1056,6 +1098,7 @@ export function createInputServer(opts = {}) {
         }
         const isRejoin = graceTimer && pendingHostUsername === (msg.username ?? 'player');
         if (graceTimer) clearGrace(); // cancel grace regardless of who's claiming
+        clearEmptyRoomAttractTimer();
         hostClient = ws;
         hostUsername = msg.username ?? 'player';
         setWsIdentity(ws, 'host', hostUsername);
@@ -1161,6 +1204,7 @@ export function createInputServer(opts = {}) {
           ws.send(JSON.stringify({ type: 'player2-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'player2-left', username: leaving, voluntary: true });
           broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+          scheduleAttractModeIfRoomEmpty('p2-voluntary');
         }
         return;
       }
@@ -1184,6 +1228,7 @@ export function createInputServer(opts = {}) {
           ws.send(JSON.stringify({ type: 'host-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'host-left', username: leaving, voluntary: true });
           broadcastAll({ type: 'p2-slot-status', open: false });
+          scheduleAttractModeIfRoomEmpty('host-voluntary');
         }
         return;
       }
@@ -1227,6 +1272,7 @@ export function createInputServer(opts = {}) {
           return;
         }
         if (isRejoin) clearP2Grace();
+        clearEmptyRoomAttractTimer();
         if (ws === hostClient) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'already-host' }));
           return;
@@ -1289,6 +1335,7 @@ export function createInputServer(opts = {}) {
           return;
         }
         if (isRejoin) clearP2Grace();
+        clearEmptyRoomAttractTimer();
         p2Client = ws;
         p2Username = requestedUsername;
         inviteToken = null;
@@ -1344,6 +1391,7 @@ export function createInputServer(opts = {}) {
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
         if (verbose) console.error(`[input-server] p2 revoked by host`);
         logEv('p2-kicked', { username: leaving ?? '?', by: 'host' });
+        scheduleAttractModeIfRoomEmpty('p2-revoked');
         return;
       }
 
@@ -1815,6 +1863,7 @@ export function createInputServer(opts = {}) {
       clearGrace();
       clearP2Grace();
       clearAttractTimer();
+      clearEmptyRoomAttractTimer();
       if (_inputLogTimer) {
         clearInterval(_inputLogTimer);
         _inputLogTimer = null;
