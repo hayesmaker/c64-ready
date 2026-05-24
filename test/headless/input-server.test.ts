@@ -700,6 +700,7 @@ describe('input-server', () => {
       port,
       onInput: () => {},
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
     });
     servers.push(srv);
 
@@ -718,6 +719,7 @@ describe('input-server', () => {
       onInput: () => {},
       onCommand: (cmd: any) => commands.push(cmd),
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
     });
     servers.push(srv);
 
@@ -749,10 +751,46 @@ describe('input-server', () => {
       fileType: 'd64',
       autoLoadDisk: true,
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(commands[2]).toMatchObject({ type: 'auto-load-disk' });
 
     send(hostWs, { type: 'attract-mode', action: 'off' });
     const offStatus = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && !m.attractMode?.active);
     expect(offStatus.attractMode.reason).toBe('manual');
+
+    hostWs.close();
+  });
+
+  it('broadcasts disk loaded before sending disk autoload command', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 80,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+    expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type)).toEqual([
+      'reboot',
+      'first-demo.d64',
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type)).toEqual([
+      'reboot',
+      'first-demo.d64',
+      'auto-load-disk',
+    ]);
 
     hostWs.close();
   });
@@ -766,6 +804,7 @@ describe('input-server', () => {
       onInput: () => {},
       onCommand: (cmd: any) => commands.push(cmd),
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
     });
     servers.push(srv);
 
@@ -800,11 +839,15 @@ describe('input-server', () => {
     expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(0, 7)).toEqual([
       'reboot',
       'first-demo.d64',
+      'auto-load-disk',
       'first-demo-side-b.d64',
       'reboot',
       'second-demo.prg',
       'reboot',
+    ]);
+    expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(7, 9)).toEqual([
       'first-demo.d64',
+      'auto-load-disk',
     ]);
 
     hostWs.close();
@@ -819,6 +862,7 @@ describe('input-server', () => {
       onInput: () => {},
       onCommand: (cmd: any) => commands.push(cmd),
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
     });
     servers.push(srv);
 
@@ -850,6 +894,7 @@ describe('input-server', () => {
       onInput: () => {},
       onCommand: (cmd: any) => commands.push(cmd),
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
     });
     servers.push(srv);
 

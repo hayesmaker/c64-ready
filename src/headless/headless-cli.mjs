@@ -193,7 +193,6 @@ function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const DISK_AUTOLOAD_READY_DELAY_MS = 8000;
 const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const C64_KEYBOARD_BUFFER_LENGTH_ADDR = 0x00c6;
 const C64_KEYBOARD_BUFFER_ADDR = 0x0277;
@@ -258,7 +257,6 @@ async function insertTextIntoKeyboardBuffer(exports, text) {
 
 export async function autoLoadDiskWithRun(exports, { isCancelled = () => false } = {}) {
   if (!exports) return;
-  await sleepMs(DISK_AUTOLOAD_READY_DELAY_MS);
   if (isCancelled()) return;
   await insertTextIntoKeyboardBuffer(exports, 'LOAD"*",8,1');
   if (isCancelled()) return;
@@ -650,8 +648,7 @@ export async function runHeadless(options = {}) {
           exports.c64_setDriveEnabled(1);
           exports.c64_insertDisk(ptr, gameData.length);
           diskSessionActive = true;
-          const loadEpoch = mediaCommandEpoch;
-          await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
+          await autoLoadDiskWithRun(exports);
         } else if (gameType === 'snapshot') {
           exports.c64_reset();
           exports.c64_loadSnapshot(ptr, gameData.length);
@@ -812,8 +809,6 @@ export async function runHeadless(options = {}) {
                     exports.c64_removeCartridge();
                     exports.c64_reset();
                   }
-                  const autoLoadInsertedDisk =
-                    loadType === 'd64' && shouldAutoLoadDisk(cmd.autoLoadDisk, diskSessionActive);
                   const ptr = c64wasm.allocAndWrite(arr);
                   c64wasm.updateHeapViews();
                   heap = c64wasm.heap;
@@ -837,9 +832,6 @@ export async function runHeadless(options = {}) {
                       exports.c64_setDriveEnabled(1);
                       exports.c64_insertDisk(ptr, byteLen);
                       diskSessionActive = true;
-                      if (autoLoadInsertedDisk) {
-                        await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
-                      }
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();
                       exports.c64_loadSnapshot(ptr, byteLen);
@@ -890,10 +882,13 @@ export async function runHeadless(options = {}) {
                     console.error(
                       `[event] error cart-load-failed filename=${filename} err=${err && err.message ? err.message : err}`,
                     );
-                  reject(err);
+            reject(err);
                 }
               });
             });
+          } else if (cmd.type === 'auto-load-disk') {
+            const loadEpoch = mediaCommandEpoch;
+            await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
           } else if (cmd.type === 'save-snapshot') {
             const ptr = exports.c64_getSnapshot();
             const byteLen = exports.c64_getSnapshotSize();
