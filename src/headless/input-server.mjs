@@ -138,7 +138,7 @@ export function createInputServer(opts = {}) {
   const P2_RECONNECT_GRACE = opts.p2ReconnectGraceMs ?? HOST_RECONNECT_GRACE;
   const DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS = Number.isFinite(opts.diskAutoloadDelayMs)
     ? Math.max(0, Number(opts.diskAutoloadDelayMs))
-    : 8_000;
+    : 2_000;
 
   // ── Room state ────────────────────────────────────────────────────────────
   let hostClient = null;
@@ -627,10 +627,16 @@ export function createInputServer(opts = {}) {
       url,
       mountOnly,
       rebootBeforeLoad,
+      hardResetBeforeLoad: file.reboot === true,
     });
     const data = await fetchAttractFileBase64(url);
 
     if (rebootBeforeLoad) await runRebootCommand({ source: 'attract-mode', stopAttract: false });
+    if (generation !== attractGeneration) return;
+    if (file.reboot === true) {
+      logEv('attract-hard-reset-before-disk', { filename, itemIndex, fileIndex });
+      await runHardResetCommand({ source: 'attract-mode' });
+    }
     if (generation !== attractGeneration) return;
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();

@@ -83,7 +83,7 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract' } = {}) {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false } = {}) {
     const playlist = {
       name: 'Test Playlist',
       basePath,
@@ -94,7 +94,7 @@ describe('input-server', () => {
           path: 'first-demo',
           files: [
             { filename: 'first-demo.d64', duration: 0.1 },
-            { filename: 'first-demo-side-b.d64', duration: 0.1 },
+            { filename: 'first-demo-side-b.d64', duration: 0.1, ...(rebootSecondDisk ? { reboot: true } : {}) },
           ],
         },
         {
@@ -880,6 +880,37 @@ describe('input-server', () => {
     expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(7, 9)).toEqual([
       'first-demo.d64',
       'auto-load-disk',
+    ]);
+
+    hostWs.close();
+  });
+
+  it('hard-resets before mounting playlist files marked reboot', async () => {
+    stubAttractModeFetch({ rebootSecondDisk: true });
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo-side-b.d64');
+
+    expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(0, 5)).toEqual([
+      'reboot',
+      'first-demo.d64',
+      'auto-load-disk',
+      'hard-reset',
+      'first-demo-side-b.d64',
     ]);
 
     hostWs.close();
