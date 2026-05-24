@@ -629,14 +629,18 @@ export function createInputServer(opts = {}) {
       rebootBeforeLoad,
       hardResetBeforeLoad: file.reboot === true,
     });
-    const data = await fetchAttractFileBase64(url);
-
-    if (rebootBeforeLoad) await runRebootCommand({ source: 'attract-mode', stopAttract: false });
-    if (generation !== attractGeneration) return;
+    if (rebootBeforeLoad) {
+      await runRebootCommand({ source: 'attract-mode', stopAttract: false });
+      if (generation !== attractGeneration) return;
+    }
     if (file.reboot === true) {
       logEv('attract-hard-reset-before-disk', { filename, itemIndex, fileIndex });
       await runHardResetCommand({ source: 'attract-mode' });
+      if (generation !== attractGeneration) return;
+      await sleepMs(1000);
+      if (generation !== attractGeneration) return;
     }
+    const data = await fetchAttractFileBase64(url);
     if (generation !== attractGeneration) return;
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();
