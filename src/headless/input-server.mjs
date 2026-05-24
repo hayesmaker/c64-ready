@@ -1546,20 +1546,41 @@ export function createInputServer(opts = {}) {
 
       // ── Emulator commands (host only) ─────────────────────────────────────
       if (msg.type === 'attract-mode') {
-        if (ws !== hostClient) return;
+        if (ws !== hostClient) {
+          logEv('attract-mode-rejected', { reason: 'host-required' });
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'attract-mode-error', reason: 'host-required' }));
+          }
+          return;
+        }
         const action = String(msg.action ?? '').toLowerCase();
+        logEv('cmd-attract-mode', { action, host: hostUsername ?? '-' });
         if (action === 'on') {
-          startAttractMode().catch((e) => {
-            stopAttractMode({ reason: 'error' });
-            if (ws.readyState === ws.OPEN) {
-              ws.send(JSON.stringify({ type: 'attract-mode-error', reason: String(e?.message ?? e) }));
-            }
-          });
+          startAttractMode()
+            .then(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'attract-mode-ok', action, attractMode: attractStatusPayload() }));
+              }
+            })
+            .catch((e) => {
+              const reason = String(e?.message ?? e);
+              logEv('attract-mode-error', { action, reason });
+              stopAttractMode({ reason: 'error' });
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'attract-mode-error', action, reason }));
+              }
+            });
           return;
         }
         if (action === 'off') {
           stopAttractMode({ reason: 'manual' });
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'attract-mode-ok', action, attractMode: attractStatusPayload() }));
+          }
           return;
+        }
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'attract-mode-error', action, reason: 'invalid-action' }));
         }
         return;
       }
