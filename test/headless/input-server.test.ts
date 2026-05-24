@@ -885,7 +885,7 @@ describe('input-server', () => {
     hostWs.close();
   });
 
-  it('hard-resets before mounting playlist files marked reboot', async () => {
+  it('reboots before mounting playlist files marked reboot', async () => {
     stubAttractModeFetch({ rebootSecondDisk: true });
     const port = nextPort();
     const commands: any[] = [];
@@ -909,7 +909,7 @@ describe('input-server', () => {
       'reboot',
       'first-demo.d64',
       'auto-load-disk',
-      'hard-reset',
+      'reboot',
       'first-demo-side-b.d64',
     ]);
 

@@ -627,15 +627,15 @@ export function createInputServer(opts = {}) {
       url,
       mountOnly,
       rebootBeforeLoad,
-      hardResetBeforeLoad: file.reboot === true,
+      rebootFileBeforeLoad: file.reboot === true,
     });
     if (rebootBeforeLoad) {
       await runRebootCommand({ source: 'attract-mode', stopAttract: false });
       if (generation !== attractGeneration) return;
     }
     if (file.reboot === true) {
-      logEv('attract-hard-reset-before-disk', { filename, itemIndex, fileIndex });
-      await runHardResetCommand({ source: 'attract-mode' });
+      logEv('attract-reboot-before-disk', { filename, itemIndex, fileIndex });
+      await runRebootCommand({ source: 'attract-mode', stopAttract: false });
       if (generation !== attractGeneration) return;
       await sleepMs(1000);
       if (generation !== attractGeneration) return;
