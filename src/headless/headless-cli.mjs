@@ -193,7 +193,7 @@ function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const DISK_AUTOLOAD_SETTLE_MS = 1500;
+export const DISK_AUTOLOAD_READY_DELAY_MS = 8000;
 const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const C64_KEYBOARD_BUFFER_LENGTH_ADDR = 0x00c6;
 const C64_KEYBOARD_BUFFER_ADDR = 0x0277;
@@ -256,9 +256,9 @@ async function insertTextIntoKeyboardBuffer(exports, text) {
   }
 }
 
-async function autoLoadDiskWithRun(exports) {
+export async function autoLoadDiskWithRun(exports) {
   if (!exports) return;
-  await sleepMs(DISK_AUTOLOAD_SETTLE_MS);
+  await sleepMs(DISK_AUTOLOAD_READY_DELAY_MS);
   await insertTextIntoKeyboardBuffer(exports, 'LOAD"*",8,1');
   await sleepMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
   await insertTextIntoKeyboardBuffer(exports, '\n');
