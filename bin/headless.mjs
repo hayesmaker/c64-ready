@@ -68,6 +68,7 @@ Options:
   --verbose            Print per-frame diagnostics to stderr
   --log-events         Log player joins/leaves, input events, emulator commands and
                        A/V drift warnings (non-verbose; safe for production)
+  --host-timeout-ms <n> Host/P2 inactivity and empty-room Attract Mode delay in ms
   --help               Show this help
 
 Prerequisites:

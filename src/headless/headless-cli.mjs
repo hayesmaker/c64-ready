@@ -258,14 +258,18 @@ async function insertTextIntoKeyboardBuffer(exports, text) {
 export async function autoLoadDiskWithRun(exports, { isCancelled = () => false } = {}) {
   if (!exports) return;
   if (isCancelled()) return;
+  console.error('[event] disk-autoload keyboard-load-start command=LOAD"*",8,1');
   await insertTextIntoKeyboardBuffer(exports, 'LOAD"*",8,1');
   if (isCancelled()) return;
   await sleepMs(DISK_AUTOLOAD_RETURN_DELAY_MS);
   if (isCancelled()) return;
+  console.error('[event] disk-autoload keyboard-return');
   await insertTextIntoKeyboardBuffer(exports, '\n');
   await waitForKeyboardBufferEmpty(exports);
   if (isCancelled()) return;
+  console.error('[event] disk-autoload keyboard-run');
   await insertTextIntoKeyboardBuffer(exports, 'run\n');
+  console.error('[event] disk-autoload done');
 }
 
 // ── Build info ────────────────────────────────────────────────────────────────
@@ -335,6 +339,8 @@ export async function runHeadless(options = {}) {
   let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
   let logFile = false;
   let logRetainDays = 7;
+  let hostTimeoutMs = Number(process.env.HOST_TIMEOUT_MS ?? '');
+  if (!Number.isFinite(hostTimeoutMs) || hostTimeoutMs <= 0) hostTimeoutMs = undefined;
   let attractModeEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.ATTRACT_MODE_ENABLED ?? '').toLowerCase());
   let attractModeAutostart = ['1', 'true', 'yes', 'on'].includes(String(process.env.ATTRACT_MODE_AUTOSTART ?? '').toLowerCase());
   let attractModeBaseUrl = process.env.ATTRACT_MODE_BASE_URL ?? '';
@@ -355,6 +361,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--log-events') logEvents = true;
     else if (a === '--log-file') logFile = true;
     else if (a === '--log-retain-days') logRetainDays = Number(argv[++i]);
+    else if (a === '--host-timeout-ms') hostTimeoutMs = Number(argv[++i]);
     else if (a === '--fps') fps = Number(argv[++i]);
     else if (a === '--input') enableInput = true;
     else if (a === '--ws-port') wsPort = Number(argv[++i]);
@@ -373,6 +380,7 @@ export async function runHeadless(options = {}) {
       return { ok: false, output: 'help' };
     }
   }
+  if (!Number.isFinite(hostTimeoutMs) || hostTimeoutMs <= 0) hostTimeoutMs = undefined;
   const adminTokenSafe = String(adminToken ?? '').trim();
 
   const webrtcMinBitrateKbpsSafe =
@@ -755,6 +763,7 @@ export async function runHeadless(options = {}) {
         port: wsPort,
         verbose,
         logEvents,
+        hostTimeoutMs,
         validateKickToken,
         validateAdminToken: (token) => {
           if (!adminTokenSafe) return false;
@@ -829,8 +838,12 @@ export async function runHeadless(options = {}) {
                       diskSessionActive = false;
                       await typeCommandText(exports, 'run\n');
                     } else if (loadType === 'd64') {
+                      if (logEvents)
+                        console.error(`[event] disk-mount-start filename=${filename} bytes=${byteLen}`);
                       exports.c64_setDriveEnabled(1);
                       exports.c64_insertDisk(ptr, byteLen);
+                      if (logEvents)
+                        console.error(`[event] disk-mount-done filename=${filename} bytes=${byteLen}`);
                       diskSessionActive = true;
                     } else if (loadType === 'snapshot') {
                       exports.c64_reset();
@@ -888,7 +901,9 @@ export async function runHeadless(options = {}) {
             });
           } else if (cmd.type === 'auto-load-disk') {
             const loadEpoch = mediaCommandEpoch;
+            if (logEvents) console.error('[event] disk-autoload command-start');
             await autoLoadDiskWithRun(exports, { isCancelled: () => loadEpoch !== mediaCommandEpoch });
+            if (logEvents) console.error('[event] disk-autoload command-done');
           } else if (cmd.type === 'save-snapshot') {
             const ptr = exports.c64_getSnapshot();
             const byteLen = exports.c64_getSnapshotSize();

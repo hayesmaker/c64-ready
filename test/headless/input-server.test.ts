@@ -83,34 +83,42 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch() {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false } = {}) {
     const playlist = {
       name: 'Test Playlist',
-      basePath: 'demos',
+      basePath,
       items: [
         {
           name: 'First Demo',
           group: 'Demo Group',
+          url: 'https://csdb.dk/release/?id=1',
+          rating: '9.1',
           path: 'first-demo',
           files: [
             { filename: 'first-demo.d64', duration: 0.1 },
-            { filename: 'first-demo-side-b.d64', duration: 0.1 },
+            { filename: 'first-demo-side-b.d64', duration: 0.1, ...(rebootSecondDisk ? { reboot: true } : {}) },
           ],
         },
         {
           name: 'Second Demo',
           group: 'Next Group',
+          url: 'https://csdb.dk/release/?id=2',
+          rating: '8.7',
           path: 'second-demo',
           files: [{ filename: 'second-demo.prg', duration: 0.1 }],
         },
       ],
     };
+    const origin = new URL(baseUrl).origin;
+    const relativeFileBase = `${baseUrl.replace(/\/+$/, '')}/demos`;
+    const rootFileBase = `${origin}${String(basePath).replace(/\/+$/, '')}`;
+    const fileBase = String(basePath).startsWith('/') ? rootFileBase : relativeFileBase;
     const files: Record<string, string> = {
-      'https://cdn.example.test/attract/playlists.json': JSON.stringify(['playlist_test.json']),
-      'https://cdn.example.test/attract/playlist_test.json': JSON.stringify(playlist),
-      'https://cdn.example.test/attract/demos/first-demo/first-demo.d64': 'first-disk',
-      'https://cdn.example.test/attract/demos/first-demo/first-demo-side-b.d64': 'second-disk',
-      'https://cdn.example.test/attract/demos/second-demo/second-demo.prg': 'second-demo',
+      [`${baseUrl.replace(/\/+$/, '')}/playlists.json`]: JSON.stringify(['playlist_test.json']),
+      [`${baseUrl.replace(/\/+$/, '')}/playlist_test.json`]: JSON.stringify(playlist),
+      [`${fileBase}/first-demo/first-demo.d64`]: 'first-disk',
+      [`${fileBase}/first-demo/first-demo-side-b.d64`]: 'second-disk',
+      [`${fileBase}/second-demo/second-demo.prg`]: 'second-demo',
     };
     const fetchMock = vi.fn(async (url: string) => {
       const value = files[String(url)];
@@ -738,7 +746,11 @@ describe('input-server', () => {
     expect(status.attractMode).toMatchObject({
       active: true,
       playlistName: 'Test Playlist',
+      demoTitle: 'First Demo',
       demoName: 'First Demo - Demo Group',
+      demoGroup: 'Demo Group',
+      csdbUrl: 'https://csdb.dk/release/?id=1',
+      rating: '9.1',
       filename: 'first-demo.d64',
       itemIndex: 0,
       fileIndex: 0,
@@ -759,6 +771,114 @@ describe('input-server', () => {
     expect(offStatus.attractMode.reason).toBe('manual');
 
     hostWs.close();
+  });
+
+  it('starts attract mode when the host times out and the room is empty', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const status = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(status.attractMode).toMatchObject({ active: true, itemIndex: 0 });
+
+    hostWs.close();
+  });
+
+  it('does not start attract mode on host timeout while player 2 remains', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 80,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const { ws: p2Ws } = await connect(port);
+    send(p2Ws, { type: 'join-p2-open', username: 'active-p2' });
+    await nextMsg(p2Ws, (m) => m.type === 'join-p2-confirmed');
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    send(p2Ws, { type: 'joystick', action: 'push', direction: 'left' });
+
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const msgs = await collectMsgs(p2Ws, 20);
+    expect(msgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+
+    hostWs.close();
+    p2Ws.close();
+  });
+
+  it('starts attract mode after the empty-room delay when the host leaves voluntarily', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'leaving-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'host-leave' });
+
+    const earlyMsgs = await collectMsgs(hostWs, 20);
+    expect(earlyMsgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+    const status = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(status.attractMode).toMatchObject({ active: true, itemIndex: 0, fileIndex: 0 });
+
+    hostWs.close();
+  });
+
+  it('starts attract mode after host reconnect grace expires and the room stays empty', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      hostReconnectGraceMs: 20,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'dropped-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    const { ws: spectatorWs } = await connect(port);
+    hostWs.close();
+
+    await nextMsg(spectatorWs, (m) => m.type === 'host-left' && m.reason === 'disconnect');
+    const status = await nextMsg(spectatorWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(status.attractMode).toMatchObject({ active: true, itemIndex: 0, fileIndex: 0 });
+
+    spectatorWs.close();
   });
 
   it('broadcasts disk loaded before sending disk autoload command', async () => {
@@ -791,6 +911,34 @@ describe('input-server', () => {
       'first-demo.d64',
       'auto-load-disk',
     ]);
+
+    hostWs.close();
+  });
+
+  it('resolves root-relative playlist basePath from the configured site origin', async () => {
+    const fetchMock = stubAttractModeFetch({
+      basePath: '/attract-mode/demos',
+      baseUrl: 'https://www.c64cade.com/attract-mode',
+    });
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      attractMode: { enabled: true, baseUrl: 'https://www.c64cade.com/attract-mode' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://www.c64cade.com/attract-mode/demos/first-demo/first-demo.d64',
+    );
 
     hostWs.close();
   });
@@ -848,6 +996,37 @@ describe('input-server', () => {
     expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(7, 9)).toEqual([
       'first-demo.d64',
       'auto-load-disk',
+    ]);
+
+    hostWs.close();
+  });
+
+  it('reboots before mounting playlist files marked reboot', async () => {
+    stubAttractModeFetch({ rebootSecondDisk: true });
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo.d64');
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'first-demo-side-b.d64');
+
+    expect(commands.map((cmd) => cmd.type === 'load-file' ? cmd.filename : cmd.type).slice(0, 5)).toEqual([
+      'reboot',
+      'first-demo.d64',
+      'auto-load-disk',
+      'reboot',
+      'first-demo-side-b.d64',
     ]);
 
     hostWs.close();
@@ -913,6 +1092,77 @@ describe('input-server', () => {
 
     expect(offStatus.attractMode.reason).toBe('manual-reset');
     expect(commands.some((cmd) => cmd.type === 'hard-reset')).toBe(true);
+
+    hostWs.close();
+  });
+
+  it('lets the host start attract mode at a specific demo index', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const statusPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    send(hostWs, { type: 'attract-mode', action: 'on', demoIndex: 1 });
+    const status = await statusPromise;
+    await nextMsg(hostWs, (m) => m.type === 'cart-loaded' && m.filename === 'second-demo.prg');
+
+    expect(status.attractMode).toMatchObject({
+      active: true,
+      playlistName: 'Test Playlist',
+      demoTitle: 'Second Demo',
+      demoName: 'Second Demo - Next Group',
+      demoGroup: 'Next Group',
+      csdbUrl: 'https://csdb.dk/release/?id=2',
+      rating: '8.7',
+      filename: 'second-demo.prg',
+      itemIndex: 1,
+      fileIndex: 0,
+    });
+    // first command must be reboot (before loading the selected demo)
+    expect(commands[0]).toMatchObject({ type: 'reboot' });
+    // next command must load second-demo.prg
+    expect(commands.find((c) => c.type === 'load-file')).toMatchObject({
+      filename: 'second-demo.prg',
+      fileType: 'prg',
+    });
+
+    hostWs.close();
+  });
+
+  it('signals error when attract mode demo index is out of bounds', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const errPromise = nextMsg(hostWs, (m) => m.type === 'attract-mode-error');
+    send(hostWs, { type: 'attract-mode', action: 'on', demoIndex: 99 });
+    const err = await errPromise;
+
+    expect(err.action).toBe('on');
+    expect(err.reason).toContain('out of bounds');
 
     hostWs.close();
   });

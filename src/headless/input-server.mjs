@@ -138,7 +138,7 @@ export function createInputServer(opts = {}) {
   const P2_RECONNECT_GRACE = opts.p2ReconnectGraceMs ?? HOST_RECONNECT_GRACE;
   const DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS = Number.isFinite(opts.diskAutoloadDelayMs)
     ? Math.max(0, Number(opts.diskAutoloadDelayMs))
-    : 8_000;
+    : 2_000;
 
   // ── Room state ────────────────────────────────────────────────────────────
   let hostClient = null;
@@ -172,6 +172,7 @@ export function createInputServer(opts = {}) {
   const attractBaseUrl = String(attractConfig.baseUrl ?? '').replace(/\/+$/, '');
   const attractManifest = String(attractConfig.manifest ?? 'playlists.json').replace(/^\/+/, '');
   let attractTimer = null;
+  let emptyRoomAttractTimer = null;
   let attractStatus = { active: false };
   let attractPlaylist = null;
   let attractCursor = null;
@@ -180,6 +181,11 @@ export function createInputServer(opts = {}) {
   function clearAttractTimer() {
     if (attractTimer) clearTimeout(attractTimer);
     attractTimer = null;
+  }
+
+  function clearEmptyRoomAttractTimer() {
+    if (emptyRoomAttractTimer) clearTimeout(emptyRoomAttractTimer);
+    emptyRoomAttractTimer = null;
   }
 
   function sleepMs(ms) {
@@ -204,16 +210,47 @@ export function createInputServer(opts = {}) {
     return `${attractBaseUrl}/${suffix}`;
   }
 
+  function joinEncodedPath(...parts) {
+    return parts
+      .filter(Boolean)
+      .map((part) => String(part).replace(/^\/+|\/+$/g, ''))
+      .filter(Boolean)
+      .map((part) => part.split('/').filter(Boolean).map(encodeURIComponent).join('/'))
+      .join('/');
+  }
+
+  function resolveAttractRootUrl(...parts) {
+    const base = new URL(attractBaseUrl);
+    return `${base.origin}/${joinEncodedPath(...parts)}`;
+  }
+
   async function fetchAttractJson(url) {
+    logEv('attract-fetch-json-start', { url });
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    logEv('attract-fetch-json-done', {
+      url,
+      status: res.status,
+      contentType: res.headers?.get?.('content-type') ?? '-',
+      contentLength: res.headers?.get?.('content-length') ?? '-',
+    });
     if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
     return res.json();
   }
 
   async function fetchAttractFileBase64(url) {
+    logEv('attract-fetch-file-start', { url });
     const res = await fetch(url);
+    const contentType = res.headers?.get?.('content-type') ?? '-';
+    const contentLength = res.headers?.get?.('content-length') ?? '-';
     if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
+    logEv('attract-fetch-file-done', {
+      url,
+      status: res.status,
+      contentType,
+      contentLength,
+      bytes: buf.length,
+    });
     return buf.toString('base64');
   }
 
@@ -238,7 +275,11 @@ export function createInputServer(opts = {}) {
 
   function resolveAttractFileUrl(item, file) {
     if (file.url) return file.url;
-    return resolveAttractUrl(attractPlaylist.basePath, item.path, file.path, file.filename);
+    const basePath = attractPlaylist.basePath ?? '';
+    if (String(basePath).startsWith('/')) {
+      return resolveAttractRootUrl(basePath, item.path, file.path, file.filename);
+    }
+    return resolveAttractUrl(basePath, item.path, file.path, file.filename);
   }
 
   function setAttractStatus({ item, file, itemIndex, fileIndex, filename }) {
@@ -247,7 +288,11 @@ export function createInputServer(opts = {}) {
     attractStatus = {
       active: true,
       playlistName: attractPlaylist.name,
+      demoTitle: item.name,
       demoName: item.group ? `${item.name} - ${item.group}` : item.name,
+      demoGroup: item.group ?? null,
+      csdbUrl: item.url ?? null,
+      rating: item.rating ?? null,
       playlistPath: attractPlaylist._playlistPath ?? null,
       itemIndex,
       fileIndex,
@@ -262,6 +307,7 @@ export function createInputServer(opts = {}) {
     const wasActive = !!attractStatus.active;
     attractGeneration += 1;
     clearAttractTimer();
+    clearEmptyRoomAttractTimer();
     attractStatus = { active: false, reason, updatedAt: Date.now() };
     attractPlaylist = null;
     attractCursor = null;
@@ -352,6 +398,7 @@ export function createInputServer(opts = {}) {
     logEv('host-grace-expired', { username: leaving });
     broadcastAll({ type: 'host-left', username: leaving, reason: 'disconnect' });
     broadcastAll({ type: 'p2-slot-status', open: false });
+    scheduleAttractModeIfRoomEmpty('host-disconnect');
   }
 
   // Called on host WS close — starts grace period, notifies clients.
@@ -376,6 +423,7 @@ export function createInputServer(opts = {}) {
     logEv('p2-grace-expired', { username: leaving });
     broadcastAll({ type: 'player2-left', username: leaving, reason: 'disconnect' });
     broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+    scheduleAttractModeIfRoomEmpty('p2-disconnect');
   }
 
   function onP2Disconnect(leaving) {
@@ -437,6 +485,7 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'host-left', username: leaving, reason });
     broadcastAll({ type: 'p2-slot-status', open: false });
     if (addr) disconnectWebrtcPeersByAddr(addr, reason);
+    scheduleAttractModeIfRoomEmpty(`host-${reason}`);
     return { kicked: true, username: leaving, addr };
   }
 
@@ -459,6 +508,7 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'player2-left', username: leaving, reason });
     broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
     if (addr) disconnectWebrtcPeersByAddr(addr, reason);
+    scheduleAttractModeIfRoomEmpty(`p2-${reason}`);
     return { kicked: true, username: leaving, addr };
   }
 
@@ -492,6 +542,14 @@ export function createInputServer(opts = {}) {
     broadcastAll({ type: 'cart-loading', filename: loadFilename });
     try {
       if (source === 'attract-mode' && generation !== attractGeneration) return false;
+      if (source === 'attract-mode') {
+        logEv('attract-load-file-start', {
+          filename: loadFilename,
+          fileType: loadType,
+          autoLoadDisk: autoLoadDisk ?? '-',
+          base64Len: (data ?? '').length,
+        });
+      }
       await onCommand({
         type: 'load-file',
         filename: loadFilename,
@@ -502,10 +560,25 @@ export function createInputServer(opts = {}) {
       if (source === 'attract-mode' && generation !== attractGeneration) return false;
       currentCartFilename = loadFilename || null;
       broadcastAll({ type: 'cart-loaded', filename: loadFilename, fileType: loadType, source });
+      if (source === 'attract-mode') {
+        logEv('attract-cart-loaded-broadcast', {
+          filename: loadFilename,
+          fileType: loadType,
+          autoLoadDisk: autoLoadDisk ?? '-',
+        });
+      }
       if (loadType === 'd64' && autoLoadDisk) {
+        if (source === 'attract-mode') {
+          logEv('attract-autoload-delay-start', {
+            filename: loadFilename,
+            delayMs: DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS,
+          });
+        }
         await sleepMs(DISK_AUTOLOAD_AFTER_LOAD_DELAY_MS);
         if (source === 'attract-mode' && generation !== attractGeneration) return false;
+        if (source === 'attract-mode') logEv('attract-autoload-command-send', { filename: loadFilename });
         await onCommand({ type: 'auto-load-disk' });
+        if (source === 'attract-mode') logEv('attract-autoload-command-done', { filename: loadFilename });
       }
       return true;
     } catch (e) {
@@ -559,9 +632,30 @@ export function createInputServer(opts = {}) {
           ? 'crt'
           : 'crt';
     const url = resolveAttractFileUrl(item, file);
+    logEv('attract-entry-selected', {
+      playlist: attractPlaylist?.name ?? '-',
+      demo: item.group ? `${item.name} - ${item.group}` : item.name,
+      itemIndex,
+      fileIndex,
+      filename,
+      fileType,
+      url,
+      mountOnly,
+      rebootBeforeLoad,
+      rebootFileBeforeLoad: file.reboot === true,
+    });
+    if (rebootBeforeLoad) {
+      await runRebootCommand({ source: 'attract-mode', stopAttract: false });
+      if (generation !== attractGeneration) return;
+    }
+    if (file.reboot === true) {
+      logEv('attract-reboot-before-disk', { filename, itemIndex, fileIndex });
+      await runRebootCommand({ source: 'attract-mode', stopAttract: false });
+      if (generation !== attractGeneration) return;
+      await sleepMs(1000);
+      if (generation !== attractGeneration) return;
+    }
     const data = await fetchAttractFileBase64(url);
-
-    if (rebootBeforeLoad) await runRebootCommand({ source: 'attract-mode', stopAttract: false });
     if (generation !== attractGeneration) return;
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();
@@ -569,39 +663,75 @@ export function createInputServer(opts = {}) {
       filename,
       fileType,
       data,
-      autoLoadDisk: fileType === 'd64' ? !mountOnly : undefined,
+      autoLoadDisk: fileType === 'd64' ? (!mountOnly || file.reboot === true) : undefined,
       source: 'attract-mode',
     });
     if (generation !== attractGeneration) return;
     scheduleAttractAdvance();
   }
 
-  async function startAttractMode() {
+  async function startAttractMode(demoIndex = 0) {
     if (!attractEnabled) throw new Error('Attract Mode is not configured');
     attractGeneration += 1;
     clearAttractTimer();
     const manifest = await fetchAttractJson(resolveAttractUrl(attractManifest));
+    logEv('attract-manifest-loaded', { count: Array.isArray(manifest) ? manifest.length : '-' });
     if (!Array.isArray(manifest) || manifest.length === 0) {
       throw new Error('No Attract Mode playlists configured');
     }
     const playlistEntry = chooseRandom(manifest);
     const playlistPath = typeof playlistEntry === 'string' ? playlistEntry : playlistEntry?.filename;
     if (!playlistPath) throw new Error('Invalid Attract Mode playlist entry');
+    logEv('attract-playlist-selected', { playlistPath });
     const playlist = await fetchAttractJson(resolveAttractUrl(playlistPath));
     if (!playlist?.name) throw new Error('Attract Mode playlist is missing a name');
     if (!Array.isArray(playlist.items) || playlist.items.length === 0) {
       throw new Error('Attract Mode playlist has no demos');
     }
+    if (demoIndex < 0 || demoIndex >= playlist.items.length) {
+      throw new Error(`Demo index ${demoIndex} is out of bounds (playlist has ${playlist.items.length} demos)`);
+    }
     attractPlaylist = { ...playlist, _playlistPath: playlistPath };
-    await loadAttractEntry(0, 0, { rebootBeforeLoad: true });
+    await loadAttractEntry(demoIndex, 0, { rebootBeforeLoad: true });
   }
 
   function startAttractModeIfRoomEmpty(reason = 'empty-room') {
-    if (!attractEnabled || attractStatus.active || hostClient || p2Client) return;
+    if (!attractEnabled || attractStatus.active || hostClient || p2Client) {
+      logEv('attract-empty-room-start-skipped', {
+        reason,
+        attractEnabled,
+        active: !!attractStatus.active,
+        hasHost: !!hostClient,
+        hasP2: !!p2Client,
+      });
+      return;
+    }
+    clearEmptyRoomAttractTimer();
+    logEv('attract-empty-room-start', { reason });
     startAttractMode().catch((err) => {
       console.error(`[input-server] attract mode ${reason} start failed:`, err?.message ?? err);
       stopAttractMode({ reason: 'error' });
     });
+  }
+
+  function scheduleAttractModeIfRoomEmpty(reason = 'empty-room') {
+    clearEmptyRoomAttractTimer();
+    if (!attractEnabled || attractStatus.active || hostClient || p2Client) {
+      logEv('attract-empty-room-schedule-skipped', {
+        reason,
+        attractEnabled,
+        active: !!attractStatus.active,
+        hasHost: !!hostClient,
+        hasP2: !!p2Client,
+      });
+      return;
+    }
+    logEv('attract-empty-room-scheduled', { reason, delayMs: HOST_TIMEOUT });
+    emptyRoomAttractTimer = setTimeout(() => {
+      emptyRoomAttractTimer = null;
+      startAttractModeIfRoomEmpty(reason);
+    }, HOST_TIMEOUT);
+    if (typeof emptyRoomAttractTimer.unref === 'function') emptyRoomAttractTimer.unref();
   }
 
   async function advanceAttractMode() {
@@ -972,6 +1102,7 @@ export function createInputServer(opts = {}) {
         }
         const isRejoin = graceTimer && pendingHostUsername === (msg.username ?? 'player');
         if (graceTimer) clearGrace(); // cancel grace regardless of who's claiming
+        clearEmptyRoomAttractTimer();
         hostClient = ws;
         hostUsername = msg.username ?? 'player';
         setWsIdentity(ws, 'host', hostUsername);
@@ -1077,6 +1208,7 @@ export function createInputServer(opts = {}) {
           ws.send(JSON.stringify({ type: 'player2-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'player2-left', username: leaving, voluntary: true });
           broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
+          scheduleAttractModeIfRoomEmpty('p2-voluntary');
         }
         return;
       }
@@ -1100,6 +1232,7 @@ export function createInputServer(opts = {}) {
           ws.send(JSON.stringify({ type: 'host-left', username: leaving, voluntary: true }));
           broadcastExcept(ws, { type: 'host-left', username: leaving, voluntary: true });
           broadcastAll({ type: 'p2-slot-status', open: false });
+          scheduleAttractModeIfRoomEmpty('host-voluntary');
         }
         return;
       }
@@ -1143,6 +1276,7 @@ export function createInputServer(opts = {}) {
           return;
         }
         if (isRejoin) clearP2Grace();
+        clearEmptyRoomAttractTimer();
         if (ws === hostClient) {
           ws.send(JSON.stringify({ type: 'join-p2-error', reason: 'already-host' }));
           return;
@@ -1205,6 +1339,7 @@ export function createInputServer(opts = {}) {
           return;
         }
         if (isRejoin) clearP2Grace();
+        clearEmptyRoomAttractTimer();
         p2Client = ws;
         p2Username = requestedUsername;
         inviteToken = null;
@@ -1260,6 +1395,7 @@ export function createInputServer(opts = {}) {
         broadcastAll({ type: 'p2-slot-status', open: isP2SlotOpen() });
         if (verbose) console.error(`[input-server] p2 revoked by host`);
         logEv('p2-kicked', { username: leaving ?? '?', by: 'host' });
+        scheduleAttractModeIfRoomEmpty('p2-revoked');
         return;
       }
 
@@ -1383,8 +1519,9 @@ export function createInputServer(opts = {}) {
         }
         setWsIdentity(ws, 'admin', null);
         const action = String(msg.action ?? '').toLowerCase();
+        const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
         if (action === 'on') {
-          startAttractMode()
+          startAttractMode(demoIndex)
             .then(() => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() })))
             .catch((e) => {
               stopAttractMode({ reason: 'error' });
@@ -1469,20 +1606,42 @@ export function createInputServer(opts = {}) {
 
       // ── Emulator commands (host only) ─────────────────────────────────────
       if (msg.type === 'attract-mode') {
-        if (ws !== hostClient) return;
+        if (ws !== hostClient) {
+          logEv('attract-mode-rejected', { reason: 'host-required' });
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'attract-mode-error', reason: 'host-required' }));
+          }
+          return;
+        }
         const action = String(msg.action ?? '').toLowerCase();
+        const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
+        logEv('cmd-attract-mode', { action, host: hostUsername ?? '-', demoIndex: demoIndex ?? '-' });
         if (action === 'on') {
-          startAttractMode().catch((e) => {
-            stopAttractMode({ reason: 'error' });
-            if (ws.readyState === ws.OPEN) {
-              ws.send(JSON.stringify({ type: 'attract-mode-error', reason: String(e?.message ?? e) }));
-            }
-          });
+          startAttractMode(demoIndex)
+            .then(() => {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'attract-mode-ok', action, attractMode: attractStatusPayload() }));
+              }
+            })
+            .catch((e) => {
+              const reason = String(e?.message ?? e);
+              logEv('attract-mode-error', { action, reason });
+              stopAttractMode({ reason: 'error' });
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'attract-mode-error', action, reason }));
+              }
+            });
           return;
         }
         if (action === 'off') {
           stopAttractMode({ reason: 'manual' });
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'attract-mode-ok', action, attractMode: attractStatusPayload() }));
+          }
           return;
+        }
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'attract-mode-error', action, reason: 'invalid-action' }));
         }
         return;
       }
@@ -1708,6 +1867,7 @@ export function createInputServer(opts = {}) {
       clearGrace();
       clearP2Grace();
       clearAttractTimer();
+      clearEmptyRoomAttractTimer();
       if (_inputLogTimer) {
         clearInterval(_inputLogTimer);
         _inputLogTimer = null;
