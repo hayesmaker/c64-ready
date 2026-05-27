@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #164 from hayesmaker/fix/split-disk-mount-autoload (efd9518)
+- feat: added demo command to live chat (fd9eb44)
+- Merge pull request #163 from hayesmaker/chore/update-changelog-2026-05-24T07-37-17-736Z-a99814d (ab8812d)
+- feat: added env var host timeout support (371f5b6)
+- feat: added timeout to start attract mode (96c2097)
+- feat: reboot emulator on reboot: true demo disks (c3776d3)
+- fix: autoload disk when reboot=true (c2f4d6e)
+- fix: add delay to load disk after an auto reboot (46c1941)
+- feat: attractMode from index (3f95dcf)
+- fix: add debug for host attractMode command (f9cbf97)
+- feat: allow demos to autorestart emu if problematic (91cd5eb)
+- fix: attract mode assets url resolution (65b9467)
+- chore: add debugging for disk load auto start (49d9261)
+- chore: update changelog (auto) (a99814d)
 - Merge pull request #162 from hayesmaker/fix/split-disk-mount-autoload (0da8436)
 - fix: split disk load mount and autoload (d9696c6)
 - Merge pull request #160 from hayesmaker/fix/manual-reboot-and-reset (9aa1406)
