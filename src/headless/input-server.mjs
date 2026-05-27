@@ -288,7 +288,11 @@ export function createInputServer(opts = {}) {
     attractStatus = {
       active: true,
       playlistName: attractPlaylist.name,
+      demoTitle: item.name,
       demoName: item.group ? `${item.name} - ${item.group}` : item.name,
+      demoGroup: item.group ?? null,
+      csdbUrl: item.url ?? null,
+      rating: item.rating ?? null,
       playlistPath: attractPlaylist._playlistPath ?? null,
       itemIndex,
       fileIndex,

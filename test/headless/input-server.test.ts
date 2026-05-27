@@ -91,6 +91,8 @@ describe('input-server', () => {
         {
           name: 'First Demo',
           group: 'Demo Group',
+          url: 'https://csdb.dk/release/?id=1',
+          rating: '9.1',
           path: 'first-demo',
           files: [
             { filename: 'first-demo.d64', duration: 0.1 },
@@ -100,6 +102,8 @@ describe('input-server', () => {
         {
           name: 'Second Demo',
           group: 'Next Group',
+          url: 'https://csdb.dk/release/?id=2',
+          rating: '8.7',
           path: 'second-demo',
           files: [{ filename: 'second-demo.prg', duration: 0.1 }],
         },
@@ -742,7 +746,11 @@ describe('input-server', () => {
     expect(status.attractMode).toMatchObject({
       active: true,
       playlistName: 'Test Playlist',
+      demoTitle: 'First Demo',
       demoName: 'First Demo - Demo Group',
+      demoGroup: 'Demo Group',
+      csdbUrl: 'https://csdb.dk/release/?id=1',
+      rating: '9.1',
       filename: 'first-demo.d64',
       itemIndex: 0,
       fileIndex: 0,
@@ -1113,7 +1121,11 @@ describe('input-server', () => {
     expect(status.attractMode).toMatchObject({
       active: true,
       playlistName: 'Test Playlist',
+      demoTitle: 'Second Demo',
       demoName: 'Second Demo - Next Group',
+      demoGroup: 'Next Group',
+      csdbUrl: 'https://csdb.dk/release/?id=2',
+      rating: '8.7',
       filename: 'second-demo.prg',
       itemIndex: 1,
       fileIndex: 0,
