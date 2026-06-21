@@ -21,6 +21,41 @@ All notable changes to this project will be documented in this file.
 - fix(workflows): check all commits in push for release detection (c5f609b)
 - Merge pull request #148 from hayesmaker/fix/disk-keyboard-buffer (c31533b)
 
+## v2.4.0 - 2026-06-21T13:51:38+01:00
+
+- chore(release): 2.4.0 (736d68d)
+
+## v2.3.2 - 2026-06-21T13:51:28+01:00
+
+- chore(release): 2.3.2 (4e01319)
+- feat: keyboard remap api (3410529)
+- feat: added demo command to live chat (fd9eb44)
+- feat: added env var host timeout support (371f5b6)
+- feat: added timeout to start attract mode (96c2097)
+- feat: reboot emulator on reboot: true demo disks (c3776d3)
+- fix: autoload disk when reboot=true (c2f4d6e)
+- fix: add delay to load disk after an auto reboot (46c1941)
+- feat: attractMode from index (3f95dcf)
+- fix: add debug for host attractMode command (f9cbf97)
+- feat: allow demos to autorestart emu if problematic (91cd5eb)
+- fix: attract mode assets url resolution (65b9467)
+- chore: add debugging for disk load auto start (49d9261)
+- fix: split disk load mount and autoload (d9696c6)
+- Merge pull request #160 from hayesmaker/fix/manual-reboot-and-reset (9aa1406)
+- fix: reboot and reset during attract mode (780ccda)
+- Merge pull request #158 from hayesmaker/fix/extend-disk-buffer-attract-mode (ff15f86)
+- fix: extends attract-mode diskload buffer (624f7de)
+- Merge pull request #156 from hayesmaker/fix/attract-mode-fix (bb15cf3)
+- fix: attract mode should reset emulator (be51c17)
+- Merge pull request #154 from hayesmaker/feature/attract-mode (44ca9b6)
+- chore: env.example attract mode vars (c1c943f)
+- feat: added backend attract-mode (0ebaf96)
+- Merge pull request #152 from hayesmaker/fix/attach-crt-filetype (ed5944f)
+- fix: add filetype crt (06489f3)
+- Merge pull request #150 from hayesmaker/fix/disk-keyboard-buffer (9bfb5cf)
+- fix(workflows): check all commits in push for release detection (c5f609b)
+- Merge pull request #148 from hayesmaker/fix/disk-keyboard-buffer (c31533b)
+
 ## v2.3.1 - 2026-05-16T12:31:50+01:00
 
 - chore(release): 2.3.1 (fb25e7d)

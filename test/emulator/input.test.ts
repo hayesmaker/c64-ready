@@ -78,6 +78,60 @@ describe('EmulatorInput', () => {
     input.detach();
   });
 
+  it('allows keyboard joystick controls to be remapped', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+    } as any;
+
+    const input = new EmulatorInput(emulator, window);
+    input.setInputMode('joystick');
+    input.setKeyboardJoystickMap({
+      KeyW: JOYSTICK_DIRECTION.UP,
+      KeyF: JOYSTICK_FIRE_1,
+    });
+    input.attach();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp', cancelable: true }));
+    expect(emulator.joystickPush).not.toHaveBeenCalled();
+
+    const down = new KeyboardEvent('keydown', { code: 'KeyW', cancelable: true });
+    window.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(emulator.joystickPush).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_DIRECTION.UP);
+
+    const fireUp = new KeyboardEvent('keyup', { code: 'KeyF', cancelable: true });
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF', cancelable: true }));
+    window.dispatchEvent(fireUp);
+    expect(fireUp.defaultPrevented).toBe(true);
+    expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
+
+    input.detach();
+  });
+
+  it('uses remapped joystick controls in mixed mode', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
+    } as any;
+
+    const input = new EmulatorInput(emulator, window);
+    input.setInputMode('mixed');
+    input.setKeyboardJoystickMap({ KeyI: JOYSTICK_DIRECTION.UP });
+    input.attach();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI', key: 'i', cancelable: true }));
+    expect(emulator.joystickPush).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_DIRECTION.UP);
+    expect(emulator.keyDown).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp', key: 'ArrowUp', cancelable: true }));
+    expect(emulator.joystickPush).toHaveBeenCalledTimes(1);
+
+    input.detach();
+  });
+
   it('releases any held controls when detached', () => {
     const emulator = {
       joystickPush: vi.fn(),

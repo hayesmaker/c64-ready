@@ -17,6 +17,8 @@ export const KEY_TO_JOYSTICK = {
   ControlLeft: JOYSTICK_FIRE_1,
 } as const;
 
+export type KeyboardJoystickMap = Record<string, JoystickInput>;
+
 /**
  * Array of keyboard codes that map to joystick inputs. Exported so
  * external UI/input handlers can derive their blocking behavior from
@@ -40,7 +42,7 @@ export type InputMode = 'joystick' | 'keyboard' | 'mixed';
  * These keys are consumed as joystick inputs and NOT forwarded to the
  * C64 keyboard matrix in mixed mode.
  */
-export const MIXED_JOYSTICK_KEYS: Record<string, number> = {
+export const MIXED_JOYSTICK_KEYS: KeyboardJoystickMap = {
   ArrowUp: JOYSTICK_DIRECTION.UP,
   ArrowDown: JOYSTICK_DIRECTION.DOWN,
   ArrowLeft: JOYSTICK_DIRECTION.LEFT,
@@ -49,6 +51,11 @@ export const MIXED_JOYSTICK_KEYS: Record<string, number> = {
   KeyX: JOYSTICK_FIRE_2,
   KeyC: JOYSTICK_FIRE_3,
   ControlLeft: JOYSTICK_FIRE_1,
+};
+
+const DEFAULT_MIXED_EXTRA_JOYSTICK_KEYS: KeyboardJoystickMap = {
+  KeyX: JOYSTICK_FIRE_2,
+  KeyC: JOYSTICK_FIRE_3,
 };
 
 // ---------------------------------------------------------------------------
@@ -486,7 +493,7 @@ export function domKeyToC64Actions(
   return actions;
 }
 
-type MappedControl = keyof typeof KEY_TO_JOYSTICK;
+type MappedControl = string;
 
 const POT_INACTIVE = 128;
 const POT_ACTIVE = 0;
@@ -520,6 +527,8 @@ export class EmulatorInput {
     false,
     false,
   ];
+  private keyboardJoystickMap: KeyboardJoystickMap = { ...KEY_TO_JOYSTICK };
+  private mixedJoystickMap: KeyboardJoystickMap = { ...MIXED_JOYSTICK_KEYS };
   private potFire2Pressed = false;
   private potFire3Pressed = false;
   private readonly pressedControls = new Set<MappedControl>();
@@ -796,9 +805,9 @@ export class EmulatorInput {
     if (this.inputMode === 'mixed') {
       // Mixed mode — joystick keys (arrows + Z + ControlLeft) drive joystick;
       // all other keys route to the C64 keyboard matrix.
-      if (event.code in MIXED_JOYSTICK_KEYS) {
+      if (event.code in this.mixedJoystickMap) {
         // Joystick path
-        const dir = MIXED_JOYSTICK_KEYS[event.code] as JoystickInput;
+        const dir = this.mixedJoystickMap[event.code] as JoystickInput;
         this.pushJoystickInput(dir);
         event.preventDefault();
       } else {
@@ -822,7 +831,7 @@ export class EmulatorInput {
       return;
     }
     this.pressedControls.add(control);
-    this.pushJoystickInput(KEY_TO_JOYSTICK[control]);
+    this.pushJoystickInput(this.keyboardJoystickMap[control]);
     event.preventDefault();
   }
 
@@ -840,8 +849,8 @@ export class EmulatorInput {
     }
 
     if (this.inputMode === 'mixed') {
-      if (event.code in MIXED_JOYSTICK_KEYS) {
-        const dir = MIXED_JOYSTICK_KEYS[event.code];
+      if (event.code in this.mixedJoystickMap) {
+        const dir = this.mixedJoystickMap[event.code];
         this.releaseJoystickInput(dir as JoystickInput);
         event.preventDefault();
       } else {
@@ -863,12 +872,12 @@ export class EmulatorInput {
       return;
     }
     this.pressedControls.delete(control);
-    this.releaseJoystickInput(KEY_TO_JOYSTICK[control]);
+    this.releaseJoystickInput(this.keyboardJoystickMap[control]);
     event.preventDefault();
   }
 
   private getMappedControl(event: KeyboardEvent): MappedControl | null {
-    if (event.code in KEY_TO_JOYSTICK) {
+    if (event.code in this.keyboardJoystickMap) {
       return event.code as MappedControl;
     }
     return null;
@@ -906,7 +915,7 @@ export class EmulatorInput {
 
   private releaseAll(): void {
     for (const control of this.pressedControls) {
-      this.releaseJoystickInput(KEY_TO_JOYSTICK[control]);
+      this.releaseJoystickInput(this.keyboardJoystickMap[control]);
     }
     this.pressedControls.clear();
     this.potFire2Pressed = false;
@@ -945,6 +954,17 @@ export class EmulatorInput {
 
   getInputMode(): InputMode {
     return this.inputMode;
+  }
+
+  /** Replace the keyboard-code to joystick-input map used in joystick and mixed modes. */
+  setKeyboardJoystickMap(map: KeyboardJoystickMap): void {
+    this.releaseAll();
+    this.keyboardJoystickMap = { ...map };
+    this.mixedJoystickMap = { ...map, ...DEFAULT_MIXED_EXTRA_JOYSTICK_KEYS };
+  }
+
+  isJoystickKeyCode(code: string): boolean {
+    return code in this.keyboardJoystickMap || code in this.mixedJoystickMap;
   }
 
   setActiveGamepadIndex(index: number): void {

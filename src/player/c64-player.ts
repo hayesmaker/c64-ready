@@ -2,7 +2,7 @@ import { C64Emulator } from '../emulator/c64-emulator';
 import { getUnsupportedCrtReason, parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
-import type { InputMode } from '../emulator/input';
+import type { InputMode, KeyboardJoystickMap } from '../emulator/input';
 import type CanvasRenderer from './canvas-renderer';
 import { AudioEngine, type AudioEngineOptions } from './audio-engine';
 import InputHandler from './input-handler';
@@ -282,6 +282,11 @@ export class C64Player {
    */
   setKeyboardJoystickPort(port: JoystickPort): void {
     this.inputHandler?.setKeyboardJoystickPort(port);
+  }
+
+  /** Change which keyboard codes map to joystick controls. */
+  setKeyboardJoystickMap(map: KeyboardJoystickMap): void {
+    this.inputHandler?.setKeyboardJoystickMap(map);
   }
 
   /**
