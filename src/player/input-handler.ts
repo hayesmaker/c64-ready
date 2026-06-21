@@ -1,5 +1,5 @@
-import { EmulatorInput, JOYSTICK_KEY_CODES, MIXED_JOYSTICK_KEYS } from '../emulator/input';
-import type { InputMode } from '../emulator/input';
+import { EmulatorInput } from '../emulator/input';
+import type { InputMode, KeyboardJoystickMap } from '../emulator/input';
 import type { JoystickPort } from '../emulator/constants';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
@@ -31,6 +31,11 @@ export default class InputHandler {
     this.emulatorInput.setKeyboardPort(port);
   }
 
+  /** Change which keyboard codes map to joystick controls. */
+  setKeyboardJoystickMap(map: KeyboardJoystickMap): void {
+    this.emulatorInput.setKeyboardJoystickMap(map);
+  }
+
   /** Change the input mode ('joystick' | 'keyboard' | 'mixed') */
   setInputMode(mode: InputMode): void {
     this.emulatorInput.setInputMode(mode);
@@ -51,11 +56,7 @@ export default class InputHandler {
   private onCaptureKeyDown(e: KeyboardEvent): void {
     // Block joystick-mapped keys (standard + mixed mode) when overlays are
     // visible or the document is unfocused. Use the union of both key sets.
-    const JOY_KEYS = new Set([
-      ...(JOYSTICK_KEY_CODES as string[]),
-      ...Object.keys(MIXED_JOYSTICK_KEYS),
-    ]);
-    if (!JOY_KEYS.has(e.code)) return;
+    if (!this.isJoystickKey(e)) return;
 
     // Block if document is unfocused. Prefer the Visibility API (document.hidden)
     // which is stable under JSDOM; fall back to hasFocus() only if hidden is unavailable.
@@ -102,11 +103,7 @@ export default class InputHandler {
 
   private onCaptureKeyUp(e: KeyboardEvent): void {
     // Only block joystick-mapped keys (standard + mixed mode)
-    const JOY_KEYS = new Set([
-      ...(JOYSTICK_KEY_CODES as string[]),
-      ...Object.keys(MIXED_JOYSTICK_KEYS),
-    ]);
-    if (!JOY_KEYS.has(e.code)) return;
+    if (!this.isJoystickKey(e)) return;
 
     // Mirror the same blocking logic for keyup events
     try {
@@ -136,5 +133,9 @@ export default class InputHandler {
     } catch {
       // ignore DOM errors
     }
+  }
+
+  private isJoystickKey(e: KeyboardEvent): boolean {
+    return this.emulatorInput.isJoystickKeyCode(e.code);
   }
 }
