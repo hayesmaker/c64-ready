@@ -25,6 +25,7 @@ describe('C64Player', () => {
       cpuRead: vi.fn(() => 0),
       cpuReadNS: vi.fn(() => 0xcd),
       cpuWrite: vi.fn(),
+      setDebugSpeed: vi.fn(),
     } as any;
   }
 
@@ -107,6 +108,46 @@ describe('C64Player', () => {
     expect(emulator.start).toHaveBeenCalledOnce();
     expect(onProgress).toHaveBeenCalledWith(10, 'INITIALISING WASM...');
     expect(onProgress).toHaveBeenCalledWith(100, 'READY!');
+  });
+
+  it('increments, decrements, resets, and clamps fast-forward speed', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    const loadInfoEvents: CustomEvent[] = [];
+    const onLoadInfo = (event: Event) => loadInfoEvents.push(event as CustomEvent);
+    window.addEventListener('c64-load-info', onLoadInfo);
+
+    try {
+      const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
+      player.setFastForwardSpeed(250);
+      await player.start();
+
+      expect(player.getFastForwardSpeed()).toBe(300);
+      expect(emulator.setDebugSpeed).toHaveBeenCalledWith(300);
+      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 3x');
+
+      expect(player.incrementFastForwardSpeed()).toBe(400);
+      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(400);
+      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 4x');
+
+      expect(player.decrementFastForwardSpeed()).toBe(300);
+      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(300);
+      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 3x');
+
+      expect(player.setFastForwardSpeed(5000)).toBe(1000);
+      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(1000);
+      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 10x');
+
+      const eventCountAtMax = loadInfoEvents.length;
+      expect(player.incrementFastForwardSpeed()).toBe(1000);
+      expect(loadInfoEvents).toHaveLength(eventCountAtMax);
+
+      expect(player.resetFastForwardSpeed()).toBe(100);
+      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(100);
+      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: normal speed');
+    } finally {
+      window.removeEventListener('c64-load-info', onLoadInfo);
+    }
   });
 
   it('auto-types RUN after loading a PRG file', async () => {

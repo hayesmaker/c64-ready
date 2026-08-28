@@ -3,14 +3,26 @@ import type { InputMode, KeyboardJoystickMap } from '../emulator/input';
 import type { JoystickPort } from '../emulator/constants';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
+export interface InputHandlerOptions {
+  onFastForwardIncrease?: () => void;
+  onFastForwardDecrease?: () => void;
+  onFastForwardReset?: () => void;
+}
+
 export default class InputHandler {
   private readonly emulatorInput: EmulatorInput;
+  private readonly options: InputHandlerOptions;
   // capture-phase blockers
   private readonly captureKeyDown = (e: KeyboardEvent) => this.onCaptureKeyDown(e);
   private readonly captureKeyUp = (e: KeyboardEvent) => this.onCaptureKeyUp(e);
 
-  constructor(emulator: C64Emulator, target: EventTarget = window) {
+  constructor(
+    emulator: C64Emulator,
+    target: EventTarget = window,
+    options: InputHandlerOptions = {},
+  ) {
     this.emulatorInput = new EmulatorInput(emulator, target);
+    this.options = options;
   }
 
   attach(): void {
@@ -54,6 +66,8 @@ export default class InputHandler {
   }
 
   private onCaptureKeyDown(e: KeyboardEvent): void {
+    if (this.handleFastForwardShortcut(e)) return;
+
     // Block joystick-mapped keys (standard + mixed mode) when overlays are
     // visible or the document is unfocused. Use the union of both key sets.
     if (!this.isJoystickKey(e)) return;
@@ -137,5 +151,21 @@ export default class InputHandler {
 
   private isJoystickKey(e: KeyboardEvent): boolean {
     return this.emulatorInput.isJoystickKeyCode(e.code);
+  }
+
+  private handleFastForwardShortcut(e: KeyboardEvent): boolean {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.repeat) return false;
+
+    const increase = e.key === '+' || e.key === '=' || e.code === 'Equal';
+    const decrease = e.key === '-' || e.code === 'Minus';
+    const reset = e.key === 'Backspace' || e.code === 'Backspace';
+    if (!increase && !decrease && !reset) return false;
+
+    if (increase) this.options.onFastForwardIncrease?.();
+    else if (decrease) this.options.onFastForwardDecrease?.();
+    else this.options.onFastForwardReset?.();
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return true;
   }
 }
