@@ -89,4 +89,69 @@ describe('InputHandler (capture blocking)', () => {
 
     input.detach();
   });
+
+  it('handles Alt +, Alt -, and Alt Backspace fast-forward shortcuts before emulator input', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
+    } as any;
+    const onFastForwardIncrease = vi.fn();
+    const onFastForwardDecrease = vi.fn();
+    const onFastForwardReset = vi.fn();
+
+    const input = new InputHandler(emulator, window as any, {
+      onFastForwardIncrease,
+      onFastForwardDecrease,
+      onFastForwardReset,
+    });
+    input.attach();
+
+    const enable = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Equal',
+      key: '+',
+      cancelable: true,
+    });
+    window.dispatchEvent(enable);
+
+    expect(enable.defaultPrevented).toBe(true);
+    expect(onFastForwardIncrease).toHaveBeenCalledOnce();
+    expect(emulator.keyDown).not.toHaveBeenCalled();
+
+    const repeated = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Equal',
+      key: '+',
+      repeat: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(repeated);
+    expect(onFastForwardIncrease).toHaveBeenCalledTimes(1);
+
+    const disable = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Minus',
+      key: '-',
+      cancelable: true,
+    });
+    window.dispatchEvent(disable);
+
+    expect(disable.defaultPrevented).toBe(true);
+    expect(onFastForwardDecrease).toHaveBeenCalledOnce();
+
+    const reset = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Backspace',
+      key: 'Backspace',
+      cancelable: true,
+    });
+    window.dispatchEvent(reset);
+
+    expect(reset.defaultPrevented).toBe(true);
+    expect(onFastForwardReset).toHaveBeenCalledOnce();
+
+    input.detach();
+  });
 });

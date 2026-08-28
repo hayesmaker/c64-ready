@@ -17,6 +17,9 @@ const PRG_AUTORUN_DELAY_MS = 650;
 const DISK_AUTOLOAD_DELAY_MS = 1500;
 const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
+const NORMAL_DEBUG_SPEED = 100;
+const FAST_FORWARD_STEP = 100;
+const MAX_DEBUG_SPEED = 300;
 
 export interface C64PlayerOptions {
   wasmUrl: string;
@@ -37,6 +40,7 @@ export class C64Player {
   private diskSessionActive: boolean = false;
   private startupLoadInProgress: boolean = false;
   private startupDiskAutoloadPending: boolean = false;
+  private debugSpeed: number = NORMAL_DEBUG_SPEED;
   readonly audio: AudioEngine;
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -53,6 +57,7 @@ export class C64Player {
     onProgress?.(10, 'INITIALISING WASM...');
     this.emulator = await C64Emulator.load(wasmUrl);
     this.emulator.setCrtPreloadChecksEnabled(!this.disableCrtPreloadChecks);
+    this.applyDebugSpeed();
     this.attachInputAndRenderer(this.emulator, renderer);
     let shouldAutoRunPrgAfterStart = false;
 
@@ -250,6 +255,7 @@ export class C64Player {
       this.diskSessionActive = false;
       this.startupDiskAutoloadPending = false;
       this.emulator.setSampleRate(this.audio.sampleRate);
+      this.applyDebugSpeed();
       this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
       window.dispatchEvent(new CustomEvent('c64-reboot', { detail: {} }));
       window.dispatchEvent(new CustomEvent('c64-close-menu'));
@@ -298,6 +304,33 @@ export class C64Player {
    */
   setInputMode(mode: InputMode): void {
     this.inputHandler?.setInputMode(mode);
+  }
+
+  /** Set emulator speed in 100% increments, clamped from normal speed through 10x. */
+  setFastForwardSpeed(speed: number): number {
+    const nextSpeed = clampDebugSpeed(speed);
+    if (nextSpeed === this.debugSpeed) return this.debugSpeed;
+
+    this.debugSpeed = nextSpeed;
+    this.applyDebugSpeed();
+    this.notifyDebugSpeedChanged();
+    return this.debugSpeed;
+  }
+
+  incrementFastForwardSpeed(): number {
+    return this.setFastForwardSpeed(this.debugSpeed + FAST_FORWARD_STEP);
+  }
+
+  decrementFastForwardSpeed(): number {
+    return this.setFastForwardSpeed(this.debugSpeed - FAST_FORWARD_STEP);
+  }
+
+  resetFastForwardSpeed(): number {
+    return this.setFastForwardSpeed(NORMAL_DEBUG_SPEED);
+  }
+
+  getFastForwardSpeed(): number {
+    return this.debugSpeed;
   }
 
   setActiveGamepadIndex(index: number): void {
@@ -472,9 +505,29 @@ export class C64Player {
 
   private attachInputAndRenderer(emulator: C64Emulator, renderer: CanvasRenderer): void {
     this.inputHandler?.detach();
-    this.inputHandler = new InputHandler(emulator);
+    this.inputHandler = new InputHandler(emulator, window, {
+      onFastForwardIncrease: () => this.incrementFastForwardSpeed(),
+      onFastForwardDecrease: () => this.decrementFastForwardSpeed(),
+      onFastForwardReset: () => this.resetFastForwardSpeed(),
+    });
     this.inputHandler.attach();
     renderer.attachTo(emulator);
+  }
+
+  private applyDebugSpeed(): void {
+    this.emulator?.setDebugSpeed(this.debugSpeed);
+  }
+
+  private notifyDebugSpeedChanged(): void {
+    const message =
+      this.debugSpeed === NORMAL_DEBUG_SPEED
+        ? 'Fast-forward: normal speed'
+        : `Fast-forward: ${this.debugSpeed / NORMAL_DEBUG_SPEED}x`;
+    window.dispatchEvent(
+      new CustomEvent('c64-load-info', {
+        detail: { mode: 'info', source: 'keyboard', message },
+      }),
+    );
   }
 
   private handleCrtPreloadChecks(
@@ -541,6 +594,12 @@ function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clampDebugSpeed(speed: number): number {
+  if (!Number.isFinite(speed)) return NORMAL_DEBUG_SPEED;
+  const steppedSpeed = Math.round(speed / FAST_FORWARD_STEP) * FAST_FORWARD_STEP;
+  return Math.max(NORMAL_DEBUG_SPEED, Math.min(MAX_DEBUG_SPEED, steppedSpeed));
 }
 
 function normaliseKeyboardBufferText(text: string): number[] {
