@@ -89,4 +89,52 @@ describe('InputHandler (capture blocking)', () => {
 
     input.detach();
   });
+
+  it('handles Alt + and Alt - fast-forward shortcuts before emulator input', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
+    } as any;
+    const onFastForwardChange = vi.fn();
+
+    const input = new InputHandler(emulator, window as any, { onFastForwardChange });
+    input.attach();
+
+    const enable = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Equal',
+      key: '+',
+      cancelable: true,
+    });
+    window.dispatchEvent(enable);
+
+    expect(enable.defaultPrevented).toBe(true);
+    expect(onFastForwardChange).toHaveBeenCalledWith(true);
+    expect(emulator.keyDown).not.toHaveBeenCalled();
+
+    const repeated = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Equal',
+      key: '+',
+      repeat: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(repeated);
+    expect(onFastForwardChange).toHaveBeenCalledTimes(1);
+
+    const disable = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Minus',
+      key: '-',
+      cancelable: true,
+    });
+    window.dispatchEvent(disable);
+
+    expect(disable.defaultPrevented).toBe(true);
+    expect(onFastForwardChange).toHaveBeenLastCalledWith(false);
+
+    input.detach();
+  });
 });

@@ -25,6 +25,7 @@ describe('C64Player', () => {
       cpuRead: vi.fn(() => 0),
       cpuReadNS: vi.fn(() => 0xcd),
       cpuWrite: vi.fn(),
+      setDebugSpeed: vi.fn(),
     } as any;
   }
 
@@ -107,6 +108,25 @@ describe('C64Player', () => {
     expect(emulator.start).toHaveBeenCalledOnce();
     expect(onProgress).toHaveBeenCalledWith(10, 'INITIALISING WASM...');
     expect(onProgress).toHaveBeenCalledWith(100, 'READY!');
+  });
+
+  it('sets and toggles 3x fast-forward speed', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+    const player = new C64Player({ wasmUrl: '/c64.wasm', gameUrl: '', renderer: makeFakeRenderer() });
+    player.setFastForward(true);
+    await player.start();
+
+    expect(emulator.setDebugSpeed).toHaveBeenCalledWith(300);
+    expect(player.isFastForwardEnabled()).toBe(true);
+
+    player.setFastForward(false);
+    expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(100);
+    expect(player.isFastForwardEnabled()).toBe(false);
+
+    expect(player.toggleFastForward()).toBe(true);
+    expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(300);
   });
 
   it('auto-types RUN after loading a PRG file', async () => {

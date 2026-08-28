@@ -17,6 +17,8 @@ const PRG_AUTORUN_DELAY_MS = 650;
 const DISK_AUTOLOAD_DELAY_MS = 1500;
 const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
+const NORMAL_DEBUG_SPEED = 100;
+const FAST_FORWARD_DEBUG_SPEED = 300;
 
 export interface C64PlayerOptions {
   wasmUrl: string;
@@ -37,6 +39,7 @@ export class C64Player {
   private diskSessionActive: boolean = false;
   private startupLoadInProgress: boolean = false;
   private startupDiskAutoloadPending: boolean = false;
+  private fastForwardEnabled: boolean = false;
   readonly audio: AudioEngine;
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -53,6 +56,7 @@ export class C64Player {
     onProgress?.(10, 'INITIALISING WASM...');
     this.emulator = await C64Emulator.load(wasmUrl);
     this.emulator.setCrtPreloadChecksEnabled(!this.disableCrtPreloadChecks);
+    this.applyDebugSpeed();
     this.attachInputAndRenderer(this.emulator, renderer);
     let shouldAutoRunPrgAfterStart = false;
 
@@ -250,6 +254,7 @@ export class C64Player {
       this.diskSessionActive = false;
       this.startupDiskAutoloadPending = false;
       this.emulator.setSampleRate(this.audio.sampleRate);
+      this.applyDebugSpeed();
       this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
       window.dispatchEvent(new CustomEvent('c64-reboot', { detail: {} }));
       window.dispatchEvent(new CustomEvent('c64-close-menu'));
@@ -298,6 +303,22 @@ export class C64Player {
    */
   setInputMode(mode: InputMode): void {
     this.inputHandler?.setInputMode(mode);
+  }
+
+  /** Enable or disable 3x emulator fast-forward. Safe to call before start(). */
+  setFastForward(enabled: boolean): void {
+    this.fastForwardEnabled = enabled;
+    this.applyDebugSpeed();
+  }
+
+  /** Toggle 3x emulator fast-forward and return the new enabled state. */
+  toggleFastForward(): boolean {
+    this.setFastForward(!this.fastForwardEnabled);
+    return this.fastForwardEnabled;
+  }
+
+  isFastForwardEnabled(): boolean {
+    return this.fastForwardEnabled;
   }
 
   setActiveGamepadIndex(index: number): void {
@@ -472,9 +493,17 @@ export class C64Player {
 
   private attachInputAndRenderer(emulator: C64Emulator, renderer: CanvasRenderer): void {
     this.inputHandler?.detach();
-    this.inputHandler = new InputHandler(emulator);
+    this.inputHandler = new InputHandler(emulator, window, {
+      onFastForwardChange: (enabled) => this.setFastForward(enabled),
+    });
     this.inputHandler.attach();
     renderer.attachTo(emulator);
+  }
+
+  private applyDebugSpeed(): void {
+    this.emulator?.setDebugSpeed(
+      this.fastForwardEnabled ? FAST_FORWARD_DEBUG_SPEED : NORMAL_DEBUG_SPEED,
+    );
   }
 
   private handleCrtPreloadChecks(

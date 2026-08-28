@@ -30,6 +30,7 @@ const CONTROLS = [
 ];
 
 const SPECIAL_KEYS = [
+  ['Fast-forward on/off', 'Alt + / Alt -'],
   ['Run/Stop', 'Esc'],
   ['Restore', '(currently unsupported)'],
   ['Insert/Delete', 'Backspace or Delete'],
