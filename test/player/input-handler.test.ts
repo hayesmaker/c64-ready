@@ -90,16 +90,22 @@ describe('InputHandler (capture blocking)', () => {
     input.detach();
   });
 
-  it('handles Alt + and Alt - fast-forward shortcuts before emulator input', () => {
+  it('handles Alt +, Alt -, and Alt Backspace fast-forward shortcuts before emulator input', () => {
     const emulator = {
       joystickPush: vi.fn(),
       joystickRelease: vi.fn(),
       keyDown: vi.fn(),
       keyUp: vi.fn(),
     } as any;
-    const onFastForwardChange = vi.fn();
+    const onFastForwardIncrease = vi.fn();
+    const onFastForwardDecrease = vi.fn();
+    const onFastForwardReset = vi.fn();
 
-    const input = new InputHandler(emulator, window as any, { onFastForwardChange });
+    const input = new InputHandler(emulator, window as any, {
+      onFastForwardIncrease,
+      onFastForwardDecrease,
+      onFastForwardReset,
+    });
     input.attach();
 
     const enable = new KeyboardEvent('keydown', {
@@ -111,7 +117,7 @@ describe('InputHandler (capture blocking)', () => {
     window.dispatchEvent(enable);
 
     expect(enable.defaultPrevented).toBe(true);
-    expect(onFastForwardChange).toHaveBeenCalledWith(true);
+    expect(onFastForwardIncrease).toHaveBeenCalledOnce();
     expect(emulator.keyDown).not.toHaveBeenCalled();
 
     const repeated = new KeyboardEvent('keydown', {
@@ -122,7 +128,7 @@ describe('InputHandler (capture blocking)', () => {
       cancelable: true,
     });
     window.dispatchEvent(repeated);
-    expect(onFastForwardChange).toHaveBeenCalledTimes(1);
+    expect(onFastForwardIncrease).toHaveBeenCalledTimes(1);
 
     const disable = new KeyboardEvent('keydown', {
       altKey: true,
@@ -133,7 +139,18 @@ describe('InputHandler (capture blocking)', () => {
     window.dispatchEvent(disable);
 
     expect(disable.defaultPrevented).toBe(true);
-    expect(onFastForwardChange).toHaveBeenLastCalledWith(false);
+    expect(onFastForwardDecrease).toHaveBeenCalledOnce();
+
+    const reset = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Backspace',
+      key: 'Backspace',
+      cancelable: true,
+    });
+    window.dispatchEvent(reset);
+
+    expect(reset.defaultPrevented).toBe(true);
+    expect(onFastForwardReset).toHaveBeenCalledOnce();
 
     input.detach();
   });

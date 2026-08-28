@@ -18,7 +18,8 @@ const DISK_AUTOLOAD_DELAY_MS = 1500;
 const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
 const NORMAL_DEBUG_SPEED = 100;
-const FAST_FORWARD_DEBUG_SPEED = 300;
+const FAST_FORWARD_STEP = 100;
+const MAX_DEBUG_SPEED = 1000;
 
 export interface C64PlayerOptions {
   wasmUrl: string;
@@ -39,7 +40,7 @@ export class C64Player {
   private diskSessionActive: boolean = false;
   private startupLoadInProgress: boolean = false;
   private startupDiskAutoloadPending: boolean = false;
-  private fastForwardEnabled: boolean = false;
+  private debugSpeed: number = NORMAL_DEBUG_SPEED;
   readonly audio: AudioEngine;
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -305,20 +306,31 @@ export class C64Player {
     this.inputHandler?.setInputMode(mode);
   }
 
-  /** Enable or disable 3x emulator fast-forward. Safe to call before start(). */
-  setFastForward(enabled: boolean): void {
-    this.fastForwardEnabled = enabled;
+  /** Set emulator speed in 100% increments, clamped from normal speed through 10x. */
+  setFastForwardSpeed(speed: number): number {
+    const nextSpeed = clampDebugSpeed(speed);
+    if (nextSpeed === this.debugSpeed) return this.debugSpeed;
+
+    this.debugSpeed = nextSpeed;
     this.applyDebugSpeed();
+    this.notifyDebugSpeedChanged();
+    return this.debugSpeed;
   }
 
-  /** Toggle 3x emulator fast-forward and return the new enabled state. */
-  toggleFastForward(): boolean {
-    this.setFastForward(!this.fastForwardEnabled);
-    return this.fastForwardEnabled;
+  incrementFastForwardSpeed(): number {
+    return this.setFastForwardSpeed(this.debugSpeed + FAST_FORWARD_STEP);
   }
 
-  isFastForwardEnabled(): boolean {
-    return this.fastForwardEnabled;
+  decrementFastForwardSpeed(): number {
+    return this.setFastForwardSpeed(this.debugSpeed - FAST_FORWARD_STEP);
+  }
+
+  resetFastForwardSpeed(): number {
+    return this.setFastForwardSpeed(NORMAL_DEBUG_SPEED);
+  }
+
+  getFastForwardSpeed(): number {
+    return this.debugSpeed;
   }
 
   setActiveGamepadIndex(index: number): void {
@@ -494,15 +506,27 @@ export class C64Player {
   private attachInputAndRenderer(emulator: C64Emulator, renderer: CanvasRenderer): void {
     this.inputHandler?.detach();
     this.inputHandler = new InputHandler(emulator, window, {
-      onFastForwardChange: (enabled) => this.setFastForward(enabled),
+      onFastForwardIncrease: () => this.incrementFastForwardSpeed(),
+      onFastForwardDecrease: () => this.decrementFastForwardSpeed(),
+      onFastForwardReset: () => this.resetFastForwardSpeed(),
     });
     this.inputHandler.attach();
     renderer.attachTo(emulator);
   }
 
   private applyDebugSpeed(): void {
-    this.emulator?.setDebugSpeed(
-      this.fastForwardEnabled ? FAST_FORWARD_DEBUG_SPEED : NORMAL_DEBUG_SPEED,
+    this.emulator?.setDebugSpeed(this.debugSpeed);
+  }
+
+  private notifyDebugSpeedChanged(): void {
+    const message =
+      this.debugSpeed === NORMAL_DEBUG_SPEED
+        ? 'Fast-forward: normal speed'
+        : `Fast-forward: ${this.debugSpeed / NORMAL_DEBUG_SPEED}x`;
+    window.dispatchEvent(
+      new CustomEvent('c64-load-info', {
+        detail: { mode: 'info', source: 'keyboard', message },
+      }),
     );
   }
 
@@ -570,6 +594,12 @@ function formatLoadProgressLabel(type: GameLoadOptions['type']): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clampDebugSpeed(speed: number): number {
+  if (!Number.isFinite(speed)) return NORMAL_DEBUG_SPEED;
+  const steppedSpeed = Math.round(speed / FAST_FORWARD_STEP) * FAST_FORWARD_STEP;
+  return Math.max(NORMAL_DEBUG_SPEED, Math.min(MAX_DEBUG_SPEED, steppedSpeed));
 }
 
 function normaliseKeyboardBufferText(text: string): number[] {

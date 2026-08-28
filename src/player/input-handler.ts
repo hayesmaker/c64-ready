@@ -4,7 +4,9 @@ import type { JoystickPort } from '../emulator/constants';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
 export interface InputHandlerOptions {
-  onFastForwardChange?: (enabled: boolean) => void;
+  onFastForwardIncrease?: () => void;
+  onFastForwardDecrease?: () => void;
+  onFastForwardReset?: () => void;
 }
 
 export default class InputHandler {
@@ -154,11 +156,14 @@ export default class InputHandler {
   private handleFastForwardShortcut(e: KeyboardEvent): boolean {
     if (!e.altKey || e.ctrlKey || e.metaKey || e.repeat) return false;
 
-    const enable = e.key === '+' || e.key === '=' || e.code === 'Equal';
-    const disable = e.key === '-' || e.code === 'Minus';
-    if (!enable && !disable) return false;
+    const increase = e.key === '+' || e.key === '=' || e.code === 'Equal';
+    const decrease = e.key === '-' || e.code === 'Minus';
+    const reset = e.key === 'Backspace' || e.code === 'Backspace';
+    if (!increase && !decrease && !reset) return false;
 
-    this.options.onFastForwardChange?.(enable);
+    if (increase) this.options.onFastForwardIncrease?.();
+    else if (decrease) this.options.onFastForwardDecrease?.();
+    else this.options.onFastForwardReset?.();
     e.preventDefault();
     e.stopImmediatePropagation();
     return true;
