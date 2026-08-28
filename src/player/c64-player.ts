@@ -19,7 +19,7 @@ const DISK_AUTOLOAD_RETURN_DELAY_MS = 250;
 const PRG_AUTORUN_BUFFER_TIMEOUT_MS = 2000;
 const NORMAL_DEBUG_SPEED = 100;
 const FAST_FORWARD_STEP = 100;
-const MAX_DEBUG_SPEED = 1000;
+const MAX_DEBUG_SPEED = 300;
 
 export interface C64PlayerOptions {
   wasmUrl: string;
