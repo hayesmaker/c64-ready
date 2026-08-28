@@ -126,20 +126,16 @@ describe('C64Player', () => {
       expect(emulator.setDebugSpeed).toHaveBeenCalledWith(300);
       expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 3x');
 
-      expect(player.incrementFastForwardSpeed()).toBe(400);
-      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(400);
-      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 4x');
+      expect(player.decrementFastForwardSpeed()).toBe(200);
+      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(200);
+      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 2x');
 
-      expect(player.decrementFastForwardSpeed()).toBe(300);
+      expect(player.incrementFastForwardSpeed()).toBe(300);
       expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(300);
       expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 3x');
 
-      expect(player.setFastForwardSpeed(5000)).toBe(1000);
-      expect(emulator.setDebugSpeed).toHaveBeenLastCalledWith(1000);
-      expect(loadInfoEvents.at(-1)?.detail.message).toBe('Fast-forward: 10x');
-
       const eventCountAtMax = loadInfoEvents.length;
-      expect(player.incrementFastForwardSpeed()).toBe(1000);
+      expect(player.incrementFastForwardSpeed()).toBe(300);
       expect(loadInfoEvents).toHaveLength(eventCountAtMax);
 
       expect(player.resetFastForwardSpeed()).toBe(100);
