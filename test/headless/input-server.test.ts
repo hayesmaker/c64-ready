@@ -83,7 +83,7 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false } = {}) {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false } = {}) {
     const playlist = {
       name: 'Test Playlist',
       basePath,
@@ -109,16 +109,30 @@ describe('input-server', () => {
         },
       ],
     };
+    const altPlaylist = {
+      name: 'Alt Playlist',
+      basePath,
+      items: [
+        {
+          name: 'Alt Demo',
+          group: 'Alt Group',
+          path: 'alt-demo',
+          files: [{ filename: 'alt-demo.prg', duration: 0.1 }],
+        },
+      ],
+    };
     const origin = new URL(baseUrl).origin;
     const relativeFileBase = `${baseUrl.replace(/\/+$/, '')}/demos`;
     const rootFileBase = `${origin}${String(basePath).replace(/\/+$/, '')}`;
     const fileBase = String(basePath).startsWith('/') ? rootFileBase : relativeFileBase;
     const files: Record<string, string> = {
-      [`${baseUrl.replace(/\/+$/, '')}/playlists.json`]: JSON.stringify(['playlist_test.json']),
+      [`${baseUrl.replace(/\/+$/, '')}/playlists.json`]: JSON.stringify(multiplePlaylists ? ['playlist_test.json', 'playlist_alt.json'] : ['playlist_test.json']),
       [`${baseUrl.replace(/\/+$/, '')}/playlist_test.json`]: JSON.stringify(playlist),
+      [`${baseUrl.replace(/\/+$/, '')}/playlist_alt.json`]: JSON.stringify(altPlaylist),
       [`${fileBase}/first-demo/first-demo.d64`]: 'first-disk',
       [`${fileBase}/first-demo/first-demo-side-b.d64`]: 'second-disk',
       [`${fileBase}/second-demo/second-demo.prg`]: 'second-demo',
+      [`${fileBase}/alt-demo/alt-demo.prg`]: 'alt-demo',
     };
     const fetchMock = vi.fn(async (url: string) => {
       const value = files[String(url)];
@@ -797,6 +811,44 @@ describe('input-server', () => {
     hostWs.close();
   });
 
+  it('keeps AFK attract mode disabled after manual off until manual on resumes it', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    send(hostWs, { type: 'attract-mode', action: 'on' });
+    await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+
+    send(hostWs, { type: 'attract-mode', action: 'off' });
+    await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && !m.attractMode?.active);
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const msgs = await collectMsgs(hostWs, 100);
+
+    expect(msgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+
+    const { ws: nextHostWs } = await connect(port);
+    send(nextHostWs, { type: 'host', username: 'next-host' });
+    await nextMsg(nextHostWs, (m) => m.type === 'host-confirmed');
+    send(nextHostWs, { type: 'attract-mode', action: 'on' });
+    const resumedStatus = await nextMsg(nextHostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(resumedStatus.attractMode).toMatchObject({ active: true, itemIndex: 0 });
+
+    hostWs.close();
+    nextHostWs.close();
+  });
+
   it('does not start attract mode on host timeout while player 2 remains', async () => {
     stubAttractModeFetch();
     const port = nextPort();
@@ -1138,6 +1190,46 @@ describe('input-server', () => {
       fileType: 'prg',
     });
 
+    hostWs.close();
+  });
+
+  it('lets the host start a specific playlist once before normal playlist selection resumes', async () => {
+    stubAttractModeFetch({ multiplePlaylists: true });
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    send(hostWs, { type: 'attract-mode', action: 'on', playlistIndex: 1 });
+    const selectedStatus = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.active);
+    expect(selectedStatus.attractMode).toMatchObject({
+      playlistName: 'Alt Playlist',
+      playlistIndex: 1,
+      demoTitle: 'Alt Demo',
+      filename: 'alt-demo.prg',
+    });
+
+    const resumedStatus = await nextMsg(hostWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.filename === 'first-demo.d64');
+    expect(resumedStatus.attractMode).toMatchObject({
+      playlistName: 'Test Playlist',
+      playlistIndex: 0,
+      demoTitle: 'First Demo',
+    });
+    expect(commands.find((cmd) => cmd.type === 'load-file' && cmd.filename === 'alt-demo.prg')).toBeTruthy();
+    expect(commands.find((cmd) => cmd.type === 'load-file' && cmd.filename === 'first-demo.d64')).toBeTruthy();
+
+    randomSpy.mockRestore();
     hostWs.close();
   });
 
