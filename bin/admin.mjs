@@ -133,7 +133,7 @@ function callAdmin(wsUrl, payload, timeoutMs = 7000) {
       }
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'hello') return;
-      if (msg.type === 'admin-status-ok' || msg.type === 'admin-kick-player-ok' || msg.type === 'admin-kick-all-ok') {
+      if (msg.type === 'admin-status-ok' || msg.type === 'admin-kick-player-ok' || msg.type === 'admin-kick-all-ok' || msg.type === 'admin-attract-mode-ok') {
         finish(resolve, msg);
         return;
       }
@@ -187,6 +187,12 @@ async function main() {
     const kicked = res.kicked ?? {};
     console.log(`Kick-all complete: host=${kicked.host ?? '-'} p2=${kicked.p2 ?? '-'} spectators=${kicked.spectators ?? 0} webrtcPeers=${kicked.webrtcPeers ?? 0}`);
     console.log(renderStatus(res.status));
+    return;
+  }
+
+  if (res.type === 'admin-attract-mode-ok') {
+    const attractMode = res.attractMode ?? {};
+    console.log(`Attract Mode ${res.action ?? 'command'} ok: active=${attractMode.active ? 'yes' : 'no'}`);
   }
 }
 

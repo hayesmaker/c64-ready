@@ -151,6 +151,16 @@ describe('input-server', () => {
     return fetchMock;
   }
 
+  function deferred<T = void>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: any) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
   // ── Hello handshake ────────────────────────────────────────────────────────
 
   it('sends hello with expected fields on connect', async () => {
@@ -1231,6 +1241,75 @@ describe('input-server', () => {
 
     randomSpy.mockRestore();
     hostWs.close();
+  });
+
+  it('acks admin attract mode once active status is available before slow load completes', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const load = deferred();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => (cmd.type === 'load-file' ? load.promise : undefined),
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on' });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
+    expect(ack.attractMode).toMatchObject({ active: true, filename: 'first-demo.d64' });
+
+    load.resolve();
+    adminWs.close();
+  });
+
+  it('accepts admin attract mode playlist action', async () => {
+    stubAttractModeFetch({ multiplePlaylists: true });
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'playlist', playlistIndex: 1 });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
+    expect(ack).toMatchObject({ action: 'playlist' });
+    expect(ack.attractMode).toMatchObject({ active: true, playlistName: 'Alt Playlist', playlistIndex: 1 });
+
+    adminWs.close();
+  });
+
+  it('accepts admin attract mode playlist action with legacy demoIndex payload', async () => {
+    stubAttractModeFetch({ multiplePlaylists: true });
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'playlist', demoIndex: 1 });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
+    expect(ack.attractMode).toMatchObject({ active: true, playlistName: 'Alt Playlist', playlistIndex: 1, itemIndex: 0 });
+
+    adminWs.close();
   });
 
   it('signals error when attract mode demo index is out of bounds', async () => {
