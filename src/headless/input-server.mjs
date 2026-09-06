@@ -1537,8 +1537,14 @@ export function createInputServer(opts = {}) {
         }
         setWsIdentity(ws, 'admin', null);
         const action = String(msg.action ?? '').toLowerCase();
-        const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
-        const playlistIndex = msg.playlistIndex != null ? Number(msg.playlistIndex) : undefined;
+        const rawDemoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
+        const rawIndex = msg.index != null ? Number(msg.index) : undefined;
+        const demoIndex = action === 'playlist' ? 0 : rawDemoIndex;
+        const playlistIndex = msg.playlistIndex != null
+          ? Number(msg.playlistIndex)
+          : action === 'playlist'
+            ? rawDemoIndex ?? rawIndex
+            : undefined;
         let sentAttractAdminOk = false;
         const sendAttractAdminOk = () => {
           if (sentAttractAdminOk) return;
@@ -1646,10 +1652,16 @@ export function createInputServer(opts = {}) {
           return;
         }
         const action = String(msg.action ?? '').toLowerCase();
-        const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
-        const playlistIndex = msg.playlistIndex != null ? Number(msg.playlistIndex) : undefined;
+        const rawDemoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
+        const rawIndex = msg.index != null ? Number(msg.index) : undefined;
+        const demoIndex = action === 'playlist' ? 0 : rawDemoIndex;
+        const playlistIndex = msg.playlistIndex != null
+          ? Number(msg.playlistIndex)
+          : action === 'playlist'
+            ? rawDemoIndex ?? rawIndex
+            : undefined;
         logEv('cmd-attract-mode', { action, host: hostUsername ?? '-', demoIndex: demoIndex ?? '-', playlistIndex: playlistIndex ?? '-' });
-        if (action === 'on') {
+        if (action === 'on' || action === 'playlist') {
           startAttractMode(demoIndex, playlistIndex)
             .then(() => {
               if (ws.readyState === ws.OPEN) {

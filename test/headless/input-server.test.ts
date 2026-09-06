@@ -1290,6 +1290,28 @@ describe('input-server', () => {
     adminWs.close();
   });
 
+  it('accepts admin attract mode playlist action with legacy demoIndex payload', async () => {
+    stubAttractModeFetch({ multiplePlaylists: true });
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'playlist', demoIndex: 1 });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
+    expect(ack.attractMode).toMatchObject({ active: true, playlistName: 'Alt Playlist', playlistIndex: 1, itemIndex: 0 });
+
+    adminWs.close();
+  });
+
   it('signals error when attract mode demo index is out of bounds', async () => {
     stubAttractModeFetch();
     const port = nextPort();
