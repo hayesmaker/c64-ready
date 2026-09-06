@@ -659,11 +659,11 @@ export function createInputServer(opts = {}) {
       await sleepMs(1000);
       if (generation !== attractGeneration) return;
     }
+    const data = await fetchAttractFileBase64(url);
+    if (generation !== attractGeneration) return;
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();
     if (typeof afterStatus === 'function') afterStatus();
-    const data = await fetchAttractFileBase64(url);
-    if (generation !== attractGeneration) return;
     await runLoadFileCommand({
       filename,
       fileType,
