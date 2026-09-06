@@ -311,6 +311,40 @@ describe('input-server', () => {
     adminWs.close();
   });
 
+  it('includes public live status fields in admin status', async () => {
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      initialCartFilename: 'international-karate.crt',
+      validateAdminToken: (token: string) => token === 'admin-secret',
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice', joystickPort: 2 });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: p2Ws } = await connect(port);
+    send(p2Ws, { type: 'join-p2-open', username: 'bob' });
+    await nextMsg(p2Ws, (m) => m.type === 'join-p2-confirmed');
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-status', token: 'admin-secret' });
+    const status = await nextMsg(adminWs, (m) => m.type === 'admin-status-ok');
+
+    expect(status.status.host).to.include({ username: 'alice', joystickPort: 2 });
+    expect(status.status.p2).to.include({ username: 'bob', joystickPort: 1 });
+    expect(status.status.gameState).to.deep.equal({
+      cartFilename: 'international-karate.crt',
+      filename: 'international-karate.crt',
+    });
+
+    hostWs.close();
+    p2Ws.close();
+    adminWs.close();
+  });
+
   // ── cart-loaded sent AFTER onCommand Promise resolves ─────────────────────
 
   it('broadcasts cart-loaded only after the async onCommand Promise resolves for load-crt', async () => {

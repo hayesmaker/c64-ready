@@ -1021,6 +1021,7 @@ export function createInputServer(opts = {}) {
         ? {
             connected: hostClient.readyState === hostClient.OPEN,
             username: hostUsername,
+            joystickPort: hostPort(),
             addr: hostMeta?.addr ?? null,
             webrtcPeers: hostWebrtcPeers,
           }
@@ -1029,6 +1030,7 @@ export function createInputServer(opts = {}) {
         ? {
             connected: p2Client.readyState === p2Client.OPEN,
             username: p2Username,
+            joystickPort: p2Port(),
             addr: p2Meta?.addr ?? null,
             webrtcPeers: p2WebrtcPeers,
           }
@@ -1045,6 +1047,10 @@ export function createInputServer(opts = {}) {
       webrtc: webrtcSnapshot,
       runtime: getRuntimeStats?.() ?? null,
       attractMode: attractStatusPayload(),
+      gameState: {
+        cartFilename: currentCartFilename,
+        filename: currentCartFilename,
+      },
       sampledAt: Date.now(),
     };
   }
