@@ -83,7 +83,7 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false } = {}) {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false, slowFiles = null } = {}) {
     const playlist = {
       name: 'Test Playlist',
       basePath,
@@ -137,14 +137,18 @@ describe('input-server', () => {
     const fetchMock = vi.fn(async (url: string) => {
       const value = files[String(url)];
       if (value == null) return { ok: false, status: 404 };
+      const isJson = String(url).endsWith('.json');
       return {
         ok: true,
         status: 200,
         json: async () => JSON.parse(value),
-        arrayBuffer: async () => Buffer.from(value).buffer.slice(
-          Buffer.from(value).byteOffset,
-          Buffer.from(value).byteOffset + Buffer.from(value).byteLength,
-        ),
+        arrayBuffer: async () => {
+          if (!isJson && slowFiles) await slowFiles;
+          return Buffer.from(value).buffer.slice(
+            Buffer.from(value).byteOffset,
+            Buffer.from(value).byteOffset + Buffer.from(value).byteLength,
+          );
+        },
       };
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -1243,8 +1247,9 @@ describe('input-server', () => {
     hostWs.close();
   });
 
-  it('acks admin attract mode once active status is available before slow load completes', async () => {
-    stubAttractModeFetch();
+  it('acks admin attract mode once active status is available before slow file fetch and load complete', async () => {
+    const fetchDisk = deferred();
+    stubAttractModeFetch({ slowFiles: fetchDisk.promise });
     const port = nextPort();
     const load = deferred();
     const srv = createInputServer({
@@ -1263,6 +1268,7 @@ describe('input-server', () => {
     const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
     expect(ack.attractMode).toMatchObject({ active: true, filename: 'first-demo.d64' });
 
+    fetchDisk.resolve();
     load.resolve();
     adminWs.close();
   });
