@@ -1267,6 +1267,74 @@ describe('input-server', () => {
     adminWs.close();
   });
 
+  it('keeps admin attract mode off after a pending start finishes', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const load = deferred();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => (cmd.type === 'load-file' ? load.promise : undefined),
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on' });
+    await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok' && m.attractMode?.active);
+
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'off' });
+    await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok' && !m.attractMode?.active);
+    load.resolve();
+
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const msgs = await collectMsgs(hostWs, 100);
+    expect(msgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+
+    hostWs.close();
+    adminWs.close();
+  });
+
+  it('keeps admin attract mode off after stopping an active demo', async () => {
+    stubAttractModeFetch();
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      hostTimeoutMs: 40,
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'idle-host' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on' });
+    await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok' && m.attractMode?.active);
+
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'off' });
+    await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok' && !m.attractMode?.active);
+
+    await nextMsg(hostWs, (m) => m.type === 'host-timeout-kick');
+    const msgs = await collectMsgs(hostWs, 100);
+    expect(msgs.some((m) => m.type === 'attract-mode-status' && m.attractMode?.active)).toBe(false);
+
+    hostWs.close();
+    adminWs.close();
+  });
+
   it('accepts admin attract mode playlist action', async () => {
     stubAttractModeFetch({ multiplePlaylists: true });
     const port = nextPort();
