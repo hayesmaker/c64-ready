@@ -1247,7 +1247,8 @@ describe('input-server', () => {
     hostWs.close();
   });
 
-  it('acks admin attract mode once active status is available before slow file fetch and load complete', async () => {
+  it('acks admin attract mode once active status is available before slow reboot, file fetch, and load complete', async () => {
+    const reboot = deferred();
     const fetchDisk = deferred();
     stubAttractModeFetch({ slowFiles: fetchDisk.promise });
     const port = nextPort();
@@ -1255,7 +1256,10 @@ describe('input-server', () => {
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (cmd: any) => (cmd.type === 'load-file' ? load.promise : undefined),
+      onCommand: (cmd: any) => {
+        if (cmd.type === 'reboot') return reboot.promise;
+        if (cmd.type === 'load-file') return load.promise;
+      },
       validateAdminToken: (token: string) => token === 'admin-secret',
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
       diskAutoloadDelayMs: 0,
@@ -1268,6 +1272,7 @@ describe('input-server', () => {
     const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
     expect(ack.attractMode).toMatchObject({ active: true, filename: 'first-demo.d64' });
 
+    reboot.resolve();
     fetchDisk.resolve();
     load.resolve();
     adminWs.close();
