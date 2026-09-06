@@ -6,9 +6,33 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
-## v2.5.0 - 2026-08-28T15:02:09+01:00
+## v3.0.0-rc.0 - 2026-09-06T23:29:57+01:00
 
-- chore(release): 2.5.0 (76f5f54)
+- chore(release): 3.0.0-rc.0 (081a519)
+- Merge pull request #182 from hayesmaker/feat/whep-endpoint (a8e474e)
+- feat: whep endpoint support (4df6074)
+- Merge pull request #180 from hayesmaker/feature/c64cade-open-api (3b25583)
+- feat: added support for c64cade's public api (66d523d)
+- Merge pull request #178 from hayesmaker/fix/attract-mode-off-persists (cb7a75c)
+- fix: attractMode off command persisting (16f2da3)
+- Merge pull request #176 from hayesmaker/fix/attract-mode-admin-timeout (e425364)
+- Revert "fix(headless): ack attract mode before disk fetch" (64b0ebd)
+- Revert "fix(headless): ack attract mode before reboot" (9a72906)
+- Merge pull request #174 from hayesmaker/fix/attract-mode-admin-timeout (9c51cea)
+- fix(headless): ack attract mode before reboot (d14d66b)
+- Merge pull request #172 from hayesmaker/fix/attract-mode-admin-timeout (b513c3b)
+- fix(headless): ack attract mode before disk fetch (3e77b35)
+- Merge pull request #170 from hayesmaker/feat/attract-mode-chat-commands (f14607a)
+- fix(headless): map chat playlist index correctly (55a3816)
+- fix(headless): ack admin attract mode commands promptly (cddc5c1)
+- Merge pull request #168 from hayesmaker/feat/attract-mode-chat-commands (ebd9eba)
+- feat: added attract mode chat commands support (fd9fb4a)
+- Merge pull request #167 from hayesmaker/release/2.5.0 (f9f0b9d)
+
+## v2.5.0 - 2026-08-28T15:11:55+01:00
+
+- test(player): update fast-forward max assertions (65bace2)
+- chore(release): 2.5.0 (5f0b4d1)
 - feat(player): add fast-forward speed controls (bf6edd2)
 - feat: added fast-forward toggle 3x max fast-forward speed (9f82f38)
 - feat(player): refine fast-forward speed controls (dff5bf1)
