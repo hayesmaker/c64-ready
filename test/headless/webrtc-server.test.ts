@@ -15,6 +15,9 @@ import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
+import wrtc from '@roamhq/wrtc';
+
+const { RTCPeerConnection } = wrtc;
 
 // @ts-expect-error — no declaration file for .mjs
 const { createWebRTCServer } = await import('../../src/headless/webrtc-server.mjs');
@@ -26,6 +29,22 @@ const SOURCE = await fs.readFile(
 );
 
 describe('webrtc-server', () => {
+  function waitForIceGatheringComplete(pc, timeoutMs = 1500) {
+    if (pc.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(finish, timeoutMs);
+      function finish() {
+        clearTimeout(timer);
+        pc.removeEventListener?.('icegatheringstatechange', onStateChange);
+        resolve();
+      }
+      function onStateChange() {
+        if (pc.iceGatheringState === 'complete') finish();
+      }
+      pc.addEventListener?.('icegatheringstatechange', onStateChange);
+      pc.onicegatheringstatechange = onStateChange;
+    });
+  }
 
   // ── API shape ──────────────────────────────────────────────────────────────
 
@@ -117,6 +136,41 @@ describe('webrtc-server', () => {
       );
     } finally {
       Date.now = originalDateNow;
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
+
+  it('accepts WHEP SDP offers and returns an SDP answer with a session location', async () => {
+    let srv: any;
+    const pc = new RTCPeerConnection();
+    try {
+      srv = createWebRTCServer({ port: 19908, verbose: false, inputPort: 19909 });
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitForIceGatheringComplete(pc);
+
+      const res = await fetch('http://127.0.0.1:19908/whep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/sdp', Accept: 'application/sdp' },
+        body: pc.localDescription?.sdp ?? offer.sdp,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.headers.get('content-type')).toContain('application/sdp');
+      expect(res.headers.get('location')).toMatch(/^\/whep\//);
+      const answerSdp = await res.text();
+      expect(answerSdp).toContain('a=rtpmap:');
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+      const location = res.headers.get('location');
+      if (location) {
+        const deleteRes = await fetch(`http://127.0.0.1:19908${location}`, { method: 'DELETE' });
+        expect(deleteRes.status).toBe(204);
+      }
+    } finally {
+      pc.close();
       if (srv) await srv.close().catch(() => {});
     }
   });

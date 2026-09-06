@@ -524,11 +524,219 @@ export function createWebRTCServer({
     return sessionKey;
   }
 
+  function applyAnswerBitrate(sdp) {
+    if (!sdp) return sdp;
+    return sdp.replace(/(a=rtpmap:(\d+) VP8\/\d+\r?\n)/, (match, line, pt) => {
+      const minKbps = Math.max(50, minBitrateKbpsSafe);
+      const maxKbps = Math.max(minKbps, maxBitrateKbpsSafe);
+      const fmtp = `a=fmtp:${pt} x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\r\n`;
+      return line + fmtp;
+    });
+  }
+
+  function readRequestBody(req, limitBytes = 1024 * 1024) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > limitBytes) {
+          reject(new Error('request body too large'));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', reject);
+    });
+  }
+
+  function sendText(res, status, body, headers = {}) {
+    res.writeHead(status, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...headers,
+    });
+    res.end(body);
+  }
+
+  function parseTrickleIceSdpFrag(body) {
+    const candidates = [];
+    let currentMid = null;
+    let currentMLineIndex = null;
+    for (const rawLine of String(body ?? '').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith('m=')) {
+        currentMLineIndex = currentMLineIndex == null ? 0 : currentMLineIndex + 1;
+        currentMid = null;
+        continue;
+      }
+      if (line.startsWith('a=mid:')) {
+        currentMid = line.slice('a=mid:'.length);
+        continue;
+      }
+      if (line.startsWith('a=candidate:')) {
+        candidates.push({
+          candidate: line.slice(2),
+          sdpMid: currentMid,
+          sdpMLineIndex: currentMLineIndex ?? 0,
+        });
+      }
+    }
+    return candidates;
+  }
+
+  function waitForIceGatheringComplete(pc, timeoutMs = 1500) {
+    if (pc.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(finish, timeoutMs);
+      function finish() {
+        clearTimeout(timer);
+        pc.removeEventListener?.('icegatheringstatechange', onStateChange);
+        resolve();
+      }
+      function onStateChange() {
+        if (pc.iceGatheringState === 'complete') finish();
+      }
+      pc.addEventListener?.('icegatheringstatechange', onStateChange);
+      pc.onicegatheringstatechange = onStateChange;
+    });
+  }
+
+  const whepSessions = new Map();
+
+  function closeWhepSession(sessionId, reason = 'whep-closed') {
+    const controller = whepSessions.get(sessionId);
+    if (!controller) return false;
+    controller.closePeer?.(reason);
+    return true;
+  }
+
+  async function handleWhepPost(req, res) {
+    const currentTotal = activePeers.size + pendingPeers;
+    if (currentTotal >= MAX_CONNECTIONS) {
+      sendText(res, 429, 'capacity full\n', {
+        'Retry-After': '10',
+      });
+      return;
+    }
+
+    const offerSdp = await readRequestBody(req);
+    if (!offerSdp.trim()) {
+      sendText(res, 400, 'missing SDP offer\n');
+      return;
+    }
+
+    const remoteAddr = req.socket.remoteAddress;
+    const sessionId = crypto.randomUUID();
+    pendingPeers++;
+    const pc = new RTCPeerConnection({ iceServers: buildRuntimeIceServers() });
+    const controller = {
+      pc,
+      ws: null,
+      remoteAddr,
+      connected: false,
+      iceState: 'new',
+      sessionKey: sessionId,
+      closePeer: null,
+    };
+    let everConnected = false;
+    let closed = false;
+    peerControllers.add(controller);
+    peerBySession.set(sessionId, controller);
+    whepSessions.set(sessionId, controller);
+    logEv('whep-peer-created', { addr: remoteAddr, session: sessionId });
+    logLoadSnapshot('webrtc-load-change', { reason: 'whep-peer-created' });
+
+    const pendingTimeout = setTimeout(() => {
+      if (!everConnected) closeWhepSession(sessionId, 'whep-connect-timeout');
+    }, 30_000);
+    if (typeof pendingTimeout.unref === 'function') pendingTimeout.unref();
+
+    function closePeer(reason) {
+      if (closed) return;
+      closed = true;
+      clearTimeout(pendingTimeout);
+      const wasActive = activePeers.delete(pc);
+      peerStatsPrev.delete(pc);
+      peerControllers.delete(controller);
+      peerBySession.delete(sessionId);
+      whepSessions.delete(sessionId);
+      if (!wasActive && !everConnected && pendingPeers > 0) pendingPeers--;
+      logEv('whep-peer-closed', { addr: remoteAddr, session: sessionId, reason });
+      logLoadSnapshot('webrtc-load-change', { reason: `whep-peer-closed:${reason}` });
+      try {
+        pc.close();
+      } catch (_) {}
+    }
+    controller.closePeer = closePeer;
+
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      controller.iceState = s;
+      if (s === 'connected' || s === 'completed') {
+        if (!everConnected) {
+          everConnected = true;
+          if (pendingPeers > 0) pendingPeers--;
+        }
+        controller.connected = true;
+        activePeers.add(pc);
+        logEv('whep-ice-connected', { addr: remoteAddr, session: sessionId, state: s });
+        logLoadSnapshot('webrtc-load-change', { reason: `whep-ice-${s}` });
+        logRouteSnapshot(pc, remoteAddr);
+        onPeerConnected?.(pc);
+      } else if (s === 'disconnected') {
+        activePeers.delete(pc);
+        controller.connected = false;
+        logEv('whep-ice-disconnected', { addr: remoteAddr, session: sessionId });
+      } else if (s === 'failed' || s === 'closed') {
+        closePeer(s);
+      }
+    };
+
+    try {
+      await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+      onOffer?.(pc);
+      const answer = await pc.createAnswer();
+      answer.sdp = applyAnswerBitrate(answer.sdp);
+      await pc.setLocalDescription(answer);
+      await waitForIceGatheringComplete(pc);
+      const body = pc.localDescription?.sdp ?? answer.sdp ?? '';
+      res.writeHead(201, {
+        'Content-Type': 'application/sdp',
+        'Cache-Control': 'no-store',
+        Location: `/whep/${encodeURIComponent(sessionId)}`,
+      });
+      res.end(body);
+    } catch (err) {
+      closePeer('whep-offer-error');
+      sendText(res, 400, `invalid WHEP offer: ${err?.message ?? err}\n`);
+    }
+  }
+
+  async function handleWhepPatch(req, res, sessionId) {
+    const controller = whepSessions.get(sessionId);
+    if (!controller) {
+      sendText(res, 404, 'WHEP session not found\n');
+      return;
+    }
+    const body = await readRequestBody(req);
+    const candidates = parseTrickleIceSdpFrag(body);
+    for (const candidate of candidates) {
+      await controller.pc.addIceCandidate(candidate);
+    }
+    res.writeHead(204, { 'Cache-Control': 'no-store' });
+    res.end();
+  }
+
   const senderTelemetryTimer = setInterval(() => {
     sampleSenderTelemetry().catch(() => {});
   }, 5000);
 
   const httpServer = http.createServer((req, res) => {
+    const reqUrl = new URL(req.url || '/', 'http://localhost');
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
       const requestIceServers = buildRuntimeIceServers();
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -539,6 +747,22 @@ export function createWebRTCServer({
       const requestIceServers = buildRuntimeIceServers();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ iceServers: requestIceServers }));
+    } else if (req.method === 'POST' && reqUrl.pathname === '/whep') {
+      handleWhepPost(req, res).catch((err) => {
+        console.error('[webrtc] WHEP POST error:', err?.message ?? err);
+        if (!res.headersSent) sendText(res, 500, 'WHEP offer failed\n');
+      });
+    } else if (req.method === 'PATCH' && reqUrl.pathname.startsWith('/whep/')) {
+      const sessionId = decodeURIComponent(reqUrl.pathname.slice('/whep/'.length));
+      handleWhepPatch(req, res, sessionId).catch((err) => {
+        console.error('[webrtc] WHEP PATCH error:', err?.message ?? err);
+        if (!res.headersSent) sendText(res, 400, `WHEP ICE failed: ${err?.message ?? err}\n`);
+      });
+    } else if (req.method === 'DELETE' && reqUrl.pathname.startsWith('/whep/')) {
+      const sessionId = decodeURIComponent(reqUrl.pathname.slice('/whep/'.length));
+      closeWhepSession(sessionId, 'whep-delete');
+      res.writeHead(204, { 'Cache-Control': 'no-store' });
+      res.end();
     } else if (req.url === '/favicon.ico') {
       // Return a minimal 1×1 transparent ICO so browsers don't log a 404
       res.writeHead(204);
@@ -831,17 +1055,7 @@ export function createWebRTCServer({
           // smaller frames which reduces encode latency and queuing delay.
           // x-google-min-bitrate prevents the encoder from dropping to 0 kbps
           // (which causes I-frame-only bursts on reconnect).
-          let sdp = answer.sdp;
-          if (sdp) {
-            // Find VP8 payload type in the offer and append fmtp constraints
-            sdp = sdp.replace(/(a=rtpmap:(\d+) VP8\/\d+\r?\n)/, (match, line, pt) => {
-              const minKbps = Math.max(50, minBitrateKbpsSafe);
-              const maxKbps = Math.max(minKbps, maxBitrateKbpsSafe);
-              const fmtp = `a=fmtp:${pt} x-google-min-bitrate=${minKbps};x-google-max-bitrate=${maxKbps}\r\n`;
-              return line + fmtp;
-            });
-            answer.sdp = sdp;
-          }
+          answer.sdp = applyAnswerBitrate(answer.sdp);
 
           await pc.setLocalDescription(answer);
 
@@ -972,6 +1186,7 @@ export function createWebRTCServer({
       new Promise((resolve) => {
         clearInterval(pingInterval);
         clearInterval(senderTelemetryTimer);
+        for (const c of Array.from(peerControllers)) c.closePeer?.('server-close');
         wss.close(() => httpServer.close(() => resolve()));
       }),
   };

@@ -83,7 +83,7 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false } = {}) {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false, productionPlaylists = false } = {}) {
     const playlist = {
       name: 'Test Playlist',
       basePath,
@@ -121,19 +121,43 @@ describe('input-server', () => {
         },
       ],
     };
+    const productionPlaylist = (name: string, path: string, filenames: string[]) => ({
+      name,
+      basePath,
+      items: filenames.map((filename, index) => ({
+        name: `${name} Demo ${index + 1}`,
+        path,
+        files: [{ filename, duration: 0.1 }],
+      })),
+    });
+    const productionManifest = ['playlist_x2018.json', 'playlist_x2023.json', 'playlist_x2024.json', 'playlist_x2026.json'];
+    const productionPlaylistFiles: Record<string, any> = {
+      'playlist_x2018.json': productionPlaylist('X2018', 'x2018', ['x2018.prg']),
+      'playlist_x2023.json': productionPlaylist('X2023', 'x2023', ['x2023.prg']),
+      'playlist_x2024.json': productionPlaylist('X2024', 'x2024', ['x2024.prg']),
+      'playlist_x2026.json': productionPlaylist('X2026', 'x2026', ['x2026-first.prg', 'x2026-second.prg']),
+    };
     const origin = new URL(baseUrl).origin;
     const relativeFileBase = `${baseUrl.replace(/\/+$/, '')}/demos`;
     const rootFileBase = `${origin}${String(basePath).replace(/\/+$/, '')}`;
     const fileBase = String(basePath).startsWith('/') ? rootFileBase : relativeFileBase;
     const files: Record<string, string> = {
-      [`${baseUrl.replace(/\/+$/, '')}/playlists.json`]: JSON.stringify(multiplePlaylists ? ['playlist_test.json', 'playlist_alt.json'] : ['playlist_test.json']),
+      [`${baseUrl.replace(/\/+$/, '')}/playlists.json`]: JSON.stringify(productionPlaylists ? productionManifest : multiplePlaylists ? ['playlist_test.json', 'playlist_alt.json'] : ['playlist_test.json']),
       [`${baseUrl.replace(/\/+$/, '')}/playlist_test.json`]: JSON.stringify(playlist),
       [`${baseUrl.replace(/\/+$/, '')}/playlist_alt.json`]: JSON.stringify(altPlaylist),
       [`${fileBase}/first-demo/first-demo.d64`]: 'first-disk',
       [`${fileBase}/first-demo/first-demo-side-b.d64`]: 'second-disk',
       [`${fileBase}/second-demo/second-demo.prg`]: 'second-demo',
       [`${fileBase}/alt-demo/alt-demo.prg`]: 'alt-demo',
+      [`${fileBase}/x2018/x2018.prg`]: 'x2018',
+      [`${fileBase}/x2023/x2023.prg`]: 'x2023',
+      [`${fileBase}/x2024/x2024.prg`]: 'x2024',
+      [`${fileBase}/x2026/x2026-first.prg`]: 'x2026-first',
+      [`${fileBase}/x2026/x2026-second.prg`]: 'x2026-second',
     };
+    for (const [filename, playlistJson] of Object.entries(productionPlaylistFiles)) {
+      files[`${baseUrl.replace(/\/+$/, '')}/${filename}`] = JSON.stringify(playlistJson);
+    }
     const fetchMock = vi.fn(async (url: string) => {
       const value = files[String(url)];
       if (value == null) return { ok: false, status: 404 };
@@ -159,6 +183,14 @@ describe('input-server', () => {
       reject = rej;
     });
     return { promise, resolve, reject };
+  }
+
+  async function waitForCondition(predicate: () => boolean, timeoutMs = 1000) {
+    const startedAt = Date.now();
+    while (!predicate()) {
+      if (Date.now() - startedAt > timeoutMs) throw new Error('waitForCondition timeout');
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
   }
 
   // ── Hello handshake ────────────────────────────────────────────────────────
@@ -1389,6 +1421,114 @@ describe('input-server', () => {
     expect(ack).toMatchObject({ action: 'playlist' });
     expect(ack.attractMode).toMatchObject({ active: true, playlistName: 'Alt Playlist', playlistIndex: 1 });
 
+    adminWs.close();
+  });
+
+  it('accepts admin attract mode playlist index 3 from the C64cade chat payload', async () => {
+    stubAttractModeFetch({ productionPlaylists: true });
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on', playlistIndex: 3 });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
+    expect(ack.attractMode).toMatchObject({ active: true, playlistName: 'X2026', playlistIndex: 3, filename: 'x2026-first.prg' });
+
+    adminWs.close();
+  });
+
+  it('does not let a stale random start override admin playlist index 3', async () => {
+    const manifest = ['playlist_x2018.json', 'playlist_x2023.json', 'playlist_x2024.json', 'playlist_x2026.json'];
+    const delayedX2018 = deferred();
+    let requestedX2018Playlist = false;
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const href = String(url);
+      if (href.endsWith('/playlists.json')) {
+        return { ok: true, status: 200, json: async () => manifest };
+      }
+      if (href.endsWith('/playlist_x2018.json')) {
+        requestedX2018Playlist = true;
+        await delayedX2018.promise;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ name: 'X2018', basePath: 'demos', items: [{ name: 'X2018 Demo', path: 'x2018', files: [{ filename: 'x2018.prg', duration: 300 }] }] }),
+        };
+      }
+      if (href.endsWith('/playlist_x2026.json')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ name: 'X2026', basePath: 'demos', items: [{ name: 'X2026 Demo', path: 'x2026', files: [{ filename: 'x2026.prg', duration: 300 }] }] }),
+        };
+      }
+      if (href.endsWith('/x2026/x2026.prg')) return { ok: true, status: 200, arrayBuffer: async () => Buffer.from('x2026').buffer };
+      if (href.endsWith('/x2018/x2018.prg')) return { ok: true, status: 200, arrayBuffer: async () => Buffer.from('x2018').buffer };
+      return { ok: false, status: 404 };
+    }));
+
+    const port = nextPort();
+    const commands: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: (cmd: any) => commands.push(cmd),
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on' });
+    await waitForCondition(() => requestedX2018Playlist);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on', playlistIndex: 3 });
+
+    const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok' && m.attractMode?.filename === 'x2026.prg');
+    expect(ack.attractMode).toMatchObject({ playlistName: 'X2026', playlistIndex: 3 });
+    delayedX2018.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(commands.some((cmd) => cmd.type === 'load-file' && cmd.filename === 'x2018.prg')).toBe(false);
+
+    randomSpy.mockRestore();
+    adminWs.close();
+  });
+
+  it('plays selected playlist index 3 to completion before resuming random playlists', async () => {
+    stubAttractModeFetch({ productionPlaylists: true });
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      onCommand: () => {},
+      validateAdminToken: (token: string) => token === 'admin-secret',
+      attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
+      diskAutoloadDelayMs: 0,
+    });
+    servers.push(srv);
+
+    const { ws: adminWs } = await connect(port);
+    send(adminWs, { type: 'admin-attract-mode', token: 'admin-secret', action: 'on', playlistIndex: 3 });
+
+    await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok' && m.attractMode?.filename === 'x2026-first.prg');
+    const secondX2026 = await nextMsg(adminWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.filename === 'x2026-second.prg');
+    expect(secondX2026.attractMode).toMatchObject({ playlistName: 'X2026', playlistIndex: 3 });
+
+    const resumedRandom = await nextMsg(adminWs, (m) => m.type === 'attract-mode-status' && m.attractMode?.filename === 'x2018.prg');
+    expect(resumedRandom.attractMode).toMatchObject({ playlistName: 'X2018', playlistIndex: 0 });
+
+    randomSpy.mockRestore();
     adminWs.close();
   });
 
