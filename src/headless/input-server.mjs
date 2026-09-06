@@ -623,7 +623,7 @@ export function createInputServer(opts = {}) {
     if (typeof attractTimer.unref === 'function') attractTimer.unref();
   }
 
-  async function loadAttractEntry(itemIndex, fileIndex, { mountOnly = false, rebootBeforeLoad = false } = {}) {
+  async function loadAttractEntry(itemIndex, fileIndex, { mountOnly = false, rebootBeforeLoad = false, afterStatus = null } = {}) {
     const generation = attractGeneration;
     const item = getAttractItem(itemIndex);
     const file = getAttractFile(item, fileIndex);
@@ -663,6 +663,7 @@ export function createInputServer(opts = {}) {
     if (generation !== attractGeneration) return;
     setAttractStatus({ item, file, itemIndex, fileIndex, filename });
     broadcastAttractMode();
+    if (typeof afterStatus === 'function') afterStatus();
     await runLoadFileCommand({
       filename,
       fileType,
@@ -674,7 +675,7 @@ export function createInputServer(opts = {}) {
     scheduleAttractAdvance();
   }
 
-  async function startAttractMode(demoIndex = 0, playlistIndex = undefined) {
+  async function startAttractMode(demoIndex = 0, playlistIndex = undefined, { afterStatus = null } = {}) {
     if (!attractEnabled) throw new Error('Attract Mode is not configured');
     attractGeneration += 1;
     clearAttractTimer();
@@ -701,7 +702,7 @@ export function createInputServer(opts = {}) {
     }
     attractSelectedPlaylistOnce = playlistIndex != null;
     attractPlaylist = { ...playlist, _playlistPath: playlistPath, _playlistIndex: resolvedPlaylistIndex };
-    await loadAttractEntry(demoIndex, 0, { rebootBeforeLoad: true });
+    await loadAttractEntry(demoIndex, 0, { rebootBeforeLoad: true, afterStatus });
     attractAutoStartEnabled = true;
   }
 
@@ -1538,9 +1539,17 @@ export function createInputServer(opts = {}) {
         const action = String(msg.action ?? '').toLowerCase();
         const demoIndex = msg.demoIndex != null ? Number(msg.demoIndex) : undefined;
         const playlistIndex = msg.playlistIndex != null ? Number(msg.playlistIndex) : undefined;
-        if (action === 'on') {
-          startAttractMode(demoIndex, playlistIndex)
-            .then(() => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() })))
+        let sentAttractAdminOk = false;
+        const sendAttractAdminOk = () => {
+          if (sentAttractAdminOk) return;
+          sentAttractAdminOk = true;
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() }));
+          }
+        };
+        if (action === 'on' || action === 'playlist') {
+          startAttractMode(demoIndex, playlistIndex, { afterStatus: sendAttractAdminOk })
+            .then(sendAttractAdminOk)
             .catch((e) => {
               stopAttractMode({ reason: 'error' });
               if (ws.readyState === ws.OPEN) {
@@ -1552,7 +1561,11 @@ export function createInputServer(opts = {}) {
         if (action === 'off') {
           attractAutoStartEnabled = false;
           stopAttractMode({ reason: 'admin' });
-          ws.send(JSON.stringify({ type: 'admin-attract-mode-ok', action, attractMode: attractStatusPayload() }));
+          sendAttractAdminOk();
+          return;
+        }
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'admin-error', command: 'attract-mode', reason: 'invalid-action' }));
         }
         return;
       }
