@@ -648,9 +648,6 @@ export function createInputServer(opts = {}) {
       rebootBeforeLoad,
       rebootFileBeforeLoad: file.reboot === true,
     });
-    setAttractStatus({ item, file, itemIndex, fileIndex, filename });
-    broadcastAttractMode();
-    if (typeof afterStatus === 'function') afterStatus();
     if (rebootBeforeLoad) {
       await runRebootCommand({ source: 'attract-mode', stopAttract: false });
       if (generation !== attractGeneration) return;
@@ -664,6 +661,9 @@ export function createInputServer(opts = {}) {
     }
     const data = await fetchAttractFileBase64(url);
     if (generation !== attractGeneration) return;
+    setAttractStatus({ item, file, itemIndex, fileIndex, filename });
+    broadcastAttractMode();
+    if (typeof afterStatus === 'function') afterStatus();
     await runLoadFileCommand({
       filename,
       fileType,

@@ -83,7 +83,7 @@ describe('input-server', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false, slowFiles = null } = {}) {
+  function stubAttractModeFetch({ basePath = 'demos', baseUrl = 'https://cdn.example.test/attract', rebootSecondDisk = false, multiplePlaylists = false } = {}) {
     const playlist = {
       name: 'Test Playlist',
       basePath,
@@ -137,18 +137,14 @@ describe('input-server', () => {
     const fetchMock = vi.fn(async (url: string) => {
       const value = files[String(url)];
       if (value == null) return { ok: false, status: 404 };
-      const isJson = String(url).endsWith('.json');
       return {
         ok: true,
         status: 200,
         json: async () => JSON.parse(value),
-        arrayBuffer: async () => {
-          if (!isJson && slowFiles) await slowFiles;
-          return Buffer.from(value).buffer.slice(
-            Buffer.from(value).byteOffset,
-            Buffer.from(value).byteOffset + Buffer.from(value).byteLength,
-          );
-        },
+        arrayBuffer: async () => Buffer.from(value).buffer.slice(
+          Buffer.from(value).byteOffset,
+          Buffer.from(value).byteOffset + Buffer.from(value).byteLength,
+        ),
       };
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -1247,19 +1243,14 @@ describe('input-server', () => {
     hostWs.close();
   });
 
-  it('acks admin attract mode once active status is available before slow reboot, file fetch, and load complete', async () => {
-    const reboot = deferred();
-    const fetchDisk = deferred();
-    stubAttractModeFetch({ slowFiles: fetchDisk.promise });
+  it('acks admin attract mode once active status is available before slow load completes', async () => {
+    stubAttractModeFetch();
     const port = nextPort();
     const load = deferred();
     const srv = createInputServer({
       port,
       onInput: () => {},
-      onCommand: (cmd: any) => {
-        if (cmd.type === 'reboot') return reboot.promise;
-        if (cmd.type === 'load-file') return load.promise;
-      },
+      onCommand: (cmd: any) => (cmd.type === 'load-file' ? load.promise : undefined),
       validateAdminToken: (token: string) => token === 'admin-secret',
       attractMode: { enabled: true, baseUrl: 'https://cdn.example.test/attract' },
       diskAutoloadDelayMs: 0,
@@ -1272,8 +1263,6 @@ describe('input-server', () => {
     const ack = await nextMsg(adminWs, (m) => m.type === 'admin-attract-mode-ok');
     expect(ack.attractMode).toMatchObject({ active: true, filename: 'first-demo.d64' });
 
-    reboot.resolve();
-    fetchDisk.resolve();
     load.resolve();
     adminWs.close();
   });
