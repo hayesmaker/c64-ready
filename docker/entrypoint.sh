@@ -21,6 +21,9 @@ fi
 #                     Input server only starts when INPUT_ENABLED=1.
 if [ "${WEBRTC_ENABLED}" = "1" ] || [ "${WEBRTC_ENABLED}" = "true" ]; then
   echo "[entrypoint] MODE: WebRTC  (player → http://0.0.0.0:${WEBRTC_PORT:-9002}/  input → ws://0.0.0.0:${WS_PORT:-9001}/)"
+  if [ -z "${C64_ADMIN_TOKEN}" ]; then
+    echo "[entrypoint] WARNING: C64_ADMIN_TOKEN is blank; host controls are disabled (spectator viewing remains available)." >&2
+  fi
   ARGS="$ARGS --webrtc"
   ARGS="$ARGS --webrtc-port ${WEBRTC_PORT:-9002}"
   # Keep --audio explicit in WebRTC mode for compatibility with older

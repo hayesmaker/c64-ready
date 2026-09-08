@@ -1228,7 +1228,7 @@ function buildBrowserHtml(
     /* ── Screen ── */
     #screen-wrap {
       position: relative;
-      width: 768px; height: 544px;
+      width: min(768px, 100%); aspect-ratio: 48 / 34;
       flex-shrink: 0;
     }
     #screen {
@@ -1264,6 +1264,7 @@ function buildBrowserHtml(
 
     /* ── Controls bar ── */
     .controls-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .controls-row[hidden] { display: none; }
     button {
       padding: 5px 12px; border-radius: 3px; border: 1px solid #333;
       background: #1a1a1a; color: #aaa; font-family: inherit; font-size: 11px;
@@ -1273,6 +1274,12 @@ function buildBrowserHtml(
     button:disabled { opacity: 0.35; cursor: default; }
     button.hidden { display: none; }
     button.active { background: #1a2a1a; color: #8f8; border-color: #464; }
+    label { font-size: 11px; letter-spacing: 0.05em; }
+    input[type=password] {
+      width: min(260px, 55vw); padding: 5px 8px; border-radius: 3px;
+      border: 1px solid #333; background: #111; color: #ddd; font-family: inherit;
+    }
+    input[type=password]:focus { outline: 1px solid #666; border-color: #666; }
 
     /* ── CRT drop zone hint ── */
     #drop-hint {
@@ -1303,19 +1310,28 @@ function buildBrowserHtml(
     <span id="game-status"  class="badge dim">no game</span>
   </div>
 
-  <div class="controls-row">
+  <form id="host-auth" class="controls-row">
+    <label for="host-token">Admin token</label>
+    <input id="host-token" type="password" autocomplete="current-password" required>
+    <button id="unlock-btn" type="submit">Unlock host controls</button>
+    <span id="auth-status" class="badge dim">spectator mode</span>
+  </form>
+
+  <div id="host-controls" class="controls-row" hidden>
     <button id="load-btn"   title="Load a .crt cartridge file">📂 load .crt</button>
     <button id="detach-btn" title="Eject cartridge → BASIC prompt" disabled>⏏ detach</button>
     <button id="reset-btn"  title="Hard reset (BASIC prompt)" disabled>↺ reset</button>
     <button id="reboot-btn" title="Re-instantiate emulator with no game loaded">⟲ reboot</button>
-    <span class="sep">|</span>
-    <button id="sync-btn"   title="Flush video to live edge — use if display feels laggy">⟳ sync</button>
     <span class="sep">|</span>
     <button id="mode-btn"   title="Toggle input mode">🕹+⌨ mixed</button>
     <span class="sep">|</span>
     <span id="load-status" class="badge dim"></span>
     <span id="drop-hint">or drop .crt onto screen</span>
     <input type="file" id="file-input" accept=".crt">
+  </div>
+
+  <div class="controls-row">
+    <button id="sync-btn" title="Flush video to live edge — use if display feels laggy">⟳ sync</button>
   </div>
 
   <script>
@@ -1327,6 +1343,11 @@ function buildBrowserHtml(
     const audioBadge  = document.getElementById('audio-status');
     const inputBadge  = document.getElementById('input-status');
     const gameBadge   = document.getElementById('game-status');
+    const hostAuth    = document.getElementById('host-auth');
+    const hostToken   = document.getElementById('host-token');
+    const unlockBtn   = document.getElementById('unlock-btn');
+    const authStatus  = document.getElementById('auth-status');
+    const hostControls = document.getElementById('host-controls');
     const loadStatus  = document.getElementById('load-status');
     const loadBtn     = document.getElementById('load-btn');
     const detachBtn   = document.getElementById('detach-btn');
@@ -1643,6 +1664,24 @@ function buildBrowserHtml(
     // ── Input server ──────────────────────────────────────────────────────────
     const INPUT_PORT = ${inputPort};
     let inputWs = null, inputBackoff = 1000, backoffTimer = null;
+    let isHost = false, hostAuthRequired = true, shouldClaimHost = false, hostClaimToken = '';
+
+    function setHostEnabled(enabled) {
+      isHost = enabled;
+      hostControls.hidden = !enabled;
+      hostAuth.hidden = enabled;
+      if (!enabled) setBadge(authStatus, 'spectator mode', 'dim');
+    }
+
+    function claimHost() {
+      if (!inputWs || inputWs.readyState !== WebSocket.OPEN) return;
+      inputWs.send(JSON.stringify({
+        type: 'host',
+        username: 'player',
+        force: true,
+        ...(hostClaimToken ? { token: hostClaimToken } : {}),
+      }));
+    }
 
     function connectInput() {
       if (backoffTimer) { clearTimeout(backoffTimer); backoffTimer = null; }
@@ -1651,15 +1690,23 @@ function buildBrowserHtml(
 
       inputWs.onopen = () => {
         inputBackoff = 1000;
-        setBadge(inputBadge, 'input: connected', 'ok');
-        // Claim host role — force:true evicts any stale previous session so
-        // detach / reset always work even after a page reload or reconnect.
-        inputWs.send(JSON.stringify({ type: 'host', username: 'player', force: true }));
+        unlockBtn.disabled = false;
+        setBadge(inputBadge, 'input: spectator', 'dim');
+        if (shouldClaimHost) claimHost();
       };
 
       inputWs.onmessage = ({ data }) => {
         try {
           const msg = JSON.parse(data);
+          if (msg.type === 'hello') {
+            hostAuthRequired = msg.hostAuthRequired !== false;
+            hostToken.required = hostAuthRequired;
+            if (!hostAuthRequired) {
+              hostToken.hidden = true;
+              hostAuth.querySelector('label').hidden = true;
+              unlockBtn.textContent = 'Take host controls';
+            }
+          }
           // Cart lifecycle
           if (msg.type === 'cart-loaded' || msg.type === 'machine-reset' || msg.type === 'cart-detached' || msg.type === 'machine-rebooted') {
             blurAll();
@@ -1703,17 +1750,41 @@ function buildBrowserHtml(
           }
           if (msg.type === 'cart-loading')    setLoadStatus('loading…', 'warn');
           if (msg.type === 'cart-load-error') setLoadStatus('error: ' + (msg.reason || '?'), 'err');
-          if (msg.type === 'host-confirmed')  setBadge(inputBadge, 'input: host', 'ok');
+          if (msg.type === 'host-confirmed') {
+            setHostEnabled(true);
+            unlockBtn.disabled = false;
+            hostToken.value = '';
+            setBadge(inputBadge, 'input: host', 'ok');
+          }
+          if (msg.type === 'host-auth-failed') {
+            shouldClaimHost = false;
+            hostClaimToken = '';
+            unlockBtn.disabled = false;
+            hostToken.value = '';
+            hostToken.focus();
+            setBadge(authStatus, 'invalid token', 'err');
+            setBadge(inputBadge, 'input: spectator', 'dim');
+          }
+          if (msg.type === 'host-taken' || msg.type === 'host-evicted') {
+            shouldClaimHost = false;
+            hostClaimToken = '';
+            setHostEnabled(false);
+            unlockBtn.disabled = false;
+            setBadge(authStatus, msg.type === 'host-taken' ? 'host already active' : 'host access revoked', 'warn');
+            setBadge(inputBadge, 'input: spectator', 'dim');
+          }
         } catch (_) {}
       };
       inputWs.onclose = () => {
+        setHostEnabled(false);
+        unlockBtn.disabled = true;
         setBadge(inputBadge, 'input: retrying ' + (inputBackoff/1000).toFixed(0) + 's…', 'warn');
         backoffTimer = setTimeout(() => { inputBackoff = Math.min(inputBackoff * 2, 30000); connectInput(); }, inputBackoff);
       };
       inputWs.onerror = () => setBadge(inputBadge, 'input: unavailable', 'err');
     }
     function sendInput(msg) {
-      if (inputWs && inputWs.readyState === WebSocket.OPEN) inputWs.send(JSON.stringify(msg));
+      if (isHost && inputWs && inputWs.readyState === WebSocket.OPEN) inputWs.send(JSON.stringify(msg));
     }
     // Blur any focused UI element so keyboard events go to the emulator,
     // not to whichever button was last clicked.
@@ -1722,13 +1793,27 @@ function buildBrowserHtml(
         document.activeElement.blur();
     }
     connectInput();
+    hostAuth.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const token = hostToken.value.trim();
+      if (hostAuthRequired && !token) {
+        setBadge(authStatus, 'token required', 'warn');
+        hostToken.focus();
+        return;
+      }
+      hostClaimToken = token;
+      shouldClaimHost = true;
+      unlockBtn.disabled = true;
+      setBadge(authStatus, 'checking…', 'warn');
+      claimHost();
+    });
     function setLoadStatus(text, cls) {
       loadStatus.textContent = text;
       loadStatus.className = 'badge ' + (cls || 'dim');
     }
     // ── CRT loading ───────────────────────────────────────────────────────────
     async function loadCrt(file) {
-      if (!file) return;
+      if (!isHost || !file) return;
       setLoadStatus('reading…', 'warn');
       try {
         const b64 = await new Promise((resolve, reject) => {
@@ -1784,6 +1869,7 @@ function buildBrowserHtml(
     const MIXED_JOY_KEYS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','z','Z','x','X']);
     const PREVENT_DEFAULTS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Tab']);
     document.addEventListener('keydown', (e) => {
+      if (!isHost) return;
       if (PREVENT_DEFAULTS.has(e.key)) e.preventDefault();
       if (e.repeat) return;
       const tag = e.target instanceof Element ? e.target.tagName : '';
@@ -1800,6 +1886,7 @@ function buildBrowserHtml(
       }
     });
     document.addEventListener('keyup', (e) => {
+      if (!isHost) return;
       const tag = e.target instanceof Element ? e.target.tagName : '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       const mode = getMode();
