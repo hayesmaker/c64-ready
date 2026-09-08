@@ -204,6 +204,7 @@ describe('input-server', () => {
     expect(hello.type).toBe('hello');
     expect(hello.protocol).toBe('c64-input');
     expect(hello.version).toBe(1);
+    expect(hello.hostAuthRequired).toBe(false);
     expect(hello.hostTaken).toBe(false);
     expect(hello.joystickBitmask).toMatchObject({
       up: 0x1,
@@ -213,6 +214,63 @@ describe('input-server', () => {
       fire: 0x10,
     });
     ws.close();
+  });
+
+  it('requires a valid host token when host authentication is enabled', async () => {
+    const port = nextPort();
+    const srv = createInputServer({
+      port,
+      onInput: () => {},
+      hostAuthRequired: true,
+      validateHostToken: (token: string) => token === 'host-secret',
+    });
+    servers.push(srv);
+
+    const { ws, hello } = await connect(port);
+    expect(hello.hostAuthRequired).toBe(true);
+
+    send(ws, { type: 'host', username: 'alice' });
+    await expect(nextMsg(ws, (m) => m.type === 'host-auth-failed')).resolves.toMatchObject({
+      reason: 'invalid-token',
+    });
+
+    send(ws, { type: 'host', username: 'alice', token: 'wrong-token' });
+    await expect(nextMsg(ws, (m) => m.type === 'host-auth-failed')).resolves.toMatchObject({
+      reason: 'invalid-token',
+    });
+
+    send(ws, { type: 'host', username: 'alice', token: 'host-secret' });
+    await expect(nextMsg(ws, (m) => m.type === 'host-confirmed')).resolves.toMatchObject({
+      username: 'alice',
+    });
+    ws.close();
+  });
+
+  it('does not let an invalid forced claim evict an authenticated host', async () => {
+    const port = nextPort();
+    const seen: any[] = [];
+    const srv = createInputServer({
+      port,
+      onInput: (msg: any) => seen.push(msg),
+      hostAuthRequired: true,
+      validateHostToken: (token: string) => token === 'host-secret',
+    });
+    servers.push(srv);
+
+    const { ws: hostWs } = await connect(port);
+    send(hostWs, { type: 'host', username: 'alice', token: 'host-secret' });
+    await nextMsg(hostWs, (m) => m.type === 'host-confirmed');
+
+    const { ws: attackerWs } = await connect(port);
+    send(attackerWs, { type: 'host', username: 'mallory', force: true, token: 'wrong-token' });
+    await nextMsg(attackerWs, (m) => m.type === 'host-auth-failed');
+
+    send(hostWs, { type: 'key', key: 'a', action: 'down' });
+    await waitForCondition(() => seen.length === 1);
+    expect(seen[0]).toMatchObject({ type: 'key', _role: 'host' });
+
+    hostWs.close();
+    attackerWs.close();
   });
 
   it('accepts direct peer input when session id matches the host websocket', async () => {

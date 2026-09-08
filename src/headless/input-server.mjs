@@ -22,6 +22,8 @@ import { randomBytes } from 'crypto';
  * @param {number}   [opts.hostTimeoutMs=300000]
  * @param {Function} [opts.validateKickToken]
  * @param {Function} [opts.validateAdminToken]
+ * @param {boolean}  [opts.hostAuthRequired=false]
+ * @param {Function} [opts.validateHostToken]
  * @param {number}   [opts.hostReconnectGraceMs=8000]
  * @param {number}   [opts.p2ReconnectGraceMs=5000]
  * @param {Function} [opts.getRuntimeStats]
@@ -47,6 +49,8 @@ export function createInputServer(opts = {}) {
   const HOST_TIMEOUT = opts.hostTimeoutMs ?? 10 * 60 * 1000;
   const validateKickToken = opts.validateKickToken ?? (() => null);
   const validateAdminToken = opts.validateAdminToken ?? (() => false);
+  const hostAuthRequired = opts.hostAuthRequired ?? false;
+  const validateHostToken = opts.validateHostToken ?? (() => false);
   const serverVersion = opts.serverVersion ?? null;
   const serverGitHash = opts.serverGitHash ?? null;
   const getRuntimeStats = opts.getRuntimeStats ?? (() => null);
@@ -1103,6 +1107,14 @@ export function createInputServer(opts = {}) {
 
       // ── Host claim ────────────────────────────────────────────────────────
       if (msg.type === 'host') {
+        if (hostAuthRequired && !validateHostToken(msg.token ?? '')) {
+          ws.send(JSON.stringify({ type: 'host-auth-failed', reason: 'invalid-token' }));
+          logEv('host-claim-rejected', {
+            reason: 'invalid-token',
+            username: msg.username ?? 'player',
+          });
+          return;
+        }
         if (hostClient && hostClient.readyState === hostClient.OPEN) {
           // force:true lets a new connection take over from a stale/ghost host
           // (e.g. page reload, WebRTC reconnect, or lost tab).  Without this
@@ -1886,6 +1898,7 @@ export function createInputServer(opts = {}) {
         type: 'hello',
         protocol: 'c64-input',
         version: 1,
+        hostAuthRequired,
         serverTime, // Unix ms for client clock sync
         // During grace period: treat slot as free so the original host can reclaim it.
         // hostPendingRejoin tells P2 (and spectators) to hold off.

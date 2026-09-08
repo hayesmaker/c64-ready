@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync, createWriteStream, readdirSync, statSync, unli
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { timingSafeEqual } from 'crypto';
 import FFmpegRunner from './ffmpeg-runner.mjs';
 import { domKeyToC64Actions } from './c64-key-map.mjs';
 
@@ -382,6 +383,12 @@ export async function runHeadless(options = {}) {
   }
   if (!Number.isFinite(hostTimeoutMs) || hostTimeoutMs <= 0) hostTimeoutMs = undefined;
   const adminTokenSafe = String(adminToken ?? '').trim();
+  const validateAdminToken = (token) => {
+    if (!adminTokenSafe) return false;
+    const expected = Buffer.from(adminTokenSafe);
+    const received = Buffer.from(String(token ?? ''));
+    return received.length === expected.length && timingSafeEqual(received, expected);
+  };
 
   const webrtcMinBitrateKbpsSafe =
     Number.isFinite(webrtcMinBitrateKbps) && webrtcMinBitrateKbps > 0
@@ -765,10 +772,9 @@ export async function runHeadless(options = {}) {
         logEvents,
         hostTimeoutMs,
         validateKickToken,
-        validateAdminToken: (token) => {
-          if (!adminTokenSafe) return false;
-          return token === adminTokenSafe;
-        },
+        hostAuthRequired: true,
+        validateHostToken: validateAdminToken,
+        validateAdminToken,
         initialCartFilename: gamePath ? path.basename(gamePath) : null,
         serverVersion: _serverVersion,
         serverGitHash: _serverGitHash,

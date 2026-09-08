@@ -242,4 +242,35 @@ describe('webrtc-server', () => {
     expect(onMessageBlock).toContain('wasMuted');
     expect(onMessageBlock).toContain('videoEl.muted = false');
   });
+
+  it('browser HTML: remains a spectator until a token-backed host claim succeeds', () => {
+    const onOpenBlock = SOURCE.slice(
+      SOURCE.indexOf('inputWs.onopen'),
+      SOURCE.indexOf('inputWs.onmessage'),
+    );
+    const sendInputBlock = SOURCE.slice(
+      SOURCE.indexOf('function sendInput'),
+      SOURCE.indexOf('// Blur any focused UI element'),
+    );
+
+    expect(SOURCE).toContain('id="host-token" type="password"');
+    expect(SOURCE).toContain("msg.type === 'host-auth-failed'");
+    expect(SOURCE).toContain("msg.type === 'host-confirmed'");
+    expect(onOpenBlock).not.toContain("type: 'host'");
+    expect(sendInputBlock).toContain('if (isHost &&');
+  });
+
+  it('serves syntactically valid browser JavaScript', async () => {
+    let srv: any;
+    try {
+      srv = createWebRTCServer({ port: 19910, verbose: false, inputPort: 19911 });
+      const html = await (await fetch('http://127.0.0.1:19910/')).text();
+      const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+
+      expect(script).toBeTruthy();
+      expect(() => new Function(script ?? '')).not.toThrow();
+    } finally {
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
 });
