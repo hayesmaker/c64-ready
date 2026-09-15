@@ -644,6 +644,7 @@ export function createWebRTCServer({
     };
     let everConnected = false;
     let closed = false;
+    let disconnectTimer = null;
     peerControllers.add(controller);
     peerBySession.set(sessionId, controller);
     whepSessions.set(sessionId, controller);
@@ -655,10 +656,18 @@ export function createWebRTCServer({
     }, 30_000);
     if (typeof pendingTimeout.unref === 'function') pendingTimeout.unref();
 
+    function clearDisconnectTimer() {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
+    }
+
     function closePeer(reason) {
       if (closed) return;
       closed = true;
       clearTimeout(pendingTimeout);
+      clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
       peerStatsPrev.delete(pc);
       peerControllers.delete(controller);
@@ -677,6 +686,7 @@ export function createWebRTCServer({
       const s = pc.iceConnectionState;
       controller.iceState = s;
       if (s === 'connected' || s === 'completed') {
+        clearDisconnectTimer();
         if (!everConnected) {
           everConnected = true;
           if (pendingPeers > 0) pendingPeers--;
@@ -690,7 +700,13 @@ export function createWebRTCServer({
       } else if (s === 'disconnected') {
         activePeers.delete(pc);
         controller.connected = false;
-        logEv('whep-ice-disconnected', { addr: remoteAddr, session: sessionId });
+        logEv('whep-ice-disconnected', { addr: remoteAddr, session: sessionId, grace: 6000 });
+        clearDisconnectTimer();
+        disconnectTimer = setTimeout(() => {
+          logEv('whep-ice-grace-expired', { addr: remoteAddr, session: sessionId });
+          closePeer('whep-disconnected-timeout');
+        }, 6000);
+        if (typeof disconnectTimer.unref === 'function') disconnectTimer.unref();
       } else if (s === 'failed' || s === 'closed') {
         closePeer(s);
       }
@@ -872,6 +888,7 @@ export function createWebRTCServer({
 
     // Track whether this peer has ever reached ICE connected (to manage pendingPeers correctly).
     let everConnected = false;
+    let closed = false;
     const pendingRemoteCandidates = [];
 
     async function addRemoteCandidate(candidate, source = 'live') {
@@ -904,6 +921,8 @@ export function createWebRTCServer({
     }
 
     function closePeer(reason) {
+      if (closed) return;
+      closed = true;
       clearDisconnectTimer();
       const wasActive = activePeers.delete(pc);
       const detail = {
@@ -1008,6 +1027,7 @@ export function createWebRTCServer({
         controller.connected = false;
         logEv('webrtc-ice-disconnected', { addr: remoteAddr, grace: 6000 });
         logLoadSnapshot('webrtc-load-change', { reason: 'ice-disconnected' });
+        clearDisconnectTimer();
         disconnectTimer = setTimeout(() => {
           console.error(`[webrtc] ICE 'disconnected' grace expired (${remoteAddr}) — closing`);
           logEv('webrtc-ice-grace-expired', { addr: remoteAddr });
