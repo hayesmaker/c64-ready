@@ -16,6 +16,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import wrtc from '@roamhq/wrtc';
+import { WebSocket } from 'ws';
 
 const { RTCPeerConnection } = wrtc;
 
@@ -29,6 +30,23 @@ const SOURCE = await fs.readFile(
 );
 
 describe('webrtc-server', () => {
+  function waitFor(predicate: () => boolean, timeoutMs = 1500) {
+    const startedAt = Date.now();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setInterval(() => {
+        if (predicate()) {
+          clearInterval(timer);
+          resolve();
+          return;
+        }
+        if (Date.now() - startedAt >= timeoutMs) {
+          clearInterval(timer);
+          reject(new Error('Timed out waiting for condition'));
+        }
+      }, 20);
+    });
+  }
+
   function waitForIceGatheringComplete(pc, timeoutMs = 1500) {
     if (pc.iceGatheringState === 'complete') return Promise.resolve();
     return new Promise<void>((resolve) => {
@@ -102,6 +120,49 @@ describe('webrtc-server', () => {
     } finally {
       if (srv) await srv.close().catch(() => {});
     }
+  });
+
+  it('removes pending signalling peers from occupancy when their websocket closes', async () => {
+    let srv: any;
+    let ws: WebSocket | null = null;
+    try {
+      srv = createWebRTCServer({ port: 19912, verbose: false, inputPort: 19913 });
+      ws = new WebSocket('ws://127.0.0.1:19912/?sid=pending-close-test');
+      await new Promise<void>((resolve, reject) => {
+        ws?.once('open', resolve);
+        ws?.once('error', reject);
+      });
+
+      await waitFor(() => srv.getPeerSnapshot().total === 1);
+      expect(srv.getPeerSnapshot()).toMatchObject({ active: 0, pending: 1, total: 1 });
+
+      ws.close();
+      await waitFor(() => srv.getPeerSnapshot().total === 0);
+      expect(srv.getPeerSnapshot()).toMatchObject({ active: 0, pending: 0, total: 0 });
+    } finally {
+      if (ws && ws.readyState === ws.OPEN) ws.close();
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
+
+  it('guards signalling peer cleanup against repeated terminal events', () => {
+    const closePeerStart = SOURCE.indexOf('function closePeer(reason)', SOURCE.indexOf('wss.on'));
+    const closePeerEnd = SOURCE.indexOf('controller.closePeer = closePeer', closePeerStart);
+    const closePeerBody = SOURCE.slice(closePeerStart, closePeerEnd);
+
+    expect(closePeerBody).toContain('if (closed) return;');
+    expect(closePeerBody).toContain('closed = true;');
+  });
+
+  it('expires WHEP peers that remain disconnected past the grace window', () => {
+    const whepBlock = SOURCE.slice(
+      SOURCE.indexOf('async function handleWhepPost'),
+      SOURCE.indexOf('async function handleWhepPatch'),
+    );
+
+    expect(whepBlock).toContain("s === 'disconnected'");
+    expect(whepBlock).toContain('whep-disconnected-timeout');
+    expect(whepBlock).toContain('clearDisconnectTimer()');
   });
 
   it('generates timed TURN credentials from ICE_TURN_SECRET on each ice-config request', async () => {
