@@ -2,6 +2,7 @@ import { C64Player } from './player/c64-player';
 import CanvasRenderer from './player/canvas-renderer';
 import UIController from './player/ui-controller';
 import CheevosDevController, { parseCheevosSetJson } from './player/cheevos-dev';
+import CheevosTrackerPanel from './player/cheevos-tracker-panel';
 import { inferLoadTypeFromFilename, isSupportedLoadType } from './player/load-formats';
 
 const status = document.getElementById('status')!;
@@ -41,6 +42,8 @@ const player = new C64Player({
   onProgress: (pct, label) => renderer.setProgress(pct, label),
 });
 const cheevosDev = new CheevosDevController(player);
+const cheevosTrackerPanel = new CheevosTrackerPanel();
+cheevosTrackerPanel.init();
 
 // Initialise UI with reference to the player (for audio controls)
 new UIController({ assetBaseUrl: base }).init(player);

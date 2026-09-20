@@ -11,6 +11,16 @@ export type CheevosDevAchievement = {
 export type CheevosDevSet = {
   _id?: string;
   cheevos?: CheevosDevAchievement[];
+  trackerFields?: CheevosDevTrackerField[];
+};
+
+export type CheevosDevTrackerField = {
+  key: string;
+  label?: string;
+  source?: 'field';
+  field?: string;
+  display?: 'text' | 'bar';
+  max?: number;
 };
 
 export type CheevosDevScore = {
@@ -36,6 +46,7 @@ type CheevosInstance = {
   watcher?: {
     on?: (name: string, callback: (payload: unknown) => void) => void;
   };
+  [key: string]: unknown;
 };
 
 type CheevosEventPayload = {
@@ -51,6 +62,7 @@ export class CheevosDevController {
   private cheevosSet: CheevosDevSet = { cheevos: [] };
   private instance: CheevosInstance | null = null;
   private rafId = 0;
+  private lastSnapshotKey = '';
 
   constructor(player: C64Player) {
     this.player = player;
@@ -90,7 +102,11 @@ export class CheevosDevController {
     this.attachWatcher(cheevos);
     this.instance = cheevos;
     this.enabled = true;
-    this.dispatchStatus('enabled', { cheevosCount: this.cheevosSet.cheevos?.length ?? 0 });
+    this.dispatchStatus('enabled', {
+      cheevosCount: this.cheevosSet.cheevos?.length ?? 0,
+      cheevosSet: this.cheevosSet,
+      poppedCheevos,
+    });
     this.tick();
   }
 
@@ -105,6 +121,7 @@ export class CheevosDevController {
     }
     this.enabled = false;
     this.instance = null;
+    this.lastSnapshotKey = '';
   }
 
   destroy(): void {
@@ -116,7 +133,7 @@ export class CheevosDevController {
     const id = detectorId.trim().toLowerCase();
     if (!id) return;
     localStorage.removeItem(getPoppedStorageKey(id));
-    this.dispatchStatus('popped-cleared');
+    this.dispatchStatus('popped-cleared', { poppedCheevos: [] });
   }
 
   clearScores(detectorId: string = this.detectorId): void {
@@ -130,6 +147,7 @@ export class CheevosDevController {
     if (!this.enabled) return;
     try {
       this.instance?.execute?.();
+      this.dispatchSnapshot();
     } catch (err) {
       this.disable();
       window.dispatchEvent(
@@ -183,8 +201,36 @@ export class CheevosDevController {
       popped.push({ achievement });
       localStorage.setItem(getPoppedStorageKey(this.detectorId), JSON.stringify(popped));
     }
+    window.dispatchEvent(
+      new CustomEvent('c64-cheevos-popped', {
+        detail: { detectorId: this.detectorId, achievement, poppedCheevos: popped },
+      }),
+    );
     return { achievement };
   };
+
+  private dispatchSnapshot(): void {
+    const instance = this.instance;
+    if (!instance) return;
+
+    const fields = Object.fromEntries(
+      (this.cheevosSet.trackerFields ?? []).map((field) => {
+        const sourceField = field.field ?? field.key;
+        return [field.key, normaliseTrackerValue(instance[sourceField])];
+      }),
+    );
+    const detail = {
+      detectorId: this.detectorId,
+      score: normaliseTrackerValue(instance.score),
+      lives: normaliseTrackerValue(instance.lives),
+      isGameOver: typeof instance.isGameOver === 'boolean' ? instance.isGameOver : undefined,
+      fields,
+    };
+    const snapshotKey = JSON.stringify(detail);
+    if (snapshotKey === this.lastSnapshotKey) return;
+    this.lastSnapshotKey = snapshotKey;
+    window.dispatchEvent(new CustomEvent('c64-cheevos-snapshot', { detail }));
+  }
 
   private attachWatcher(cheevos: CheevosInstance): void {
     const watcher = cheevos.watcher;
@@ -227,8 +273,17 @@ export function parseCheevosSetJson(rawJson: string): CheevosDevSet {
 
 function normaliseCheevosSet(set: CheevosDevSet, detectorId = 'dev'): CheevosDevSet {
   const cheevos = Array.isArray(set.cheevos) ? set.cheevos : [];
+  const trackerFields = Array.isArray(set.trackerFields) ? set.trackerFields : [];
   return {
     _id: set._id ?? `${detectorId}-dev-set`,
+    trackerFields: trackerFields.map((field, index) => ({
+      key: String(field.key ?? field.field ?? `field-${index + 1}`),
+      label: field.label ? String(field.label) : undefined,
+      source: 'field',
+      field: field.field ? String(field.field) : undefined,
+      display: field.display === 'bar' ? 'bar' : 'text',
+      max: typeof field.max === 'number' && Number.isFinite(field.max) ? field.max : undefined,
+    })),
     cheevos: cheevos.map((achievement, index) => ({
       _id: String(achievement._id ?? `dev-${index + 1}`),
       title: String(achievement.title ?? achievement._id ?? `Achievement ${index + 1}`),
@@ -256,6 +311,13 @@ function getPoppedStorageKey(detectorId: string): string {
 
 function normaliseError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function normaliseTrackerValue(value: unknown): string | number | boolean | undefined {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  return undefined;
 }
 
 export default CheevosDevController;

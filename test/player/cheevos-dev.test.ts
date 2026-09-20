@@ -10,7 +10,10 @@ describe('CheevosDevController', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
-    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1),
+    );
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
@@ -52,29 +55,80 @@ describe('CheevosDevController', () => {
     const createMock = vi.mocked(createCheevos);
     createMock.mockResolvedValue({ execute: vi.fn() });
     const controller = new CheevosDevController(makePlayer());
+    const poppedListener = vi.fn();
+    window.addEventListener('c64-cheevos-popped', poppedListener);
 
-    await controller.enable('mario-cf', {
-      _id: 'set1',
-      cheevos: [{ _id: 'first', title: 'First Steps', description: 'Start' }],
-    });
+    try {
+      await controller.enable('mario-cf', {
+        _id: 'set1',
+        cheevos: [{ _id: 'first', title: 'First Steps', description: 'Start' }],
+      });
 
-    const options = createMock.mock.calls[0]![1] as any;
-    await options.postScore('mario-cf', 1234, 'dev-user', 'Developer');
-    const popResult = await options.popCheevo('set1', 'dev-user', 'first');
+      const options = createMock.mock.calls[0]![1] as any;
+      await options.postScore('mario-cf', 1234, 'dev-user', 'Developer');
+      const popResult = await options.popCheevo('set1', 'dev-user', 'first');
 
-    expect(popResult.achievement.title).toBe('First Steps');
-    expect(JSON.parse(localStorage.getItem('c64-cheevos-dev:mario-cf:scores') ?? '[]')).toEqual([
-      expect.objectContaining({ gameId: 'mario-cf', score: 1234 }),
-    ]);
-    expect(JSON.parse(localStorage.getItem('c64-cheevos-dev:mario-cf:popped') ?? '[]')).toEqual([
-      { achievement: { _id: 'first', title: 'First Steps', description: 'Start' } },
-    ]);
+      expect(popResult.achievement.title).toBe('First Steps');
+      expect(JSON.parse(localStorage.getItem('c64-cheevos-dev:mario-cf:scores') ?? '[]')).toEqual([
+        expect.objectContaining({ gameId: 'mario-cf', score: 1234 }),
+      ]);
+      expect(JSON.parse(localStorage.getItem('c64-cheevos-dev:mario-cf:popped') ?? '[]')).toEqual([
+        { achievement: { _id: 'first', title: 'First Steps', description: 'Start' } },
+      ]);
+      expect((poppedListener.mock.calls[0]![0] as CustomEvent).detail.achievement.title).toBe(
+        'First Steps',
+      );
+    } finally {
+      window.removeEventListener('c64-cheevos-popped', poppedListener);
+    }
   });
 
-  it('parses achievement set JSON', () => {
-    expect(parseCheevosSetJson('{"_id":"set1","cheevos":[{"_id":"a","title":"A"}]}')).toEqual({
+  it('parses achievement set JSON with tracker fields', () => {
+    expect(
+      parseCheevosSetJson(
+        '{"_id":"set1","trackerFields":[{"key":"health","label":"Health","display":"bar","max":100}],"cheevos":[{"_id":"a","title":"A"}]}',
+      ),
+    ).toEqual({
       _id: 'set1',
+      trackerFields: [
+        {
+          key: 'health',
+          label: 'Health',
+          source: 'field',
+          field: undefined,
+          display: 'bar',
+          max: 100,
+        },
+      ],
       cheevos: [{ _id: 'a', title: 'A', description: '' }],
+    });
+  });
+
+  it('emits tracker snapshots for score, lives, game over, and dynamic fields', async () => {
+    const snapshots: CustomEvent[] = [];
+    window.addEventListener('c64-cheevos-snapshot', (event) =>
+      snapshots.push(event as CustomEvent),
+    );
+    vi.mocked(createCheevos).mockResolvedValue({
+      score: 500,
+      lives: 3,
+      isGameOver: false,
+      health: 72,
+      execute: vi.fn(),
+    });
+    const controller = new CheevosDevController(makePlayer());
+
+    await controller.enable('test-game', {
+      trackerFields: [{ key: 'health', display: 'bar', max: 100 }],
+      cheevos: [],
+    });
+
+    expect(snapshots.at(-1)?.detail).toEqual({
+      detectorId: 'test-game',
+      score: 500,
+      lives: 3,
+      isGameOver: false,
+      fields: { health: 72 },
     });
   });
 });

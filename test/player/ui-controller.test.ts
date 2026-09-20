@@ -100,7 +100,9 @@ describe('UIController', () => {
     const items = document.querySelectorAll('.c64-help-controls li');
     expect(items.length).toBe(5);
 
-    const keys = Array.from(document.querySelectorAll('.c64-help-controls .c64-help-key')).map((el) => el.textContent);
+    const keys = Array.from(document.querySelectorAll('.c64-help-controls .c64-help-key')).map(
+      (el) => el.textContent,
+    );
     expect(keys).toEqual(['↑', '↓', '←', '→', 'Z or Left Ctrl']);
   });
 
@@ -131,11 +133,15 @@ describe('UIController', () => {
     ] as unknown as Gamepad[]);
 
     const ui = new UIController();
-    ui.init(makePlayer({
-      getActiveGamepadIndex: vi.fn(() => 2),
-    }));
+    ui.init(
+      makePlayer({
+        getActiveGamepadIndex: vi.fn(() => 2),
+      }),
+    );
 
-    const buttons = Array.from(document.querySelectorAll('.c64-gamepad-btn')) as HTMLButtonElement[];
+    const buttons = Array.from(
+      document.querySelectorAll('.c64-gamepad-btn'),
+    ) as HTMLButtonElement[];
     expect(buttons).toHaveLength(2);
     expect(buttons.map((button) => button.textContent)).toEqual([
       '1: 8bitdo Wireless Controller',
@@ -176,9 +182,11 @@ describe('UIController', () => {
 
   it('updates the gamepad list when controllers connect and disconnect', () => {
     const ui = new UIController();
-    ui.init(makePlayer({
-      getActiveGamepadIndex: vi.fn(() => 3),
-    }));
+    ui.init(
+      makePlayer({
+        getActiveGamepadIndex: vi.fn(() => 3),
+      }),
+    );
 
     window.dispatchEvent(
       new CustomEvent('c64-controller-connected', {
@@ -265,4 +273,74 @@ describe('UIController', () => {
     }
   });
 
+  it('loads cheevos JSON from a selected file before enabling', async () => {
+    const listener = vi.fn();
+    window.addEventListener('c64-cheevos-enable', listener);
+
+    try {
+      const ui = new UIController();
+      ui.init(makePlayer());
+
+      const detector = document.getElementById('c64-cheevos-detector') as HTMLInputElement;
+      const json = document.getElementById('c64-cheevos-json') as HTMLTextAreaElement;
+      const fileInput = document.getElementById('c64-cheevos-json-file') as HTMLInputElement;
+      const browse = document.getElementById('c64-cheevos-browse-json-btn') as HTMLButtonElement;
+      const filename = document.getElementById('c64-cheevos-json-filename') as HTMLElement;
+      const enable = document.getElementById('c64-cheevos-enable-btn') as HTMLButtonElement;
+      const jsonText = '{"_id":"uridium-dev-set","cheevos":[{"_id":"zinc","title":"Zinc"}]}';
+      const file = new File([jsonText], 'uridium-cheevos.json', { type: 'application/json' });
+      Object.defineProperty(file, 'text', {
+        configurable: true,
+        value: vi.fn().mockResolvedValue(jsonText),
+      });
+
+      detector.value = 'uridium';
+      const clickSpy = vi.spyOn(fileInput, 'click').mockImplementation(() => {});
+      browse.click();
+      expect(clickSpy).toHaveBeenCalledOnce();
+      Object.defineProperty(fileInput, 'files', {
+        configurable: true,
+        value: [file],
+      });
+      fileInput.dispatchEvent(new Event('change'));
+
+      await vi.waitFor(() => {
+        expect(json.value).toBe(jsonText);
+      });
+      expect(filename.textContent).toBe('uridium-cheevos.json');
+
+      enable.click();
+
+      expect(listener).toHaveBeenCalledOnce();
+      expect((listener.mock.calls[0]![0] as CustomEvent).detail).toEqual({
+        detectorId: 'uridium',
+        jsonText,
+      });
+    } finally {
+      window.removeEventListener('c64-cheevos-enable', listener);
+    }
+  });
+
+  it('dispatches cheevos tracker visibility changes from settings', () => {
+    const listener = vi.fn();
+    window.addEventListener('c64-cheevos-tracker-toggle', listener);
+
+    try {
+      const ui = new UIController();
+      ui.init(makePlayer());
+
+      const checkbox = document.getElementById('c64-cheevos-tracker-visible') as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+
+      checkbox.checked = false;
+      checkbox.dispatchEvent(new Event('change'));
+
+      expect(listener).toHaveBeenLastCalledWith(
+        expect.objectContaining({ detail: { visible: false } }),
+      );
+      expect(localStorage.getItem('c64-cheevos-tracker-visible')).toBe('0');
+    } finally {
+      window.removeEventListener('c64-cheevos-tracker-toggle', listener);
+    }
+  });
 });

@@ -7,7 +7,7 @@ const css = `
 .c64-section-label{display:block;margin:0 0 8px;color:#7b71d5;font-size:13px;letter-spacing:1px;text-transform:uppercase}.c64-form-row,.c64-radio-row,.c64-system-actions,.c64-menu-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.c64-form-row label{color:#aaa;font-size:13px}
 .c64-select,.c64-file-input{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-btn{background:#2a2a3e;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:12px;padding:5px 10px;cursor:pointer}.c64-btn:hover:not(:disabled){border-color:#7b71d5;color:#fff}.c64-btn:disabled,.c64-select:disabled{opacity:.55;cursor:not-allowed}
 .c64-dragarea{border:1px dashed #555;border-radius:6px;background:#111827;color:#aaa;padding:18px;margin:0 0 12px;text-align:center}.c64-dragarea.dragover{border-color:#7b71d5;background:#1f1b38;color:#fff}.c64-cart-preview,.c64-tools-section{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px;margin:12px 0}.c64-section-hint{color:#888;font-size:12px;line-height:1.4;margin:4px 0 12px}.c64-checkbox-row{display:flex;align-items:center;gap:8px;color:#ccc;font-size:13px;margin:14px 0 4px}
-.c64-text-input,.c64-textarea{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-text-input{min-width:180px}.c64-textarea{box-sizing:border-box;width:100%;min-height:120px;resize:vertical}.c64-cheevos-json-file{max-width:100%}
+.c64-text-input,.c64-textarea{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-text-input{min-width:180px}.c64-textarea{box-sizing:border-box;width:100%;min-height:120px;resize:vertical}.c64-cheevos-json-file{display:none}.c64-inline-status{color:#888;font-size:12px}
 `;
 
 export interface UIControllerOptions {
@@ -61,6 +61,7 @@ import {
 
 const CRT_PRELOAD_CHECKS_STORAGE_KEY = 'c64-disable-crt-preload-checks';
 const CHEEVOS_DETECTOR_STORAGE_KEY = 'c64-cheevos-dev-detector';
+const CHEEVOS_TRACKER_VISIBLE_STORAGE_KEY = 'c64-cheevos-tracker-visible';
 
 type ConnectedGamepad = {
   index: number;
@@ -422,8 +423,9 @@ export default class UIController {
               <input id="c64-cheevos-detector" class="c64-text-input" type="text" placeholder="uridium" />
             </div>
             <div class="c64-form-row">
-              <label for="c64-cheevos-json-file">Achievement JSON</label>
-              <input id="c64-cheevos-json-file" class="c64-file-input c64-cheevos-json-file" type="file" accept="application/json,.json" />
+              <button class="c64-btn" id="c64-cheevos-browse-json-btn" type="button">Load JSON File</button>
+              <span class="c64-inline-status" id="c64-cheevos-json-filename">No JSON file loaded</span>
+              <input id="c64-cheevos-json-file" class="c64-cheevos-json-file" type="file" accept="application/json,.json" />
             </div>
             <textarea id="c64-cheevos-json" class="c64-textarea" spellcheck="false" placeholder='{ "_id": "set1", "cheevos": [{ "_id": "zinc", "title": "Zinc", "description": "Clear level 1" }] }'></textarea>
             <div class="c64-menu-actions">
@@ -432,6 +434,11 @@ export default class UIController {
               <button class="c64-btn" id="c64-cheevos-clear-popped-btn">Clear Unlocks</button>
               <button class="c64-btn" id="c64-cheevos-clear-scores-btn">Clear Scores</button>
             </div>
+            <label class="c64-checkbox-row" for="c64-cheevos-tracker-visible">
+              <input type="checkbox" id="c64-cheevos-tracker-visible" />
+              Show tracker panel
+            </label>
+            <div class="c64-section-hint">Shows the cheevos tracker beside the emulator in Standard display mode.</div>
             <div class="c64-section-hint" id="c64-cheevos-status">Cheevos dev tracking is disabled.</div>
           </section>
 
@@ -637,15 +644,43 @@ export default class UIController {
     const cheevosJsonFile = panel.querySelector(
       '#c64-cheevos-json-file',
     ) as HTMLInputElement | null;
+    const cheevosBrowseJsonBtn = panel.querySelector(
+      '#c64-cheevos-browse-json-btn',
+    ) as HTMLButtonElement | null;
+    const cheevosJsonFilename = panel.querySelector(
+      '#c64-cheevos-json-filename',
+    ) as HTMLElement | null;
     const cheevosStatus = panel.querySelector('#c64-cheevos-status') as HTMLElement | null;
+    const cheevosTrackerVisibleInput = panel.querySelector(
+      '#c64-cheevos-tracker-visible',
+    ) as HTMLInputElement | null;
     const storedCheevosDetector = window.localStorage.getItem(CHEEVOS_DETECTOR_STORAGE_KEY) ?? '';
     if (cheevosDetectorInput) cheevosDetectorInput.value = storedCheevosDetector;
+    const trackerVisible = window.localStorage.getItem(CHEEVOS_TRACKER_VISIBLE_STORAGE_KEY) !== '0';
+    if (cheevosTrackerVisibleInput) {
+      cheevosTrackerVisibleInput.checked = trackerVisible;
+      window.dispatchEvent(
+        new CustomEvent('c64-cheevos-tracker-toggle', { detail: { visible: trackerVisible } }),
+      );
+      cheevosTrackerVisibleInput.addEventListener('change', () => {
+        const visible = cheevosTrackerVisibleInput.checked;
+        window.localStorage.setItem(CHEEVOS_TRACKER_VISIBLE_STORAGE_KEY, visible ? '1' : '0');
+        window.dispatchEvent(
+          new CustomEvent('c64-cheevos-tracker-toggle', { detail: { visible } }),
+        );
+      });
+    }
+
+    cheevosBrowseJsonBtn?.addEventListener('click', () => {
+      cheevosJsonFile?.click();
+    });
 
     cheevosJsonFile?.addEventListener('change', async () => {
       const file = cheevosJsonFile.files?.[0];
       if (!file || !cheevosJsonInput || !cheevosStatus) return;
       try {
         cheevosJsonInput.value = await file.text();
+        if (cheevosJsonFilename) cheevosJsonFilename.textContent = file.name;
         cheevosStatus.textContent = `Loaded JSON from ${file.name}`;
       } catch (err) {
         cheevosStatus.textContent = `Unable to read JSON file: ${String((err as Error)?.message ?? err)}`;
