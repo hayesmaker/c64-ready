@@ -6,9 +6,20 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v3.0.0 - 2026-09-20T17:53:22+01:00
+
+- chore(release): 3.0.0 (9e1ca8f)
+- feat: cheevos tracking panel (85d3e6b)
+- feat: added cheevos dev feature (258f75f)
+- Merge pull request #187 from hayesmaker/fix/spectator-count-robustness (4e99daf)
+- fix: update spectator count properly (72cc3d8)
+- Merge pull request #185 from hayesmaker/feat/lock-live-host-controls (82e1e9e)
+- feat(headless): require admin token for host controls (cec91e6)
+- Merge pull request #184 from hayesmaker/chore/release-3-rc (f12d609)
+
 ## v3.0.0-rc.0 - 2026-09-06T23:29:57+01:00
 
-- chore(release): 3.0.0-rc.0 (081a519)
+- chore(release): 3.0.0-rc.0 (028c58c)
 - Merge pull request #182 from hayesmaker/feat/whep-endpoint (a8e474e)
 - feat: whep endpoint support (4df6074)
 - Merge pull request #180 from hayesmaker/feature/c64cade-open-api (3b25583)

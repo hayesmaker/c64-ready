@@ -154,4 +154,57 @@ describe('InputHandler (capture blocking)', () => {
 
     input.detach();
   });
+
+  it('does not intercept typing in editable settings controls', () => {
+    const emulator = {
+      joystickPush: vi.fn(),
+      joystickRelease: vi.fn(),
+      keyDown: vi.fn(),
+      keyUp: vi.fn(),
+    } as any;
+
+    const onFastForwardIncrease = vi.fn();
+    const input = new InputHandler(emulator, window as any, { onFastForwardIncrease });
+    input.attach();
+
+    const textInput = document.createElement('input');
+    textInput.type = 'text';
+    document.body.appendChild(textInput);
+
+    const textEvent = new KeyboardEvent('keydown', {
+      code: 'KeyA',
+      key: 'a',
+      bubbles: true,
+      cancelable: true,
+    });
+    textInput.dispatchEvent(textEvent);
+
+    const altShortcut = new KeyboardEvent('keydown', {
+      altKey: true,
+      code: 'Equal',
+      key: '+',
+      bubbles: true,
+      cancelable: true,
+    });
+    textInput.dispatchEvent(altShortcut);
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    const arrowEvent = new KeyboardEvent('keydown', {
+      code: 'ArrowLeft',
+      key: 'ArrowLeft',
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea.dispatchEvent(arrowEvent);
+
+    expect(textEvent.defaultPrevented).toBe(false);
+    expect(altShortcut.defaultPrevented).toBe(false);
+    expect(arrowEvent.defaultPrevented).toBe(false);
+    expect(emulator.keyDown).not.toHaveBeenCalled();
+    expect(emulator.joystickPush).not.toHaveBeenCalled();
+    expect(onFastForwardIncrease).not.toHaveBeenCalled();
+
+    input.detach();
+  });
 });

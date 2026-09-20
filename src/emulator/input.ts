@@ -789,6 +789,8 @@ export class EmulatorInput {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (isEditableEventTarget(event.target)) return;
+
     if (this.inputMode === 'keyboard') {
       // Pure keyboard mode — all keys go to C64 matrix, no joystick
       const acts = domKeyToC64Actions(event.key, event.shiftKey, 'keydown');
@@ -836,6 +838,8 @@ export class EmulatorInput {
   }
 
   private handleKeyUp(event: KeyboardEvent): void {
+    if (isEditableEventTarget(event.target)) return;
+
     if (this.inputMode === 'keyboard') {
       const acts = domKeyToC64Actions(event.key, event.shiftKey, 'keyup');
       if (acts.length > 0) {
@@ -986,4 +990,16 @@ export class EmulatorInput {
   getActiveGamepadIndex(): number {
     return this.gamepadIndex;
   }
+}
+
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLInputElement) {
+    return target.type !== 'button' && target.type !== 'checkbox' && target.type !== 'radio';
+  }
+  return (
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }

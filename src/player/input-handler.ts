@@ -66,6 +66,7 @@ export default class InputHandler {
   }
 
   private onCaptureKeyDown(e: KeyboardEvent): void {
+    if (isEditableEventTarget(e.target)) return;
     if (this.handleFastForwardShortcut(e)) return;
 
     // Block joystick-mapped keys (standard + mixed mode) when overlays are
@@ -116,6 +117,8 @@ export default class InputHandler {
   }
 
   private onCaptureKeyUp(e: KeyboardEvent): void {
+    if (isEditableEventTarget(e.target)) return;
+
     // Only block joystick-mapped keys (standard + mixed mode)
     if (!this.isJoystickKey(e)) return;
 
@@ -168,4 +171,16 @@ export default class InputHandler {
     e.stopImmediatePropagation();
     return true;
   }
+}
+
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLInputElement) {
+    return target.type !== 'button' && target.type !== 'checkbox' && target.type !== 'radio';
+  }
+  return (
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }

@@ -58,6 +58,12 @@ Run tests in watch mode:
 npm run test:watch
 ```
 
+## Cheevos development
+
+c64-ready can load local `c64-cheevos` game detectors while running games in the browser. This is useful for developing score tracking and achievements with live emulator memory reads.
+
+See [Cheevos Development](docs/CHEEVOS_DEVELOPMENT.md) for detector IDs, JSON set format, tracker panel fields, and local testing workflow.
+
 ## Headless streaming (Docker)
 
 The headless player streams the C64 output over **WebRTC** — a single container serves
