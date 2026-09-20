@@ -1,6 +1,7 @@
 import { C64Player } from './player/c64-player';
 import CanvasRenderer from './player/canvas-renderer';
 import UIController from './player/ui-controller';
+import CheevosDevController, { parseCheevosSetJson } from './player/cheevos-dev';
 import { inferLoadTypeFromFilename, isSupportedLoadType } from './player/load-formats';
 
 const status = document.getElementById('status')!;
@@ -18,6 +19,15 @@ function resolveGameFromParam(raw: string | null, baseUrl: string): string {
   return `${baseUrl}${value.replace(/^\/+/, '')}`;
 }
 
+function resolveUrlFromParam(raw: string | null, baseUrl: string): string {
+  if (!raw) return '';
+  const value = raw.trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith('/')) return value;
+  return `${baseUrl}${value.replace(/^\/+/, '')}`;
+}
+
 const gameUrl = resolveGameFromParam(params.get('game'), base);
 const gameType = inferLoadTypeFromFilename(gameUrl || '') ?? 'crt';
 
@@ -30,18 +40,20 @@ const player = new C64Player({
   audio: { assetBaseUrl: base },
   onProgress: (pct, label) => renderer.setProgress(pct, label),
 });
+const cheevosDev = new CheevosDevController(player);
 
 // Initialise UI with reference to the player (for audio controls)
 new UIController({ assetBaseUrl: base }).init(player);
 
 player
   .start()
-  .then(() => {
+  .then(async () => {
     if (!gameUrl) {
       status.textContent = 'Autoload disabled (?game=null)';
       status.style.color = '#9ecbff';
     }
     renderer.hideLoader();
+    await enableCheevosFromParams();
   })
   .catch((err) => {
     console.error(err);
@@ -122,6 +134,40 @@ window.addEventListener('c64-load-tool', async (e: Event) => {
   }
 });
 
+window.addEventListener('c64-cheevos-enable', async (e: Event) => {
+  const detail = (e as CustomEvent<{ detectorId?: string; jsonText?: string }>).detail;
+  const detectorId = detail?.detectorId?.trim() ?? '';
+  if (!detectorId) return;
+  try {
+    if (detail?.jsonText?.trim()) {
+      await cheevosDev.enableFromJson(detectorId, detail.jsonText);
+    } else {
+      await cheevosDev.enable(detectorId);
+    }
+  } catch (err) {
+    const msg = normalizeErrorMessage(String((err as Error)?.message ?? err));
+    window.dispatchEvent(
+      new CustomEvent('c64-cheevos-error', { detail: { detectorId, error: msg } }),
+    );
+  }
+});
+
+window.addEventListener('c64-cheevos-disable', () => {
+  cheevosDev.disable();
+  status.textContent = 'Cheevos dev tracking disabled';
+  status.style.color = '#9ecbff';
+});
+
+window.addEventListener('c64-cheevos-clear-popped', (e: Event) => {
+  const detail = (e as CustomEvent<{ detectorId?: string }>).detail;
+  cheevosDev.clearPopped(detail?.detectorId);
+});
+
+window.addEventListener('c64-cheevos-clear-scores', (e: Event) => {
+  const detail = (e as CustomEvent<{ detectorId?: string }>).detail;
+  cheevosDev.clearScores(detail?.detectorId);
+});
+
 // Global listener for load errors dispatched by C64Player
 window.addEventListener('c64-load-error', (e: Event) => {
   const detail = (e as CustomEvent).detail as
@@ -144,6 +190,45 @@ window.addEventListener('c64-load-info', (e: Event) => {
   console.info('C64 load info event:', detail);
 });
 
+window.addEventListener('c64-cheevos-status', (e: Event) => {
+  const detail = (e as CustomEvent<{ detectorId?: string; status?: string; cheevosCount?: number }>)
+    .detail;
+  if (detail?.status !== 'enabled') return;
+  status.textContent = `Cheevos tracking enabled: ${detail.detectorId ?? 'unknown'} (${detail.cheevosCount ?? 0} achievements)`;
+  status.style.color = '#9ecbff';
+});
+
+window.addEventListener('c64-cheevos-error', (e: Event) => {
+  const detail = (e as CustomEvent<{ detectorId?: string; error?: string }>).detail;
+  status.textContent = `Cheevos error${detail?.detectorId ? ` (${detail.detectorId})` : ''}: ${detail?.error ?? 'Unknown error'}`;
+  status.style.color = '#f44';
+});
+
+window.addEventListener('c64-cheevos-score', (e: Event) => {
+  const detail = (e as CustomEvent<{ detectorId?: string; score?: { score?: number } }>).detail;
+  status.textContent = `Cheevos score captured${detail?.detectorId ? ` for ${detail.detectorId}` : ''}: ${detail?.score?.score ?? 0}`;
+  status.style.color = '#9ecbff';
+});
+
+window.addEventListener('c64-cheevos-event', (e: Event) => {
+  const detail = (
+    e as CustomEvent<{
+      detectorId?: string;
+      type?: string;
+      payload?: { title?: string; message?: string; score?: number };
+    }>
+  ).detail;
+  if (!detail?.type) return;
+  if (detail.type === 'cheevo') {
+    status.textContent = `${detail.payload?.title ?? 'Achievement'}: ${detail.payload?.message ?? 'Unlocked'}`;
+  } else if (detail.type === 'gameOver') {
+    status.textContent = `Game over${detail.detectorId ? ` (${detail.detectorId})` : ''}: ${detail.payload?.score ?? 0}`;
+  } else {
+    return;
+  }
+  status.style.color = '#9ecbff';
+});
+
 window.addEventListener('c64-reboot', () => {
   status.textContent = 'Emulator rebooted. Load a cartridge to continue.';
   status.style.color = '#9ecbff';
@@ -156,4 +241,25 @@ function normalizeErrorMessage(msg: string): string {
     out = out.replace(/^(uncaught\s+)?error\s*:\s*/i, '').trim();
   }
   return out || 'Unknown load error';
+}
+
+async function enableCheevosFromParams(): Promise<void> {
+  const detectorId = params.get('cheevos')?.trim();
+  if (!detectorId) return;
+
+  const cheevosSetUrl = resolveUrlFromParam(params.get('cheevosSet'), base);
+  try {
+    if (cheevosSetUrl) {
+      const res = await fetch(cheevosSetUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`Failed to fetch cheevos set: ${res.status}`);
+      await cheevosDev.enable(detectorId, parseCheevosSetJson(await res.text()));
+      return;
+    }
+    await cheevosDev.enable(detectorId);
+  } catch (err) {
+    const msg = normalizeErrorMessage(String((err as Error)?.message ?? err));
+    window.dispatchEvent(
+      new CustomEvent('c64-cheevos-error', { detail: { detectorId, error: msg } }),
+    );
+  }
 }

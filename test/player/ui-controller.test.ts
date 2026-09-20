@@ -239,4 +239,30 @@ describe('UIController', () => {
     });
   });
 
+  it('dispatches cheevos enable events with detector and pasted JSON', () => {
+    const listener = vi.fn();
+    window.addEventListener('c64-cheevos-enable', listener);
+
+    try {
+      const ui = new UIController();
+      ui.init(makePlayer());
+
+      const detector = document.getElementById('c64-cheevos-detector') as HTMLInputElement;
+      const json = document.getElementById('c64-cheevos-json') as HTMLTextAreaElement;
+      const enable = document.getElementById('c64-cheevos-enable-btn') as HTMLButtonElement;
+
+      detector.value = 'uridium';
+      json.value = '{"_id":"set1","cheevos":[]}';
+      enable.click();
+
+      expect(listener).toHaveBeenCalledOnce();
+      expect((listener.mock.calls[0]![0] as CustomEvent).detail).toEqual({
+        detectorId: 'uridium',
+        jsonText: '{"_id":"set1","cheevos":[]}',
+      });
+    } finally {
+      window.removeEventListener('c64-cheevos-enable', listener);
+    }
+  });
+
 });
