@@ -116,7 +116,7 @@
   },
   "dependencies": {
     "@roamhq/wrtc": "^0.10.0",
-    "c64-cheevos": "file:../c64-cheevos",
+    "c64-cheevos": "^0.5.0",
     "dompurify": "^3.0.5",
     "marked": "^5.0.2",
     "ws": "^8.20.0"
