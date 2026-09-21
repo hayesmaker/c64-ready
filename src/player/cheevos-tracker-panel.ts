@@ -266,7 +266,7 @@ function renderList(
       (achievement) =>
         `<li class="c64-cheevos-item${popped ? ' popped' : ''}"><span class="c64-cheevos-item-title">${escapeHtml(achievement.title)}</span>${
           achievement.description
-            ? `<span class="c64-cheevos-item-description">${escapeHtml(achievement.description)}</span>`
+            ? `<span class="c64-cheevos-item-description" title="${achievement.description}">${escapeHtml(achievement.description)}</span>`
             : ''
         }</li>`,
     )

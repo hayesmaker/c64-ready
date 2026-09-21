@@ -14,6 +14,7 @@ describe('UIController', () => {
       createObjectURL: vi.fn(() => 'blob:mock-snapshot'),
       revokeObjectURL: vi.fn(),
     });
+    vi.spyOn(window, 'prompt').mockReturnValue(null);
     window.localStorage.clear();
   });
 
@@ -36,6 +37,9 @@ describe('UIController', () => {
       setCrtPreloadChecksDisabled: vi.fn(),
       getActiveGamepadIndex: vi.fn(() => -1),
       setActiveGamepadIndex: vi.fn(),
+      ramRead: vi.fn(() => 0xab),
+      cpuRead: vi.fn(() => 0xfe),
+      cpuWrite: vi.fn(),
       audio: {
         resume: vi.fn().mockResolvedValue(undefined),
         suspended: false,
@@ -214,6 +218,107 @@ describe('UIController', () => {
     expect(buttons[0].textContent).toBe('5: Arcade Stick');
   });
 
+  it('renders the always-visible cheats tab and persists edited cheat fields', () => {
+    const ui = new UIController();
+    ui.init(makePlayer());
+
+    const cheatsTab = Array.from(document.querySelectorAll('[data-settings-tab]')).find(
+      (tab) => tab.textContent === 'Cheats',
+    ) as HTMLButtonElement;
+    expect(cheatsTab).toBeTruthy();
+    cheatsTab.click();
+
+    const addressInput = document.querySelector('#c64-cheat-list input') as HTMLInputElement;
+    addressInput.value = '$00c6';
+    addressInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const stored = JSON.parse(window.localStorage.getItem('c64cade.cheatMode.v1') ?? '{}');
+    expect(stored.cheats[0].address).toBe('$00c6');
+  });
+
+  it('records a cheat key and applies increment via global hotkey', () => {
+    const player = makePlayer();
+    const ui = new UIController();
+    ui.init(player);
+
+    (
+      Array.from(document.querySelectorAll('[data-settings-tab]')).find(
+        (tab) => tab.textContent === 'Cheats',
+      ) as HTMLButtonElement
+    ).click();
+
+    (document.querySelector('[id^="c64-cheat-key-"]') as HTMLButtonElement).click();
+    const keyButton = document.querySelector('[id^="c64-cheat-key-"]') as HTMLButtonElement;
+    keyButton.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'F10', key: 'F10', bubbles: true, cancelable: true }),
+    );
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'F10', key: 'F10', bubbles: true, cancelable: true }),
+    );
+
+    expect(player.cpuRead).toHaveBeenCalledWith(0x004e);
+    expect(player.cpuWrite).toHaveBeenCalledWith(0x004e, 0xff);
+    expect(document.querySelector('#c64-cheat-status')?.textContent).toBe(
+      'Increment 0x004e: 0xfe -> 0xff',
+    );
+  });
+
+  it('applies a set cheat action from the menu', () => {
+    window.localStorage.setItem(
+      'c64cade.cheatMode.v1',
+      JSON.stringify({
+        cheats: [
+          {
+            id: 'cheat-1',
+            address: '0x00c6',
+            action: 'set',
+            setValue: '$7f',
+            keyBinding: { code: 'F9', key: 'F9', label: 'F9' },
+          },
+        ],
+      }),
+    );
+    const player = makePlayer({ cpuRead: vi.fn(() => 0x02) });
+    const ui = new UIController();
+    ui.init(player);
+
+    (
+      Array.from(document.querySelectorAll('[data-settings-tab]')).find(
+        (tab) => tab.textContent === 'Cheats',
+      ) as HTMLButtonElement
+    ).click();
+    (
+      Array.from(document.querySelectorAll('.c64-cheat-actions .c64-btn')).find(
+        (button) => button.textContent === 'Apply Now',
+      ) as HTMLButtonElement
+    ).click();
+
+    expect(player.cpuWrite).toHaveBeenCalledWith(0x00c6, 0x7f);
+    expect(document.querySelector('#c64-cheat-status')?.textContent).toBe(
+      'Set 0x00c6: 0x02 -> 0x7f',
+    );
+  });
+
+  it('downloads a 64K RAM dump from the cheats tab', () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const player = makePlayer({ ramRead: vi.fn((addr: number) => addr & 0xff) });
+    const ui = new UIController();
+    ui.init(player);
+
+    (
+      Array.from(document.querySelectorAll('[data-settings-tab]')).find(
+        (tab) => tab.textContent === 'Cheats',
+      ) as HTMLButtonElement
+    ).click();
+    (document.querySelector('#c64-dump-ram-btn') as HTMLButtonElement).click();
+
+    expect(player.ramRead).toHaveBeenCalledTimes(0x10000);
+    expect(clickSpy).toHaveBeenCalledOnce();
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    expect(document.querySelector('#c64-cheat-status')?.textContent).toContain('Dumped 64K RAM');
+  });
+
   it('downloads a snapshot from the system actions section', () => {
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     const player = makePlayer({
@@ -318,6 +423,104 @@ describe('UIController', () => {
       });
     } finally {
       window.removeEventListener('c64-cheevos-enable', listener);
+    }
+  });
+
+  it('updates the URL with a Vite /@fs cheevosSet path after selecting cheevos JSON', async () => {
+    window.history.replaceState(null, '', '/c64-ready/');
+
+    const ui = new UIController({ assetBaseUrl: '/c64-ready/' });
+    ui.init(makePlayer());
+
+    const detector = document.getElementById('c64-cheevos-detector') as HTMLInputElement;
+    const json = document.getElementById('c64-cheevos-json') as HTMLTextAreaElement;
+    const fileInput = document.getElementById('c64-cheevos-json-file') as HTMLInputElement;
+    const jsonText = '{"_id":"uridium-dev-set","cheevos":[]}';
+    const file = new File([jsonText], 'cheevos-set.json', { type: 'application/json' });
+    Object.defineProperty(file, 'webkitRelativePath', {
+      configurable: true,
+      value: '/home/haymaker64/Homespace/c64-cheevos/docs/uridium/cheevos-set.json',
+    });
+    Object.defineProperty(file, 'text', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue(jsonText),
+    });
+
+    detector.value = 'uridium';
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      value: [file],
+    });
+    fileInput.dispatchEvent(new Event('change'));
+
+    await vi.waitFor(() =>
+      expect(window.location.search).toBe(
+        '?cheevos=uridium&cheevosSet=%2F%40fs%2Fhome%2Fhaymaker64%2FHomespace%2Fc64-cheevos%2Fdocs%2Furidium%2Fcheevos-set.json',
+      ),
+    );
+    expect(json.value).toBe(jsonText);
+  });
+
+  it('shows URL-loaded cheevos JSON in the editor textbox', () => {
+    const ui = new UIController();
+    ui.init(makePlayer());
+
+    const json = document.getElementById('c64-cheevos-json') as HTMLTextAreaElement;
+    const filename = document.getElementById('c64-cheevos-json-filename') as HTMLElement;
+    const status = document.getElementById('c64-cheevos-status') as HTMLElement;
+    const jsonText = '{"_id":"rainbow-islands","cheevos":[]}';
+
+    window.dispatchEvent(
+      new CustomEvent('c64-cheevos-json-loaded', {
+        detail: { jsonText, source: '/c64-ready/@fs/rainbow-islands.json' },
+      }),
+    );
+
+    expect(json.value).toBe(jsonText);
+    expect(filename.textContent).toBe('/c64-ready/@fs/rainbow-islands.json');
+    expect(status.textContent).toBe('Loaded JSON from /c64-ready/@fs/rainbow-islands.json');
+  });
+
+  it('enables cheevos ROM selection when a loaded set declares a romPath', async () => {
+    const listener = vi.fn();
+    window.addEventListener('c64-cheevos-rom-file', listener);
+
+    try {
+      const ui = new UIController();
+      ui.init(makePlayer());
+
+      const chooseRom = document.getElementById('c64-cheevos-choose-rom-btn') as HTMLButtonElement;
+      const romFileInput = document.getElementById('c64-cheevos-rom-file') as HTMLInputElement;
+      const cheevosStatus = document.getElementById('c64-cheevos-status') as HTMLElement;
+
+      expect(chooseRom.disabled).toBe(true);
+      window.dispatchEvent(
+        new CustomEvent('c64-cheevos-rom-needed', {
+          detail: { romPath: '~/C64/Uridium.d64', type: 'd64' },
+        }),
+      );
+      expect(chooseRom.disabled).toBe(false);
+      expect(cheevosStatus.textContent).toContain('~/C64/Uridium.d64');
+
+      const clickSpy = vi.spyOn(romFileInput, 'click').mockImplementation(() => {});
+      chooseRom.click();
+      expect(clickSpy).toHaveBeenCalledOnce();
+
+      const file = new File(['disk'], 'Uridium.d64', { type: 'application/octet-stream' });
+      Object.defineProperty(romFileInput, 'files', {
+        configurable: true,
+        value: [file],
+      });
+      romFileInput.dispatchEvent(new Event('change'));
+
+      await vi.waitFor(() => expect(listener).toHaveBeenCalledOnce());
+      expect((listener.mock.calls[0]![0] as CustomEvent).detail).toEqual({
+        file,
+        type: 'd64',
+        romPath: '~/C64/Uridium.d64',
+      });
+    } finally {
+      window.removeEventListener('c64-cheevos-rom-file', listener);
     }
   });
 

@@ -83,13 +83,15 @@ describe('CheevosDevController', () => {
     }
   });
 
-  it('parses achievement set JSON with tracker fields', () => {
+  it('parses achievement set JSON with tracker fields and ROM path', () => {
     expect(
       parseCheevosSetJson(
-        '{"_id":"set1","trackerFields":[{"key":"health","label":"Health","display":"bar","max":100}],"cheevos":[{"_id":"a","title":"A"}]}',
+        '{"_id":"set1","romPath":"~/C64/Uridium.d64","trackerFields":[{"key":"health","label":"Health","display":"bar","max":100}],"cheevos":[{"_id":"a","title":"A"}]}',
       ),
     ).toEqual({
       _id: 'set1',
+      romPath: '~/C64/Uridium.d64',
+      rom: { path: '~/C64/Uridium.d64' },
       trackerFields: [
         {
           key: 'health',

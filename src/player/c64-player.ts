@@ -360,6 +360,10 @@ export class C64Player {
     return this.emulator?.cpuReadNS(addr) ?? 0;
   }
 
+  cpuWrite(addr: number, v: number): void {
+    this.emulator?.cpuWrite(addr, v);
+  }
+
   setVoiceEnabled(voice: number, enabled: boolean): void {
     this.emulator?.setVoiceEnabled(voice, enabled);
   }

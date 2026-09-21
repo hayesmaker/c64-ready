@@ -49,9 +49,9 @@ Open the settings menu, then the `Cheevos` tab.
 When enabled, c64-ready creates the cheevos instance with `createCheevos(detectorId, options)` and injects emulator memory readers:
 
 ```js
-cheevos.cpuReadNS = (addr) => player.cpuReadNS(addr)
-cheevos.cpuRead = (addr) => player.cpuRead(addr)
-cheevos.ramRead = (addr) => player.ramRead(addr)
+cheevos.cpuReadNS = (addr) => player.cpuReadNS(addr);
+cheevos.cpuRead = (addr) => player.cpuRead(addr);
+cheevos.ramRead = (addr) => player.ramRead(addr);
 ```
 
 The cheevos instance is executed once per animation frame.
@@ -75,6 +75,7 @@ The JSON box accepts the same shape expected by `c64-cheevos` host applications:
 ```json
 {
   "_id": "uridium-dev-set",
+  "romPath": "~/C64/Uridium.d64",
   "cheevos": [
     {
       "_id": "uridium-zinc",
@@ -84,6 +85,10 @@ The JSON box accepts the same shape expected by `c64-cheevos` host applications:
   ]
 }
 ```
+
+`romPath` is optional. It records the user's local ROM path or label for the game file (`.d64`, `.prg`, or `.crt`). Browsers cannot read an arbitrary OS path from JSON, so c64-ready uses `romPath` as a stable key for a user-approved local ROM copy stored in browser IndexedDB.
+
+The first time a set with `romPath` is loaded, c64-ready asks for the ROM through the Cheevos tab's `Choose ROM File` button. After selection, c64-ready stores a copy of the ROM bytes for the same `romPath`; subsequent refreshes can auto-load the ROM without a file permission prompt. If the ROM changes on disk, choose the ROM file again to update the stored copy.
 
 Achievement matching inside existing game classes commonly uses `camelize(c.title)`, so titles must match the `switch` cases in the game class.
 
@@ -181,6 +186,8 @@ http://localhost:5173/?game=games/cartridges/game.crt&cheevos=uridium&cheevosSet
 ```
 
 Relative `cheevosSet` URLs resolve from the c64-ready base URL.
+
+If the fetched JSON includes `romPath`, c64-ready attempts to load the stored local ROM copy for that path after enabling cheevos. If no stored copy exists, open the Cheevos tab and click `Choose ROM File` once.
 
 ## Debugging Tips
 
