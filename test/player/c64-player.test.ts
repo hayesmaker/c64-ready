@@ -264,6 +264,22 @@ describe('C64Player', () => {
     expect(emulator.start).toHaveBeenCalledOnce();
   });
 
+  it('forwards cpuWrite to the emulator for browser cheat actions', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '',
+      renderer: makeFakeRenderer(),
+    });
+
+    await player.start();
+    player.cpuWrite(0x004e, 0xff);
+
+    expect(emulator.cpuWrite).toHaveBeenCalledWith(0x004e, 0xff);
+  });
+
   it('start() autoloads direct gameData when provided', async () => {
     const emulator = makeFakeEmulator();
     vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);

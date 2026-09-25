@@ -2,34 +2,28 @@ import { C64Player } from './player/c64-player';
 import CanvasRenderer from './player/canvas-renderer';
 import UIController from './player/ui-controller';
 import CheevosDevController, { parseCheevosSetJson } from './player/cheevos-dev';
+import type { CheevosDevSet } from './player/cheevos-dev';
 import CheevosTrackerPanel from './player/cheevos-tracker-panel';
 import { inferLoadTypeFromFilename, isSupportedLoadType } from './player/load-formats';
+import {
+  getCheevosRomPath,
+  getCheevosRomType,
+  getStoredCheevosRom,
+} from './player/local-rom-store';
+import {
+  resolveGameFromParam,
+  resolveUrlFromParam,
+  shouldDisableDefaultGameForCheevos,
+} from './player/startup-params';
 
 const status = document.getElementById('status')!;
 const renderer = new CanvasRenderer('c64-screen');
 const base = import.meta.env.BASE_URL;
 const params = new URLSearchParams(window.location.search);
 
-function resolveGameFromParam(raw: string | null, baseUrl: string): string {
-  if (!raw) return `${baseUrl}games/cartridges/legend-of-wilf.crt`;
-  const value = raw.trim();
-  if (!value) return `${baseUrl}games/cartridges/legend-of-wilf.crt`;
-  if (value.toLowerCase() === 'null') return '';
-  if (/^https?:\/\//i.test(value)) return value;
-  if (value.startsWith('/')) return value;
-  return `${baseUrl}${value.replace(/^\/+/, '')}`;
-}
-
-function resolveUrlFromParam(raw: string | null, baseUrl: string): string {
-  if (!raw) return '';
-  const value = raw.trim();
-  if (!value) return '';
-  if (/^https?:\/\//i.test(value)) return value;
-  if (value.startsWith('/')) return value;
-  return `${baseUrl}${value.replace(/^\/+/, '')}`;
-}
-
-const gameUrl = resolveGameFromParam(params.get('game'), base);
+const gameUrl = resolveGameFromParam(params.get('game'), base, {
+  disableDefault: shouldDisableDefaultGameForCheevos(params),
+});
 const gameType = inferLoadTypeFromFilename(gameUrl || '') ?? 'crt';
 
 // Create player and keep in outer scope so UI can trigger file loads
@@ -143,7 +137,9 @@ window.addEventListener('c64-cheevos-enable', async (e: Event) => {
   if (!detectorId) return;
   try {
     if (detail?.jsonText?.trim()) {
-      await cheevosDev.enableFromJson(detectorId, detail.jsonText);
+      const cheevosSet = parseCheevosSetJson(detail.jsonText);
+      await cheevosDev.enable(detectorId, cheevosSet);
+      await loadCheevosRomFromSet(cheevosSet);
     } else {
       await cheevosDev.enable(detectorId);
     }
@@ -152,6 +148,25 @@ window.addEventListener('c64-cheevos-enable', async (e: Event) => {
     window.dispatchEvent(
       new CustomEvent('c64-cheevos-error', { detail: { detectorId, error: msg } }),
     );
+  }
+});
+
+window.addEventListener('c64-cheevos-rom-file', async (e: Event) => {
+  const detail = (e as CustomEvent<{ file?: File; type?: string; romPath?: string }>).detail;
+  const file = detail?.file;
+  if (!file) return;
+  const loadType = isSupportedLoadType(detail?.type) ? detail.type : undefined;
+  try {
+    status.textContent = `Loading cheevos ROM: ${detail?.romPath ?? file.name}`;
+    status.style.color = '#9ecbff';
+    renderer.showLoader();
+    await player.loadFile(file, loadType);
+    renderer.hideLoader();
+  } catch (err) {
+    console.error(err);
+    renderer.setError('LOAD ERROR');
+    status.textContent = `Cheevos ROM load error: ${normalizeErrorMessage(String(err))}`;
+    status.style.color = '#f44';
   }
 });
 
@@ -255,7 +270,15 @@ async function enableCheevosFromParams(): Promise<void> {
     if (cheevosSetUrl) {
       const res = await fetch(cheevosSetUrl, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Failed to fetch cheevos set: ${res.status}`);
-      await cheevosDev.enable(detectorId, parseCheevosSetJson(await res.text()));
+      const jsonText = await res.text();
+      window.dispatchEvent(
+        new CustomEvent('c64-cheevos-json-loaded', {
+          detail: { jsonText, source: cheevosSetUrl },
+        }),
+      );
+      const cheevosSet = parseCheevosSetJson(jsonText);
+      await cheevosDev.enable(detectorId, cheevosSet);
+      await loadCheevosRomFromSet(cheevosSet);
       return;
     }
     await cheevosDev.enable(detectorId);
@@ -265,4 +288,37 @@ async function enableCheevosFromParams(): Promise<void> {
       new CustomEvent('c64-cheevos-error', { detail: { detectorId, error: msg } }),
     );
   }
+}
+
+async function loadCheevosRomFromSet(cheevosSet: CheevosDevSet): Promise<void> {
+  const romPath = getCheevosRomPath(cheevosSet);
+  if (!romPath) return;
+
+  const type = getCheevosRomType(cheevosSet);
+  try {
+    const rom = await getStoredCheevosRom(romPath, type);
+    if (!rom) {
+      requestCheevosRomFile(romPath, type, 'Choose local ROM file');
+      return;
+    }
+    status.textContent = `Loading cheevos ROM: ${romPath}`;
+    status.style.color = '#9ecbff';
+    renderer.showLoader();
+    await player.loadFile(rom.file, rom.type);
+    renderer.hideLoader();
+  } catch (err) {
+    requestCheevosRomFile(
+      romPath,
+      type,
+      `Unable to auto-load ROM (${normalizeErrorMessage(String((err as Error)?.message ?? err))})`,
+    );
+  }
+}
+
+function requestCheevosRomFile(romPath: string, type: string | undefined, reason: string): void {
+  window.dispatchEvent(
+    new CustomEvent('c64-cheevos-rom-needed', { detail: { romPath, type, reason } }),
+  );
+  status.textContent = `${reason}: ${romPath}`;
+  status.style.color = '#f9c74f';
 }

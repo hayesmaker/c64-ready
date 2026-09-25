@@ -10,6 +10,11 @@ export type CheevosDevAchievement = {
 
 export type CheevosDevSet = {
   _id?: string;
+  romPath?: string;
+  rom?: {
+    path?: string;
+    type?: string;
+  };
   cheevos?: CheevosDevAchievement[];
   trackerFields?: CheevosDevTrackerField[];
 };
@@ -274,8 +279,14 @@ export function parseCheevosSetJson(rawJson: string): CheevosDevSet {
 function normaliseCheevosSet(set: CheevosDevSet, detectorId = 'dev'): CheevosDevSet {
   const cheevos = Array.isArray(set.cheevos) ? set.cheevos : [];
   const trackerFields = Array.isArray(set.trackerFields) ? set.trackerFields : [];
+  const romPath = normaliseOptionalString(set.romPath ?? set.rom?.path);
+  const romType = normaliseOptionalString(set.rom?.type);
   return {
     _id: set._id ?? `${detectorId}-dev-set`,
+    ...(romPath ? { romPath } : {}),
+    ...(romPath || romType
+      ? { rom: { ...(romPath ? { path: romPath } : {}), ...(romType ? { type: romType } : {}) } }
+      : {}),
     trackerFields: trackerFields.map((field, index) => ({
       key: String(field.key ?? field.field ?? `field-${index + 1}`),
       label: field.label ? String(field.label) : undefined,
@@ -290,6 +301,12 @@ function normaliseCheevosSet(set: CheevosDevSet, detectorId = 'dev'): CheevosDev
       description: achievement.description ? String(achievement.description) : '',
     })),
   };
+}
+
+function normaliseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 function readJson<T>(key: string, fallback: T): T {

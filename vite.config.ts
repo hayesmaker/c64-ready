@@ -13,9 +13,13 @@ try {
 
 export default defineConfig({
   base: '/c64-ready/',
+  server: {
+    fs: {
+      allow: [resolve(__dirname), resolve(__dirname, '../c64-cheevos')],
+    },
+  },
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version || '0.0.0'),
     'import.meta.env.VITE_GIT_HASH': JSON.stringify(gitHash),
   },
 });
-
