@@ -7,7 +7,8 @@ This is intended for developing game classes in `c64-cheevos` while playing the 
 ## Setup
 
 - In a local development directory (eg: `/home/{user}/work/` ) clone this repo: `c64-ready` (Emulator)
-- Then clone `c64-ccheevos` in a sibling directory (eg `cd: /home/{user}/work`)
+- For windows paths use your normal working directory in place of `/home/{user}/work`
+- Then clone [https://github.com/hayesmaker/c64-cheevos](c64-cheevos) in a sibling directory (eg `cd: /home/{user}/work`)
 - cd `~/work/c64-cheevos`
 - npm install
 - npm link
@@ -15,8 +16,7 @@ This is intended for developing game classes in `c64-cheevos` while playing the 
 - `npm install`
 - `npm link @c64-cheevos`
 
-For windows paths use your normal working directory in place of `/home/{user}/work`
-Now you're all set for local c64 Cheevos development.
+**Now you're all set for local c64 Cheevos development.**
 
 ## Run the c64-ready dev server:
 
