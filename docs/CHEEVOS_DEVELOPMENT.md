@@ -6,16 +6,22 @@ This is intended for developing game classes in `c64-cheevos` while playing the 
 
 ## Setup
 
-In a local development checkout, `c64-ready` depends on `c64-cheevos` through a file dependency:
+- In a local development directory (eg: `/home/{user}/work/` ) clone this repo: `c64-ready` (Emulator)
+- Then clone `c64-ccheevos` in a sibling directory (eg `cd: /home/{user}/work`)
+- cd `~/work/c64-cheevos`
+- npm install
+- npm link
+- cd `~/work/c64-ready`
+- `npm install`
+- `npm link @c64-cheevos`
 
-```json
-"c64-cheevos": "file:../c64-cheevos"
-```
+For windows paths use your normal working directory in place of `/home/{user}/work`
+Now you're all set for local c64 Cheevos development.
 
-Run the c64-ready dev server:
+## Run the c64-ready dev server:
 
 ```zsh
-cd ~/Homespace/c64-ready
+cd ~/work/c64-ready
 npm install
 npm run dev
 ```
