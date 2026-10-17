@@ -526,6 +526,32 @@ shared TypeScript types for custom integrations. Serve `c64.wasm` and
 load the emulator core and audio worklet at runtime. If those assets are not served from
 the web root, pass `audio.assetBaseUrl` or `audio.workletUrl` to `C64Player`.
 
+#### Gamepad mapping
+
+By default a gamepad drives the joystick in all 8 directions; A fires, B is up, X is Space
+and RT / Start are RUN/STOP. `setGamepadMapping()` changes that per game: the stick mode,
+and a joystick input (`{ joystick: 'up' | 'down' | 'left' | 'right' | 'fire' }`), a C64
+key (`{ key: C64_KEY.* }`) or nothing (`null`) for each direction and for A, B, X, Y, LB,
+RB, LT and RT. Unlisted controls keep their defaults, and Start stays RUN/STOP.
+
+```ts
+import { C64_KEY } from 'c64-ready';
+
+// Thrust is keyboard only: rotate with A / S, thrust with Shift, fire with Return, shield with Space
+player.setGamepadMapping({
+  stick: '2way', // '8way' (default) | '4way' | '2way'
+  directions: { left: { key: C64_KEY.A }, right: { key: C64_KEY.S } },
+  buttons: {
+    a: { key: C64_KEY.RETURN },
+    b: { key: C64_KEY.SHIFT_LEFT },
+    x: { key: C64_KEY.SPACE },
+  },
+});
+```
+
+On-screen controls can share the same mapping as a virtual gamepad: pass the controls
+held on them to `player.setVirtualGamepadState({ left: true, a: true })`.
+
 ### Building before publish
 
 To regenerate both the Vite browser bundle and the TypeScript API outputs in one step:
