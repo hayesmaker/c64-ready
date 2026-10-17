@@ -8,6 +8,20 @@ import {
   type JoystickInput,
 } from './constants';
 import type { JoystickPort } from './constants';
+import { C64_KEY } from './c64-keys';
+import {
+  GAMEPAD_BUTTONS,
+  GAMEPAD_DIRECTIONS,
+  outputId,
+  readGamepadState,
+  resolveGamepadMapping,
+  resolveOutputs,
+  restrictDirections,
+  type GamepadMapping,
+  type GamepadOutput,
+  type GamepadState,
+  type ResolvedGamepadMapping,
+} from './gamepad-mapping';
 
 export const KEY_TO_JOYSTICK = {
   ArrowUp: JOYSTICK_DIRECTION.UP,
@@ -64,74 +78,7 @@ const DEFAULT_MIXED_EXTRA_JOYSTICK_KEYS: KeyboardJoystickMap = {
 // typed characters to the C64 keyboard matrix.
 // ---------------------------------------------------------------------------
 
-/** C64 keyboard matrix indices */
-export const C64_KEY = {
-  ARROW_LEFT: 0,
-  ONE: 1,
-  TWO: 2,
-  THREE: 3,
-  FOUR: 4,
-  FIVE: 5,
-  SIX: 6,
-  SEVEN: 7,
-  EIGHT: 8,
-  NINE: 9,
-  ZERO: 10,
-  PLUS: 11,
-  MINUS: 12,
-  POUND: 13,
-  CLEAR_HOME: 14,
-  INS_DEL: 15,
-  CTRL: 16,
-  Q: 17,
-  W: 18,
-  E: 19,
-  R: 20,
-  T: 21,
-  Y: 22,
-  U: 23,
-  I: 24,
-  O: 25,
-  P: 26,
-  AT: 27,
-  STAR: 28,
-  ARROW_UP: 29,
-  RUN_STOP: 30,
-  A: 31,
-  S: 32,
-  D: 33,
-  F: 34,
-  G: 35,
-  H: 36,
-  J: 37,
-  K: 38,
-  L: 39,
-  COLON: 40,
-  SEMICOLON: 41,
-  EQUALS: 42,
-  RETURN: 43,
-  COMMODORE: 44,
-  SHIFT_LEFT: 45,
-  Z: 46,
-  X: 47,
-  C: 48,
-  V: 49,
-  B: 50,
-  N: 51,
-  M: 52,
-  COMMA: 53,
-  PERIOD: 54,
-  SLASH: 55,
-  SHIFT_RIGHT: 56,
-  CURSOR_UP_DOWN: 57,
-  CURSOR_LEFT_RIGHT: 58,
-  SPACE: 59,
-  F1: 60,
-  F3: 61,
-  F5: 62,
-  F7: 63,
-  RESTORE: 64,
-} as const;
+export { C64_KEY } from './c64-keys';
 
 type C64KeyAction = { key: number; action: 'press' | 'release' };
 
@@ -506,27 +453,14 @@ export class EmulatorInput {
   private inputMode: InputMode = 'mixed';
   private updateFrame: number = -1;
   private gamepadIndex: number = -1;
-  private gamepadPresses: Array<boolean> = [];
-  /**
-   * Ultimate 8bitdo axes:
-   * [LeftX, LeftX, LeftUp, LeftDown, L2, RightX, RightX, RightUp, RightDown, R2, DpadX, DpadX, DpadY, DpadY]
-   **/
-  private gamepadAxes: Array<boolean> = [
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ];
+  private gamepadMapping: ResolvedGamepadMapping = resolveGamepadMapping();
+  // Controls held on the physical gamepad (plus Start) and on a virtual one, e.g. on-screen touch controls
+  private physicalGamepadState: GamepadState & { start?: boolean } = {};
+  private virtualGamepadState: GamepadState = {};
+  // Directions after the stick mode was applied, so 4-way can keep the one already held
+  private heldGamepadDirections: GamepadState = {};
+  // Emulator inputs currently held because of the gamepads, by outputId()
+  private heldGamepadOutputs = new Map<string, GamepadOutput>();
   private keyboardJoystickMap: KeyboardJoystickMap = { ...KEY_TO_JOYSTICK };
   private mixedJoystickMap: KeyboardJoystickMap = { ...MIXED_JOYSTICK_KEYS };
   private potFire2Pressed = false;
@@ -588,116 +522,53 @@ export class EmulatorInput {
     }
     const gp = gamepads[this.gamepadIndex];
     if (!gp) {
+      this.physicalGamepadState = {};
+      this.applyGamepadState();
       this.cancelUpdate();
       return;
     }
-    if (gp.buttons) {
-      for (let b = 0; b < gp.buttons.length; b++) {
-        if (gp.buttons[b].pressed) {
-          this.gamepadPresses[b] = true;
-          console.log('Buttons Pressed', b, gp.buttons[b]);
-          switch (b) {
-            case 0:
-              this.emulator.joystickPush(this.joystickPort, JOYSTICK_FIRE_1);
-              break;
-            case 1:
-              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
-              break;
-            case 2:
-              this.emulator.keyDown(C64_KEY.SPACE);
-              break;
-            case 3:
-              //this.pushJoystickInput(JOYSTICK_FIRE_3);
-              break;
-            case 7:
-            case 9:
-              this.emulator.keyDown(C64_KEY.RUN_STOP);
-              break;
-            case 14:
-              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
-              break;
-            case 15:
-              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
-              break;
-            case 12:
-              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
-              break;
-            case 13:
-              this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
-              break;
-          }
-          // this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
-        } else if (!gp.buttons[b].pressed && this.gamepadPresses[b] === true) {
-          this.gamepadPresses[b] = false;
-          switch (b) {
-            case 0:
-              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_FIRE_1);
-              break;
-            case 1:
-              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
-              break;
-            case 2:
-              this.emulator.keyUp(C64_KEY.SPACE);
-              //this.releaseJoystickInput(JOYSTICK_FIRE_2);
-              break;
-            case 3:
-              //this.releaseJoystickInput(JOYSTICK_FIRE_3);
-              break;
-            case 7:
-            case 9:
-              this.emulator.keyUp(C64_KEY.RUN_STOP);
-              break;
-            case 14:
-              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
-              break;
-            case 15:
-              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
-              break;
-            case 12:
-              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
-              break;
-            case 13:
-              this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
-              break;
-          }
-          // this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
-        }
-      }
-    }
-
-    if (gp.axes[0] <= -0.5 || gp.axes[6] <= -0.5) {
-      this.gamepadAxes[0] = true;
-      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
-    } else if (this.gamepadAxes[0] === true) {
-      this.gamepadAxes[0] = false;
-      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.LEFT);
-    }
-
-    if (gp.axes[0] >= 0.5 || gp.axes[6] >= 0.5) {
-      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
-      this.gamepadAxes[1] = true;
-    } else if (this.gamepadAxes[1] === true) {
-      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.RIGHT);
-      this.gamepadAxes[1] = false;
-    }
-
-    if (gp.axes[1] <= -0.5 || gp.axes[7] <= -0.5) {
-      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.UP);
-      this.gamepadAxes[2] = true;
-    } else if (this.gamepadAxes[2] === true) {
-      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.UP);
-      this.gamepadAxes[2] = false;
-    }
-
-    if (gp.axes[1] >= 0.5 || gp.axes[7] >= 0.5) {
-      this.emulator.joystickPush(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
-      this.gamepadAxes[3] = true;
-    } else if (this.gamepadAxes[3] === true) {
-      this.emulator.joystickRelease(this.joystickPort, JOYSTICK_DIRECTION.DOWN);
-      this.gamepadAxes[3] = false;
-    }
+    this.physicalGamepadState = readGamepadState(gp);
+    this.applyGamepadState();
 
     this.updateFrame = requestAnimationFrame(this.step.bind(this));
+  }
+
+  /** Holds exactly the emulator inputs that the physical and virtual gamepads map to right now */
+  private applyGamepadState(): void {
+    const physical = this.physicalGamepadState;
+    const virtual = this.virtualGamepadState;
+    const combined: GamepadState = {};
+    for (const control of [...GAMEPAD_DIRECTIONS, ...GAMEPAD_BUTTONS]) {
+      combined[control] = !!physical[control] || !!virtual[control];
+    }
+
+    const directions = restrictDirections(
+      combined,
+      this.gamepadMapping.stick,
+      this.heldGamepadDirections,
+    );
+    this.heldGamepadDirections = directions;
+    const outputs = resolveOutputs({ ...combined, ...directions }, this.gamepadMapping);
+    // Start is always RUN/STOP
+    if (physical.start) outputs.set(outputId({ key: C64_KEY.RUN_STOP }), { key: C64_KEY.RUN_STOP });
+
+    for (const [id, output] of this.heldGamepadOutputs) {
+      if (!outputs.has(id)) this.releaseGamepadOutput(output);
+    }
+    for (const [id, output] of outputs) {
+      if (!this.heldGamepadOutputs.has(id)) this.pushGamepadOutput(output);
+    }
+    this.heldGamepadOutputs = outputs;
+  }
+
+  private pushGamepadOutput(output: GamepadOutput): void {
+    if ('joystick' in output) this.emulator.joystickPush(this.joystickPort, output.joystick);
+    else this.emulator.keyDown(output.key);
+  }
+
+  private releaseGamepadOutput(output: GamepadOutput): void {
+    if ('joystick' in output) this.emulator.joystickRelease(this.joystickPort, output.joystick);
+    else this.emulator.keyUp(output.key);
   }
 
   private cancelUpdate(): void {
@@ -706,27 +577,13 @@ export class EmulatorInput {
     this.gamepadIndex = -1;
   }
 
+  /** Lets go of everything the gamepads hold, physical and virtual */
   private releaseAllGamepadButtons(): void {
-    if (!this.gamepadPresses.some(Boolean)) return;
-
-    const buttonToInput: Partial<Record<number, JoystickInput>> = {
-      0: JOYSTICK_FIRE_1,
-      2: JOYSTICK_FIRE_2,
-      3: JOYSTICK_FIRE_3,
-      12: JOYSTICK_DIRECTION.UP,
-      13: JOYSTICK_DIRECTION.DOWN,
-      14: JOYSTICK_DIRECTION.LEFT,
-      15: JOYSTICK_DIRECTION.RIGHT,
-    };
-
-    for (const [button, input] of Object.entries(buttonToInput)) {
-      if (!input) continue;
-      if (this.gamepadPresses[Number(button)] === true) {
-        this.releaseJoystickInput(input);
-      }
-    }
-
-    this.gamepadPresses = [];
+    this.physicalGamepadState = {};
+    this.virtualGamepadState = {};
+    this.heldGamepadDirections = {};
+    for (const output of this.heldGamepadOutputs.values()) this.releaseGamepadOutput(output);
+    this.heldGamepadOutputs = new Map();
   }
 
   private findConnectedGamepadIndex(excludeIndex?: number): number {
@@ -989,6 +846,30 @@ export class EmulatorInput {
 
   getActiveGamepadIndex(): number {
     return this.gamepadIndex;
+  }
+
+  /**
+   * Changes what the gamepad controls do: the stick mode, and the joystick input or C64 key for
+   * each direction and button. Unlisted controls keep their defaults; null/undefined restores all
+   * defaults. Applies to both the physical and the virtual gamepad.
+   */
+  setGamepadMapping(mapping?: GamepadMapping | null): void {
+    this.gamepadMapping = resolveGamepadMapping(mapping);
+    this.heldGamepadDirections = {};
+    this.applyGamepadState();
+  }
+
+  getGamepadMapping(): ResolvedGamepadMapping {
+    return this.gamepadMapping;
+  }
+
+  /**
+   * Sets the controls held on a virtual gamepad, e.g. on-screen touch controls. They go through
+   * the same mapping as the physical gamepad, combined with it.
+   */
+  setVirtualGamepadState(state: GamepadState): void {
+    this.virtualGamepadState = { ...state };
+    this.applyGamepadState();
   }
 }
 
