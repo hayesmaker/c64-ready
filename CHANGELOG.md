@@ -6,9 +6,30 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v3.1.0 - 2026-10-17T21:24:35+01:00
+
+- chore(release): 3.1.0 (44fce8e)
+- Merge pull request #201 from hayesmaker/feat/gamepad-mapping (d6ca269)
+- docs: document gamepad mapping (395d4f2)
+- feat(input): configurable gamepad mapping (fb43ced)
+- Merge pull request #199 from hayesmaker/hayesmaker-patch-3 (cc86e50)
+- Update CHEEVOS_DEVELOPMENT.md (0c18c7f)
+- Merge pull request #197 from hayesmaker/hayesmaker-patch-2 (3978e4c)
+- Update CHEEVOS_DEVELOPMENT.md (89c69b3)
+- Merge pull request #195 from hayesmaker/hayesmaker-patch-1 (d2fc4de)
+- Update CHEEVOS_DEVELOPMENT.md (1a9a0c5)
+- Merge pull request #193 from hayesmaker/docs/cheevos-guide (74412b3)
+- docs: cheevos guide with npm link (9c63044)
+- Merge pull request #191 from hayesmaker/feature/cheat-menu (d6285f1)
+- feat: qol features for integrating cheevos (a4abc78)
+- Merge pull request #189 from hayesmaker/feat/cheevos-dev (07547ea)
+- fix(cheevos): resolve package from npm registry (a44c191)
+- chore: regenerated lockfile (bdb1005)
+- chore: import published cheevos (f31df4b)
+
 ## v3.0.0 - 2026-09-20T17:53:22+01:00
 
-- chore(release): 3.0.0 (9e1ca8f)
+- chore(release): 3.0.0 (8effed3)
 - feat: cheevos tracking panel (85d3e6b)
 - feat: added cheevos dev feature (258f75f)
 - Merge pull request #187 from hayesmaker/fix/spectator-count-robustness (4e99daf)
