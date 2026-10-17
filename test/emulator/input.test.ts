@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmulatorInput } from '../../src/emulator/input';
 import { JOYSTICK_DIRECTION, JOYSTICK_FIRE_1, JOYSTICK_PORT_2 } from '../../src/emulator/constants';
+import { C64_KEY } from '../../src/emulator/c64-keys';
 
 describe('EmulatorInput', () => {
   beforeEach(() => {
@@ -216,4 +217,136 @@ describe('EmulatorInput', () => {
 
     input.detach();
   });
+
+  describe('gamepad mapping', () => {
+    let buttons: number[];
+    let axes: number[];
+    let nextFrame: (() => void) | null;
+
+    const gamepad = () =>
+      ({
+        ...makeGamepad(0),
+        buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: buttons.includes(i), value: 0 })),
+        axes,
+      }) as unknown as Gamepad;
+
+    // Runs the next gamepad poll
+    const poll = () => {
+      const frame = nextFrame;
+      nextFrame = null;
+      frame?.();
+    };
+
+    const setup = () => {
+      buttons = [];
+      axes = [0, 0];
+      nextFrame = null;
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn((cb: () => void) => {
+          nextFrame = cb;
+          return 1;
+        }),
+      );
+      vi.mocked(navigator.getGamepads).mockImplementation(() => [gamepad()] as unknown as Gamepad[]);
+      const emulator = {
+        joystickPush: vi.fn(),
+        joystickRelease: vi.fn(),
+        keyDown: vi.fn(),
+        keyUp: vi.fn(),
+      } as any;
+      const input = new EmulatorInput(emulator, window);
+      input.attach();
+      dispatchGamepadEvent('gamepadconnected', gamepad());
+      return { emulator, input };
+    };
+
+    it('keeps the default mapping: A fires, X is Space, Start is RUN/STOP', () => {
+      const { emulator, input } = setup();
+      buttons = [0, 2, 9];
+      poll();
+      expect(emulator.joystickPush).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.SPACE);
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.RUN_STOP);
+      input.detach();
+    });
+
+    it('maps directions and buttons to C64 keys', () => {
+      const { emulator, input } = setup();
+      input.setGamepadMapping({
+        stick: '2way',
+        directions: { left: { key: C64_KEY.A }, right: { key: C64_KEY.S } },
+        buttons: { a: { key: C64_KEY.RETURN }, b: { key: C64_KEY.SHIFT_LEFT } },
+      });
+
+      buttons = [14, 0, 1];
+      poll();
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.A);
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.RETURN);
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.SHIFT_LEFT);
+      expect(emulator.joystickPush).not.toHaveBeenCalled();
+
+      buttons = [];
+      poll();
+      expect(emulator.keyUp).toHaveBeenCalledWith(C64_KEY.A);
+      expect(emulator.keyUp).toHaveBeenCalledWith(C64_KEY.RETURN);
+      expect(emulator.keyUp).toHaveBeenCalledWith(C64_KEY.SHIFT_LEFT);
+      input.detach();
+    });
+
+    it('ignores up and down in 2-way mode', () => {
+      const { emulator, input } = setup();
+      input.setGamepadMapping({ stick: '2way' });
+      axes = [0, -1];
+      poll();
+      expect(emulator.joystickPush).not.toHaveBeenCalled();
+      input.detach();
+    });
+
+    it('holds an input once while two controls map to it', () => {
+      const { emulator, input } = setup();
+      // B and D-pad up both map to joystick up by default
+      buttons = [1, 12];
+      poll();
+      buttons = [12];
+      poll();
+      expect(emulator.joystickPush).toHaveBeenCalledTimes(1);
+      expect(emulator.joystickRelease).not.toHaveBeenCalled();
+      input.detach();
+    });
+
+    it('sends virtual gamepad controls through the same mapping', () => {
+      const { emulator, input } = setup();
+      input.setGamepadMapping({ buttons: { x: { key: C64_KEY.F1 } } });
+      input.setVirtualGamepadState({ x: true, left: true });
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.F1);
+      expect(emulator.joystickPush).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_DIRECTION.LEFT);
+
+      input.setVirtualGamepadState({});
+      expect(emulator.keyUp).toHaveBeenCalledWith(C64_KEY.F1);
+      expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_DIRECTION.LEFT);
+      input.detach();
+    });
+
+    it('releases what a control held when its mapping changes', () => {
+      const { emulator, input } = setup();
+      buttons = [0];
+      poll();
+      input.setGamepadMapping({ buttons: { a: { key: C64_KEY.RETURN } } });
+      expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
+      expect(emulator.keyDown).toHaveBeenCalledWith(C64_KEY.RETURN);
+      input.detach();
+    });
+
+    it('lets go of everything on detach', () => {
+      const { emulator, input } = setup();
+      buttons = [0];
+      poll();
+      input.setVirtualGamepadState({ x: true });
+      input.detach();
+      expect(emulator.joystickRelease).toHaveBeenCalledWith(JOYSTICK_PORT_2, JOYSTICK_FIRE_1);
+      expect(emulator.keyUp).toHaveBeenCalledWith(C64_KEY.SPACE);
+    });
+  });
 });
+

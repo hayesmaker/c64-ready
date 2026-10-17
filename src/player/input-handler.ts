@@ -1,5 +1,10 @@
 import { EmulatorInput } from '../emulator/input';
 import type { InputMode, KeyboardJoystickMap } from '../emulator/input';
+import type {
+  GamepadMapping,
+  GamepadState,
+  ResolvedGamepadMapping,
+} from '../emulator/gamepad-mapping';
 import type { JoystickPort } from '../emulator/constants';
 import type { C64Emulator } from '../emulator/c64-emulator';
 
@@ -63,6 +68,18 @@ export default class InputHandler {
 
   getActiveGamepadIndex(): number {
     return this.emulatorInput.getActiveGamepadIndex();
+  }
+
+  setGamepadMapping(mapping?: GamepadMapping | null): void {
+    this.emulatorInput.setGamepadMapping(mapping);
+  }
+
+  getGamepadMapping(): ResolvedGamepadMapping {
+    return this.emulatorInput.getGamepadMapping();
+  }
+
+  setVirtualGamepadState(state: GamepadState): void {
+    this.emulatorInput.setVirtualGamepadState(state);
   }
 
   private onCaptureKeyDown(e: KeyboardEvent): void {

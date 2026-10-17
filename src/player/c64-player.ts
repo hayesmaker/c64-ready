@@ -3,6 +3,12 @@ import { getUnsupportedCrtReason, parseCrtInfo } from '../emulator/crt-info';
 import type { GameLoadOptions } from '../types';
 import type { JoystickPort } from '../emulator/constants';
 import type { InputMode, KeyboardJoystickMap } from '../emulator/input';
+import {
+  resolveGamepadMapping,
+  type GamepadMapping,
+  type GamepadState,
+  type ResolvedGamepadMapping,
+} from '../emulator/gamepad-mapping';
 import type CanvasRenderer from './canvas-renderer';
 import { AudioEngine, type AudioEngineOptions } from './audio-engine';
 import InputHandler from './input-handler';
@@ -35,6 +41,8 @@ export interface C64PlayerOptions {
 export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
+  // Kept here so a mapping set before start() (or across restarts) still applies
+  private gamepadMapping: GamepadMapping | null = null;
   private disableCrtPreloadChecks: boolean = false;
   private destroyed: boolean = false;
   private diskSessionActive: boolean = false;
@@ -341,6 +349,29 @@ export class C64Player {
     return this.inputHandler?.getActiveGamepadIndex() ?? -1;
   }
 
+  /**
+   * Remaps the gamepad for the current game: the stick mode ('8way' | '4way' | '2way') and the
+   * joystick input or C64 key (C64_KEY) for each direction and for A, B, X, Y, LB, RB, LT, RT.
+   * Unlisted controls keep their defaults; null restores all defaults. Start stays RUN/STOP.
+   * Can be called before start().
+   */
+  setGamepadMapping(mapping: GamepadMapping | null): void {
+    this.gamepadMapping = mapping;
+    this.inputHandler?.setGamepadMapping(mapping);
+  }
+
+  getGamepadMapping(): ResolvedGamepadMapping {
+    return this.inputHandler?.getGamepadMapping() ?? resolveGamepadMapping(this.gamepadMapping);
+  }
+
+  /**
+   * Feeds a virtual gamepad, such as on-screen touch controls: the controls held on it go through
+   * the same mapping as a physical gamepad.
+   */
+  setVirtualGamepadState(state: GamepadState): void {
+    this.inputHandler?.setVirtualGamepadState(state);
+  }
+
   getSnapshot(): Uint8Array<ArrayBufferLike> {
     if (!this.emulator) {
       throw new Error('Emulator not initialised');
@@ -515,6 +546,7 @@ export class C64Player {
       onFastForwardReset: () => this.resetFastForwardSpeed(),
     });
     this.inputHandler.attach();
+    this.inputHandler.setGamepadMapping(this.gamepadMapping);
     renderer.attachTo(emulator);
   }
 
