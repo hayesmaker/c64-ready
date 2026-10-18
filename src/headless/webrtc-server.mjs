@@ -127,6 +127,35 @@ function buildIceServers({
   return iceServers;
 }
 
+export const DEFAULT_ICE_PORT_RANGE = '50000-50100';
+
+/**
+ * Parse the UDP/TCP port range libwebrtc may bind ICE candidates to.
+ *
+ * Without a range libwebrtc picks random ephemeral ports. Inside Docker only the
+ * published range (`-p 50000-50100:50000-50100/udp`) is reachable from outside,
+ * so direct (host/srflx) candidates fail and every peer falls back to a TURN
+ * relay — adding the relay's round trip to every input and frame.
+ *
+ * @param {string} [raw]  "min-max", or "off" to let libwebrtc choose freely
+ * @returns {{ min: number, max: number } | null}
+ */
+export function parseIcePortRange(raw = process.env.ICE_PORT_RANGE) {
+  const value = String(raw ?? '').trim().toLowerCase() || DEFAULT_ICE_PORT_RANGE;
+  if (value === 'off' || value === '0') return null;
+
+  const match = /^(\d+)\s*-\s*(\d+)$/.exec(value);
+  const min = match ? Number(match[1]) : NaN;
+  const max = match ? Number(match[2]) : NaN;
+  if (!(min >= 1024 && max <= 65535 && min <= max)) {
+    console.error(
+      `[webrtc] invalid ICE_PORT_RANGE "${raw}" — expected "min-max" within 1024-65535; using ${DEFAULT_ICE_PORT_RANGE}`,
+    );
+    return parseIcePortRange(DEFAULT_ICE_PORT_RANGE);
+  }
+  return { min, max };
+}
+
 /**
  * @param {object}   opts
  * @param {number}   [opts.port=9002]          HTTP + WS listen port
@@ -147,6 +176,8 @@ function buildIceServers({
  * @param {string} [opts.iceTurnUsernameLabel]   Optional TURN username suffix for timed creds
  * @param {string} [opts.iceTurnUsername]        Optional TURN username
  * @param {string} [opts.iceTurnPassword]        Optional TURN credential/password
+ * @param {string} [opts.icePortRange]           ICE port range "min-max" or "off"
+ *                                               (default ICE_PORT_RANGE env, else 50000-50100)
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
  *   Called synchronously when an SDP offer arrives, BEFORE createAnswer().
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
@@ -171,6 +202,7 @@ export function createWebRTCServer({
   iceTurnUsernameLabel,
   iceTurnUsername,
   iceTurnPassword,
+  icePortRange,
   onOffer,
   onPeerConnected,
   onDataChannelInput,
@@ -188,6 +220,16 @@ export function createWebRTCServer({
     });
 
   const iceServers = buildRuntimeIceServers();
+  const portRange = parseIcePortRange(icePortRange);
+  if (verbose) {
+    console.error(
+      `[webrtc] ICE port range ${portRange ? `${portRange.min}-${portRange.max}` : 'unrestricted'}`,
+    );
+  }
+  const buildPeerConnectionConfig = () => ({
+    iceServers: buildRuntimeIceServers(),
+    ...(portRange ? { portRange } : {}),
+  });
 
   /** Emit a structured [event] line — same format as input-server.mjs. */
   function logEv(tag, fields = {}) {
@@ -632,7 +674,7 @@ export function createWebRTCServer({
     const remoteAddr = req.socket.remoteAddress;
     const sessionId = crypto.randomUUID();
     pendingPeers++;
-    const pc = new RTCPeerConnection({ iceServers: buildRuntimeIceServers() });
+    const pc = new RTCPeerConnection(buildPeerConnectionConfig());
     const controller = {
       pc,
       ws: null,
@@ -860,7 +902,7 @@ export function createWebRTCServer({
     logEv('webrtc-peer-connected', { addr: remoteAddr });
     logLoadSnapshot('webrtc-load-change', { reason: 'peer-connected' });
 
-    const pc = new RTCPeerConnection({ iceServers: buildRuntimeIceServers() });
+    const pc = new RTCPeerConnection(buildPeerConnectionConfig());
     const controller = {
       pc,
       ws,
