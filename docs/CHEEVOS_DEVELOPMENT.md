@@ -14,7 +14,7 @@ This is intended for developing game classes in `c64-cheevos` while playing the 
 - npm link
 - cd `~/work/c64-ready`
 - `npm install`
-- `npm link @c64-cheevos`
+- `npm link c64-cheevos`
 
 **Now you're all set for local c64 Cheevos development.**
 
