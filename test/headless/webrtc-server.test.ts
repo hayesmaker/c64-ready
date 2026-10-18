@@ -21,7 +21,8 @@ import { WebSocket } from 'ws';
 const { RTCPeerConnection } = wrtc;
 
 // @ts-expect-error — no declaration file for .mjs
-const { createWebRTCServer } = await import('../../src/headless/webrtc-server.mjs');
+const { createWebRTCServer, parseIcePortRange, parseServerUseTurn, withoutTurnServers } =
+  await import('../../src/headless/webrtc-server.mjs');
 
 // Read the source as text so we can assert on the embedded browser HTML
 const SOURCE = await fs.readFile(
@@ -230,6 +231,107 @@ describe('webrtc-server', () => {
         const deleteRes = await fetch(`http://127.0.0.1:19908${location}`, { method: 'DELETE' });
         expect(deleteRes.status).toBe(204);
       }
+    } finally {
+      pc.close();
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
+
+  it('parseIcePortRange: defaults to the published Docker range and validates input', () => {
+    expect(parseIcePortRange(undefined)).toEqual({ min: 50000, max: 50100 });
+    expect(parseIcePortRange('51000-51010')).toEqual({ min: 51000, max: 51010 });
+    expect(parseIcePortRange(' 51000 - 51010 ')).toEqual({ min: 51000, max: 51010 });
+    expect(parseIcePortRange('off')).toBeNull();
+    expect(parseIcePortRange('0')).toBeNull();
+    for (const bad of ['abc', '70000-80000', '60000-50000', '80-90']) {
+      expect(parseIcePortRange(bad)).toEqual({ min: 50000, max: 50100 });
+    }
+  });
+
+  it('parseServerUseTurn: enabled unless explicitly switched off', () => {
+    for (const on of [undefined, '', '1', 'true', 'yes']) expect(parseServerUseTurn(on)).toBe(true);
+    for (const off of ['0', 'false', 'OFF', ' no ']) expect(parseServerUseTurn(off)).toBe(false);
+  });
+
+  it('withoutTurnServers: keeps STUN, drops TURN and credentials', () => {
+    expect(
+      withoutTurnServers([
+        { urls: ['stun:stun.example.net:3478'] },
+        {
+          urls: ['turn:relay.example.net:3478?transport=udp', 'turns:relay.example.net:5349'],
+          username: 'u',
+          credential: 'c',
+        },
+        { urls: ['stun:relay.example.net:3478', 'turn:relay.example.net:3478'], username: 'u', credential: 'c' },
+      ]),
+    ).toEqual([{ urls: ['stun:stun.example.net:3478'] }, { urls: ['stun:relay.example.net:3478'] }]);
+  });
+
+  it('withoutTurnServers: falls back to public STUN so the host still finds its public address', () => {
+    expect(withoutTurnServers([{ urls: 'turn:relay.example.net:3478', username: 'u', credential: 'c' }])).toEqual([
+      { urls: ['stun:stun.l.google.com:19302'] },
+    ]);
+    expect(withoutTurnServers([])).toEqual([{ urls: ['stun:stun.l.google.com:19302'] }]);
+  });
+
+  it('still hands browsers TURN via /ice-config when server-side TURN is disabled', async () => {
+    let srv: any;
+    try {
+      srv = createWebRTCServer({
+        port: 19914,
+        verbose: false,
+        inputPort: 19915,
+        iceTurnUrls: 'turn:relay.example.net:3478?transport=udp',
+        iceTurnUsername: 'turn-user',
+        iceTurnPassword: 'turn-pass',
+        iceServerUseTurn: false,
+      });
+      const payload = await (await fetch('http://127.0.0.1:19914/ice-config')).json();
+      expect(payload.iceServers).toContainEqual({
+        urls: ['turn:relay.example.net:3478?transport=udp'],
+        username: 'turn-user',
+        credential: 'turn-pass',
+      });
+    } finally {
+      if (srv) await srv.close().catch(() => {});
+    }
+  });
+
+  it('binds server ICE candidates to the configured port range', async () => {
+    let srv: any;
+    const pc = new RTCPeerConnection();
+    try {
+      srv = createWebRTCServer({
+        port: 19916,
+        verbose: false,
+        inputPort: 19917,
+        icePortRange: '51000-51010',
+        iceServerUseTurn: false,
+      });
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      await pc.setLocalDescription(await pc.createOffer());
+      await waitForIceGatheringComplete(pc);
+
+      const res = await fetch('http://127.0.0.1:19916/whep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/sdp', Accept: 'application/sdp' },
+        body: pc.localDescription?.sdp,
+      });
+      expect(res.status).toBe(201);
+      const answerSdp = await res.text();
+      const ports = [...answerSdp.matchAll(/^a=candidate:\S+ \d+ udp \d+ \S+ (\d+) typ/gm)].map((m) =>
+        Number(m[1]),
+      );
+      expect(ports.length).toBeGreaterThan(0);
+      for (const candidatePort of ports) {
+        expect(candidatePort).toBeGreaterThanOrEqual(51000);
+        expect(candidatePort).toBeLessThanOrEqual(51010);
+      }
+      expect(answerSdp).not.toMatch(/typ relay/);
+
+      const location = res.headers.get('location');
+      if (location) await fetch(`http://127.0.0.1:19916${location}`, { method: 'DELETE' });
     } finally {
       pc.close();
       if (srv) await srv.close().catch(() => {});

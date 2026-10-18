@@ -129,6 +129,39 @@ function buildIceServers({
 
 export const DEFAULT_ICE_PORT_RANGE = '50000-50100';
 const ROUTE_SNAPSHOT_RETRIES = 5;
+const FALLBACK_STUN_URL = 'stun:stun.l.google.com:19302';
+
+/**
+ * Whether the server's own peer connections may allocate TURN relay candidates.
+ *
+ * A host with a public IP and a published ICE port range never needs a relay
+ * itself, but offering one lets ICE settle on server-relayed pairs — on a remote
+ * TURN service that adds a detour to every packet. Browsers still receive the
+ * TURN config via /ice-config, so clients behind strict NATs can relay.
+ *
+ * @param {string} [raw]  "0"/"false"/"off"/"no" disables; anything else enables
+ * @returns {boolean}
+ */
+export function parseServerUseTurn(raw = process.env.ICE_SERVER_USE_TURN) {
+  const value = String(raw ?? '').trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(value);
+}
+
+/**
+ * Strip turn:/turns: URLs from an iceServers list, keeping at least one STUN
+ * server so the host still gathers its server-reflexive (public) candidate.
+ *
+ * @param {RTCIceServer[]} iceServers
+ * @returns {RTCIceServer[]}
+ */
+export function withoutTurnServers(iceServers) {
+  const stunOnly = (iceServers ?? [])
+    .map((server) => ({
+      urls: [].concat(server?.urls ?? []).filter((url) => !/^turns?:/i.test(String(url))),
+    }))
+    .filter((server) => server.urls.length > 0);
+  return stunOnly.length > 0 ? stunOnly : [{ urls: [FALLBACK_STUN_URL] }];
+}
 
 /**
  * Parse the UDP/TCP port range libwebrtc may bind ICE candidates to.
@@ -179,6 +212,8 @@ export function parseIcePortRange(raw = process.env.ICE_PORT_RANGE) {
  * @param {string} [opts.iceTurnPassword]        Optional TURN credential/password
  * @param {string} [opts.icePortRange]           ICE port range "min-max" or "off"
  *                                               (default ICE_PORT_RANGE env, else 50000-50100)
+ * @param {string|boolean} [opts.iceServerUseTurn] Let server peers use TURN (default
+ *                                               ICE_SERVER_USE_TURN env, else enabled)
  * @param {(pc: RTCPeerConnection) => void} opts.onOffer
  *   Called synchronously when an SDP offer arrives, BEFORE createAnswer().
  *   Attach tracks here: pc.addTrack(videoTrack, stream)
@@ -204,6 +239,7 @@ export function createWebRTCServer({
   iceTurnUsername,
   iceTurnPassword,
   icePortRange,
+  iceServerUseTurn,
   onOffer,
   onPeerConnected,
   onDataChannelInput,
@@ -227,10 +263,20 @@ export function createWebRTCServer({
       `[webrtc] ICE port range ${portRange ? `${portRange.min}-${portRange.max}` : 'unrestricted'}`,
     );
   }
-  const buildPeerConnectionConfig = () => ({
-    iceServers: buildRuntimeIceServers(),
-    ...(portRange ? { portRange } : {}),
-  });
+  const serverUseTurn =
+    typeof iceServerUseTurn === 'boolean' ? iceServerUseTurn : parseServerUseTurn(iceServerUseTurn);
+  if (!serverUseTurn) {
+    console.error(
+      '[webrtc] server-side TURN disabled (ICE_SERVER_USE_TURN=0); browsers still get TURN via /ice-config',
+    );
+  }
+  const buildPeerConnectionConfig = () => {
+    const runtimeIceServers = buildRuntimeIceServers();
+    return {
+      iceServers: serverUseTurn ? runtimeIceServers : withoutTurnServers(runtimeIceServers),
+      ...(portRange ? { portRange } : {}),
+    };
+  };
 
   /** Emit a structured [event] line — same format as input-server.mjs. */
   function logEv(tag, fields = {}) {
