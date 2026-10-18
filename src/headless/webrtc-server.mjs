@@ -128,6 +128,7 @@ function buildIceServers({
 }
 
 export const DEFAULT_ICE_PORT_RANGE = '50000-50100';
+const ROUTE_SNAPSHOT_RETRIES = 5;
 
 /**
  * Parse the UDP/TCP port range libwebrtc may bind ICE candidates to.
@@ -286,31 +287,44 @@ export function createWebRTCServer({
       );
   }
 
-  async function logRouteSnapshot(pc, remoteAddr) {
+  async function logRouteSnapshot(pc, remoteAddr, attempt = 0) {
     try {
       const report = await pc.getStats();
-      let selected = null;
+      let nominated = null;
+      const selectedPairIds = new Set();
+      const pairsById = new Map();
       const localById = new Map();
       const remoteById = new Map();
       for (const stat of report.values()) {
-        if (
-          stat.type === 'candidate-pair' &&
-          stat.nominated &&
-          (stat.state === 'succeeded' || stat.selected)
-        )
-          selected = stat;
+        if (stat.type === 'transport' && stat.selectedCandidatePairId) {
+          selectedPairIds.add(stat.selectedCandidatePairId);
+        }
+        if (stat.type === 'candidate-pair') {
+          pairsById.set(stat.id, stat);
+          if (stat.nominated && (stat.state === 'succeeded' || stat.selected)) nominated = stat;
+        }
         if (stat.type === 'local-candidate') localById.set(stat.id, stat);
         if (stat.type === 'remote-candidate') remoteById.set(stat.id, stat);
       }
-      if (!selected) return;
+      // Prefer the transport's selected pair: libwebrtc's nominated/state flags on
+      // candidate-pair stats can lag ICE 'connected', which left this log empty.
+      const selected =
+        [...selectedPairIds].map((id) => pairsById.get(id)).find(Boolean) ?? nominated;
+      if (!selected) {
+        if (attempt < ROUTE_SNAPSHOT_RETRIES && pc.connectionState !== 'closed') {
+          setTimeout(() => logRouteSnapshot(pc, remoteAddr, attempt + 1), 1000);
+        }
+        return;
+      }
       const local = localById.get(selected.localCandidateId);
       const remote = remoteById.get(selected.remoteCandidateId);
+      const protocol = selected.protocol ?? local?.protocol ?? '-';
       const rttMs = Number.isFinite(selected.currentRoundTripTime)
         ? Math.round(selected.currentRoundTripTime * 1000)
         : null;
       logEv('webrtc-route', {
         addr: remoteAddr,
-        protocol: selected.protocol ?? '-',
+        protocol,
         localType: local?.candidateType ?? '-',
         remoteType: remote?.candidateType ?? '-',
         networkType: local?.networkType ?? '-',
@@ -318,7 +332,7 @@ export function createWebRTCServer({
       });
       if (verbose) {
         console.error(
-          `[webrtc-route] addr=${remoteAddr} protocol=${selected.protocol ?? '-'} local=${local?.candidateType ?? '-'} remote=${remote?.candidateType ?? '-'} net=${local?.networkType ?? '-'} rtt=${rttMs ?? '-'}ms`,
+          `[webrtc-route] addr=${remoteAddr} protocol=${protocol} local=${local?.candidateType ?? '-'} remote=${remote?.candidateType ?? '-'} net=${local?.networkType ?? '-'} rtt=${rttMs ?? '-'}ms`,
         );
       }
     } catch (_) {
