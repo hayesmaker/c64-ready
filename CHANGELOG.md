@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Merge pull request #207 from hayesmaker/fix/webrtc-server-stun-only-option (28bcb8b)
+- feat(webrtc): ICE_SERVER_USE_TURN=0 keeps server peers off TURN relays (7f7c149)
+- Merge pull request #206 from hayesmaker/chore/update-changelog-2026-10-18T11-51-28-608Z-eee40fe (080a027)
+- chore: update changelog (auto) (eee40fe)
 - Merge pull request #205 from hayesmaker/fix/webrtc-ice-port-range (fd1f4dc)
 - fix(webrtc): log the selected ICE route reliably (bc62d76)
 - fix(webrtc): bind ICE candidates to the published UDP port range (9de2e21)
