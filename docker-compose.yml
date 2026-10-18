@@ -35,7 +35,7 @@ services:
     ports:
       - '${WS_HOST_PORT:-9001}:9001' # WebSocket input server
       - '${WEBRTC_HOST_PORT:-9002}:9002' # WebRTC player page + signalling
-      - '50000-50100:50000-50100/udp' # ICE/SRTP UDP port range
+      - '50000-50100:50000-50100/udp' # ICE/SRTP UDP port range — keep in sync with ICE_PORT_RANGE
     # Keep only logs on a bind mount. Runtime code + public assets are baked
     # into the image by docker/Dockerfile.headless.
     volumes:
