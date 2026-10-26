@@ -463,6 +463,63 @@ describe('C64Player', () => {
     expect(rebootListener).toHaveBeenCalledOnce();
   });
 
+  it('tracks the current game and names it in c64-load-success', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    stubFetchForGame();
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '/games/cartridges/test-game.crt?v=1',
+      renderer: makeFakeRenderer(),
+    });
+    const successListener = vi.fn();
+    window.addEventListener('c64-load-success', successListener);
+
+    try {
+      expect(player.getCurrentGame()).toBeNull();
+      await player.start();
+    } finally {
+      window.removeEventListener('c64-load-success', successListener);
+    }
+
+    const game = player.getCurrentGame();
+    expect(game?.name).toBe('test-game.crt');
+    expect(game?.type).toBe('crt');
+    expect(game?.data.byteLength).toBe(0x40);
+    expect(successListener.mock.calls[0][0].detail).toMatchObject({
+      name: 'test-game.crt',
+      type: 'crt',
+    });
+  });
+
+  it('clears the current game on detach and reboot', async () => {
+    const emulator = makeFakeEmulator();
+    vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);
+    stubFetchForGame();
+
+    const player = new C64Player({
+      wasmUrl: '/c64.wasm',
+      gameUrl: '/games/test.crt',
+      renderer: makeFakeRenderer(),
+    });
+    await player.start();
+    expect(player.getCurrentGame()).not.toBeNull();
+
+    player.detachCartridge();
+    expect(player.getCurrentGame()).toBeNull();
+
+    const crt = {
+      name: 'other.crt',
+      arrayBuffer: vi.fn().mockResolvedValue(makeCrtData(1, 1).buffer),
+    } as unknown as File;
+    await player.loadFile(crt, 'crt');
+    expect(player.getCurrentGame()?.name).toBe('other.crt');
+
+    await player.reboot();
+    expect(player.getCurrentGame()).toBeNull();
+  });
+
   it('rejects Ultimax CRT in browser load path and dispatches c64-load-error', async () => {
     const emulator = makeFakeEmulator();
     vi.spyOn(C64Emulator, 'load').mockResolvedValue(emulator);

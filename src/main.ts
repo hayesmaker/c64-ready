@@ -193,9 +193,28 @@ window.addEventListener('c64-load-error', (e: Event) => {
     | undefined;
   const msg = normalizeErrorMessage(detail?.error ?? 'Unknown load error');
   console.error('C64 load error event:', detail);
+  loadWarningShown = false;
   renderer.setError('LOAD ERROR');
   status.textContent = `Load error: ${msg}`;
   status.style.color = '#f44';
+});
+
+// Set while a load-time warning is on screen so the success message doesn't hide it
+let loadWarningShown = false;
+
+window.addEventListener('c64-load-success', (e: Event) => {
+  const detail = (e as CustomEvent<{ name?: string }>).detail;
+  if (loadWarningShown) {
+    loadWarningShown = false;
+    return;
+  }
+  status.textContent = `Loaded: ${detail?.name ?? 'game'}`;
+  status.style.color = '#9ecbff';
+});
+
+window.addEventListener('c64-detach', () => {
+  status.textContent = 'Cartridge detached (no game loaded)';
+  status.style.color = '#9ecbff';
 });
 
 window.addEventListener('c64-load-info', (e: Event) => {
@@ -203,6 +222,7 @@ window.addEventListener('c64-load-info', (e: Event) => {
     | { mode?: string; source?: string; message?: string }
     | undefined;
   if (!detail?.message) return;
+  loadWarningShown = detail.mode === 'warning';
   status.textContent = detail.message;
   status.style.color = detail.mode === 'warning' ? '#f9c74f' : '#9ecbff';
   console.info('C64 load info event:', detail);
