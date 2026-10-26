@@ -373,7 +373,7 @@ export default class UltimatePanel {
       this.els.extensionHint.textContent = status
         ? getExtensionSetupHint(status) ||
           `Extension ${status.version ? `v${status.version} ` : ''}ready${status.ip ? ` — Ultimate at ${status.ip}` : ''}. The IP is set in the extension's settings.`
-        : 'Browser extension not detected. Install it, or switch to the npm bridge.';
+        : `Browser extension not detected on ${window.location.host}. The store releases only run on c64cade.com, so use the npm bridge here (or load the extension unpacked from source).`;
       this.els.extensionOptionsBtn.disabled = !status;
     }
 
