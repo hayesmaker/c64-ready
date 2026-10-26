@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+No unreleased changes.
+
+## v3.2.0 - 2026-10-26T12:48:28+00:00
+
+- test(player): cover Ultimate IP persistence (b3dab20)
+- fix(player): save Ultimate IP to localStorage as it is typed (5e341e3)
+- test(player): cover Ultimate panel, bridge client and current-game tracking (a5bc238)
+- refactor(player): drop extension route from Ultimate panel, use npm bridge only (93bf30a)
+- fix(player): explain why the Ultimate extension isn't detected (068aee9)
+- feat(player): add Ultimate player panel to settings (e648696)
+- fix(player): update status line when a game loads or is detached (0522e50)
+- Merge pull request #211 from hayesmaker/chore/update-changelog-2026-10-18T19-41-12-838Z-e7857fa (9fb6301)
+- chore: update changelog (auto) (e7857fa)
 - Merge pull request #210 from hayesmaker/docs/fix-link-guide (947cb0c)
 - docs: npm link to correct package name (5fb658c)
 - Merge pull request #209 from hayesmaker/chore/3.1.1-ice-turn-fix (17136ef)
