@@ -2,20 +2,15 @@ import type { C64Player } from './c64-player';
 import { inferLoadTypeFromFilename } from './load-formats';
 import {
   DEFAULT_BRIDGE_URL,
-  ULTIMATE_INSTALL_OPTIONS,
-  getExtensionSetupHint,
-  getExtensionStatus,
+  ULTIMATE_BRIDGE_PACKAGE_URL,
   getSavedUltimateSettings,
   getUltimateInfo,
   isUltimateFileType,
   isValidUltimateIp,
   launchOnUltimate,
-  openExtensionOptions,
   powerOffUltimate,
   rebootUltimate,
   saveUltimateSettings,
-  waitForExtensionBridge,
-  type ExtensionStatus,
   type UltimateDeviceInfo,
   type UltimateFileType,
   type UltimateSettings,
@@ -25,18 +20,12 @@ type StatusMode = 'info' | 'ok' | 'error';
 
 /**
  * Settings section for playing games on a real Ultimate 64 / C64 Ultimate / Ultimate II+
- * through the C64Cade Ultimate Bridge (browser extension or npm bridge).
+ * through the C64Cade Ultimate Bridge npm package running on the user's machine.
  */
 export default class UltimatePanel {
-  private extensionStatus: ExtensionStatus | null = null;
   private deviceInfo: UltimateDeviceInfo | null = null;
   private busy = false;
   private els!: {
-    routeRadios: NodeListOf<HTMLInputElement>;
-    extensionFields: HTMLElement;
-    extensionHint: HTMLElement;
-    extensionOptionsBtn: HTMLButtonElement;
-    bridgeFields: HTMLElement;
     bridgeUrl: HTMLInputElement;
     ip: HTMLInputElement;
     password: HTMLInputElement;
@@ -64,45 +53,30 @@ export default class UltimatePanel {
     this.bind();
     this.updateCurrentGame();
     this.updateControls();
-    void this.detectExtension();
+    if (isValidUltimateIp(this.settings().ip)) void this.connect({ silent: true });
   }
 
   private render(): void {
     const saved = getSavedUltimateSettings();
-    const installLinks = ULTIMATE_INSTALL_OPTIONS.map(
-      (option) =>
-        `<a href="${option.url}" target="_blank" rel="noopener noreferrer">${option.name}</a>`,
-    ).join(' · ');
 
     this.container.innerHTML = `
       <label class="c64-section-label">Ultimate Player</label>
       <div class="c64-section-hint">
-        Play games on a real Ultimate 64, C64 Ultimate or Ultimate II+ using the C64Cade Ultimate Bridge.
-        Install one of: ${installLinks}
+        Play games on a real Ultimate 64, C64 Ultimate or Ultimate II+. Run the
+        <a href="${ULTIMATE_BRIDGE_PACKAGE_URL}" target="_blank" rel="noopener noreferrer">C64Cade Ultimate Bridge</a>
+        on this computer first: <code>npx @c64cade/ultimate-bridge</code>
       </div>
-      <div class="c64-radio-row" role="radiogroup" aria-label="Ultimate connection">
-        <label><input type="radio" name="c64-ultimate-route" value="extension" /> Browser extension</label>
-        <label><input type="radio" name="c64-ultimate-route" value="bridge" /> npm bridge</label>
+      <div class="c64-form-row">
+        <label for="c64-ultimate-bridge-url">Bridge URL</label>
+        <input id="c64-ultimate-bridge-url" class="c64-text-input" type="url" placeholder="${DEFAULT_BRIDGE_URL}" />
       </div>
-      <div id="c64-ultimate-extension-fields">
-        <div class="c64-section-hint" id="c64-ultimate-extension-hint">Looking for the browser extension…</div>
-        <div class="c64-menu-actions">
-          <button class="c64-btn" id="c64-ultimate-extension-options" type="button">Open Extension Settings</button>
-        </div>
+      <div class="c64-form-row">
+        <label for="c64-ultimate-ip">Ultimate IP</label>
+        <input id="c64-ultimate-ip" class="c64-text-input" type="text" inputmode="decimal" placeholder="192.168.0.10" />
       </div>
-      <div id="c64-ultimate-bridge-fields" hidden>
-        <div class="c64-form-row">
-          <label for="c64-ultimate-bridge-url">Bridge URL</label>
-          <input id="c64-ultimate-bridge-url" class="c64-text-input" type="url" placeholder="${DEFAULT_BRIDGE_URL}" />
-        </div>
-        <div class="c64-form-row">
-          <label for="c64-ultimate-ip">Ultimate IP</label>
-          <input id="c64-ultimate-ip" class="c64-text-input" type="text" inputmode="decimal" placeholder="192.168.0.10" />
-        </div>
-        <div class="c64-form-row">
-          <label for="c64-ultimate-password">Password</label>
-          <input id="c64-ultimate-password" class="c64-text-input" type="password" autocomplete="off" placeholder="(optional)" />
-        </div>
+      <div class="c64-form-row">
+        <label for="c64-ultimate-password">Password</label>
+        <input id="c64-ultimate-password" class="c64-text-input" type="password" autocomplete="off" placeholder="(optional)" />
       </div>
       <div class="c64-menu-actions">
         <button class="c64-btn" id="c64-ultimate-connect" type="button">Connect</button>
@@ -134,11 +108,6 @@ export default class UltimatePanel {
 
     const q = <T extends Element>(sel: string) => this.container.querySelector(sel) as T;
     this.els = {
-      routeRadios: this.container.querySelectorAll('input[name="c64-ultimate-route"]'),
-      extensionFields: q('#c64-ultimate-extension-fields'),
-      extensionHint: q('#c64-ultimate-extension-hint'),
-      extensionOptionsBtn: q('#c64-ultimate-extension-options'),
-      bridgeFields: q('#c64-ultimate-bridge-fields'),
       bridgeUrl: q('#c64-ultimate-bridge-url'),
       ip: q('#c64-ultimate-ip'),
       password: q('#c64-ultimate-password'),
@@ -156,21 +125,9 @@ export default class UltimatePanel {
     this.els.bridgeUrl.value = saved.bridgeUrl === DEFAULT_BRIDGE_URL ? '' : saved.bridgeUrl;
     this.els.ip.value = saved.ip;
     this.els.password.value = saved.password;
-    // Until detection finishes, assume the saved route (or the extension, as C64Cade does)
-    this.setRouteRadio(saved.route || 'extension');
   }
 
   private bind(): void {
-    this.els.routeRadios.forEach((radio) =>
-      radio.addEventListener('change', () => {
-        if (!radio.checked) return;
-        saveUltimateSettings({ route: radio.value === 'bridge' ? 'bridge' : 'extension' });
-        this.deviceInfo = null;
-        this.setStatus('');
-        this.updateControls();
-      }),
-    );
-
     const saveBridgeFields = () =>
       saveUltimateSettings({
         bridgeUrl: this.els.bridgeUrl.value.trim(),
@@ -185,9 +142,6 @@ export default class UltimatePanel {
       }),
     );
 
-    this.els.extensionOptionsBtn.addEventListener('click', () => {
-      openExtensionOptions().catch((err) => this.setStatus(errorText(err), 'error'));
-    });
     this.els.connectBtn.addEventListener('click', () => void this.connect());
     this.els.sendCurrentBtn.addEventListener('click', () => void this.sendCurrentGame());
     this.els.sendFileBtn.addEventListener('click', () => this.els.fileInput.click());
@@ -206,40 +160,6 @@ export default class UltimatePanel {
     window.addEventListener('c64-load-success', onGameChanged);
     window.addEventListener('c64-detach', onGameChanged);
     window.addEventListener('c64-reboot', onGameChanged);
-    // Pick up changes made in the extension's settings tab
-    window.addEventListener('focus', () => void this.refreshExtensionStatus());
-  }
-
-  private async detectExtension(): Promise<void> {
-    const found = await waitForExtensionBridge();
-    if (found) this.extensionStatus = await getExtensionStatus();
-    const savedRoute = getSavedUltimateSettings().route;
-    if (!savedRoute) this.setRouteRadio(found ? 'extension' : 'bridge');
-    this.updateControls();
-
-    const settings = this.settings();
-    const canAutoConnect =
-      settings.route === 'extension'
-        ? !!this.extensionStatus && !getExtensionSetupHint(this.extensionStatus)
-        : isValidUltimateIp(settings.ip);
-    if (canAutoConnect) await this.connect({ silent: true });
-  }
-
-  private async refreshExtensionStatus(): Promise<void> {
-    if (!window.C64CadeUltimateBridge?.request) return;
-    this.extensionStatus = await getExtensionStatus();
-    this.updateControls();
-  }
-
-  private route(): 'extension' | 'bridge' {
-    const checked = Array.from(this.els.routeRadios).find((r) => r.checked);
-    return checked?.value === 'bridge' ? 'bridge' : 'extension';
-  }
-
-  private setRouteRadio(route: 'extension' | 'bridge'): void {
-    this.els.routeRadios.forEach((radio) => {
-      radio.checked = radio.value === route;
-    });
   }
 
   private settings(): UltimateSettings {
@@ -247,7 +167,6 @@ export default class UltimatePanel {
       bridgeUrl: this.els.bridgeUrl.value.trim() || DEFAULT_BRIDGE_URL,
       ip: this.els.ip.value.trim(),
       password: this.els.password.value,
-      route: this.route(),
     };
   }
 
@@ -256,15 +175,7 @@ export default class UltimatePanel {
       silent ? '' : 'Connecting to Ultimate…',
       async () => {
         const settings = this.settings();
-        if (settings.route === 'extension') {
-          await this.refreshExtensionStatus();
-          if (!this.extensionStatus)
-            throw new Error(
-              'The C64Cade Ultimate Bridge extension was not found. Install it, then reload the page.',
-            );
-          const hint = getExtensionSetupHint(this.extensionStatus);
-          if (hint) throw new Error(hint);
-        } else if (!isValidUltimateIp(settings.ip)) {
+        if (!isValidUltimateIp(settings.ip)) {
           throw new Error("Enter your Ultimate's IPv4 address, e.g. 192.168.0.10.");
         }
         this.deviceInfo = null;
@@ -350,7 +261,7 @@ export default class UltimatePanel {
 
   private describeDevice(): string {
     const product = this.deviceInfo?.product || 'Ultimate';
-    const ip = this.route() === 'extension' ? this.extensionStatus?.ip : this.settings().ip;
+    const ip = this.settings().ip;
     return ip ? `${product} at ${ip}` : product;
   }
 
@@ -364,19 +275,6 @@ export default class UltimatePanel {
   }
 
   private updateControls(): void {
-    const route = this.route();
-    this.els.extensionFields.hidden = route !== 'extension';
-    this.els.bridgeFields.hidden = route !== 'bridge';
-
-    if (route === 'extension') {
-      const status = this.extensionStatus;
-      this.els.extensionHint.textContent = status
-        ? getExtensionSetupHint(status) ||
-          `Extension ${status.version ? `v${status.version} ` : ''}ready${status.ip ? ` — Ultimate at ${status.ip}` : ''}. The IP is set in the extension's settings.`
-        : `Browser extension not detected on ${window.location.host}. The store releases only run on c64cade.com, so use the npm bridge here (or load the extension unpacked from source).`;
-      this.els.extensionOptionsBtn.disabled = !status;
-    }
-
     if (this.deviceInfo) {
       const info = this.deviceInfo;
       const versions = [
