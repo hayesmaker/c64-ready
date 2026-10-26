@@ -10,6 +10,7 @@ const css = `
 .c64-dragarea{border:1px dashed #555;border-radius:6px;background:#111827;color:#aaa;padding:18px;margin:0 0 12px;text-align:center}.c64-dragarea.dragover{border-color:#7b71d5;background:#1f1b38;color:#fff}.c64-cart-preview,.c64-tools-section{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px;margin:12px 0}.c64-section-hint{color:#888;font-size:12px;line-height:1.4;margin:4px 0 12px}.c64-checkbox-row{display:flex;align-items:center;gap:8px;color:#ccc;font-size:13px;margin:14px 0 4px}
 .c64-text-input,.c64-textarea{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-text-input{min-width:180px}.c64-textarea{box-sizing:border-box;width:100%;min-height:120px;resize:vertical}.c64-cheevos-json-file{display:none}.c64-inline-status{color:#888;font-size:12px}
 .c64-cheat-list{display:grid;gap:12px;margin:0 0 12px}.c64-cheat-card{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px}.c64-cheat-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;color:#ddd;font-size:13px}.c64-cheat-remove{background:none;border:0;color:#ff9a9a;cursor:pointer;font:inherit;font-size:12px}.c64-cheat-grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 10px;align-items:center}.c64-cheat-input{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;min-width:0;padding:5px 8px}.c64-cheat-error{color:#ff9a9a;font-size:12px;margin:8px 0 0}.c64-cheat-status{color:#aaa;font-size:12px;line-height:1.4;margin:8px 0 0}.c64-cheat-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}@media (max-width:600px){.c64-cheat-grid{grid-template-columns:1fr}.c64-cheat-grid label{margin-top:4px}}
+.c64-cheat-status[data-mode=ok]{color:#8fd694}.c64-cheat-status[data-mode=error]{color:#f77}#c64-ultimate-device[data-connected]{color:#8fd694}.c64-settings-section .c64-section-hint a{color:#a8a8ff;text-decoration:none}
 `;
 
 export interface UIControllerOptions {
@@ -53,6 +54,7 @@ import type { C64Player } from './c64-player';
 import type { JoystickPort } from '../emulator/constants';
 import { chooseAndStoreCheevosRom, storeCheevosRomFile } from './local-rom-store';
 import { toViteFsUrl } from './startup-params';
+import UltimatePanel from './ultimate-panel';
 import {
   LOAD_FORMAT_OPTIONS,
   getAcceptForLoadTypeSelection,
@@ -834,6 +836,7 @@ export default class UIController {
       { id: 'audio', label: 'Audio' },
       { id: 'cheevos', label: 'Cheevos' },
       { id: 'cheats', label: 'Cheats' },
+      { id: 'ultimate', label: 'Ultimate' },
       { id: 'system', label: 'System' },
     ] as const;
 
@@ -975,6 +978,10 @@ export default class UIController {
               <div class="c64-section-hint">Downloads raw C64 RAM from $0000-$ffff as a .bin file for address inspection.</div>
               <div class="c64-cheat-status" id="c64-cheat-status" hidden></div>
             </div>
+          </section>
+
+          <section class="c64-settings-section" data-settings-section="ultimate" hidden>
+            <div id="c64-ultimate-section-anchor"></div>
           </section>
 
           <section class="c64-settings-section" data-settings-section="system" hidden>
@@ -1432,6 +1439,10 @@ export default class UIController {
     // ── Audio section ─────────────────────────────────────────────────────
     const audioContainer = panel.querySelector('#c64-audio-section-anchor') as HTMLElement;
     this.createAudioSection(audioContainer);
+
+    // ── Ultimate section ──────────────────────────────────────────────────
+    const ultimateContainer = panel.querySelector('#c64-ultimate-section-anchor') as HTMLElement;
+    new UltimatePanel(ultimateContainer, () => this.player).init();
 
     // ── Input section wiring ───────────────────────────────────────────────
     const joyRadios = panel.querySelectorAll(

@@ -4,11 +4,7 @@ import UIController from './player/ui-controller';
 import CheevosDevController, { parseCheevosSetJson } from './player/cheevos-dev';
 import type { CheevosDevSet } from './player/cheevos-dev';
 import CheevosTrackerPanel from './player/cheevos-tracker-panel';
-import {
-  getLoadTypeLabel,
-  inferLoadTypeFromFilename,
-  isSupportedLoadType,
-} from './player/load-formats';
+import { inferLoadTypeFromFilename, isSupportedLoadType } from './player/load-formats';
 import {
   getCheevosRomPath,
   getCheevosRomType,
@@ -207,13 +203,12 @@ window.addEventListener('c64-load-error', (e: Event) => {
 let loadWarningShown = false;
 
 window.addEventListener('c64-load-success', (e: Event) => {
-  const detail = (e as CustomEvent<{ name?: string; type?: string }>).detail;
+  const detail = (e as CustomEvent<{ name?: string }>).detail;
   if (loadWarningShown) {
     loadWarningShown = false;
     return;
   }
-  const type = isSupportedLoadType(detail?.type) ? ` (${getLoadTypeLabel(detail.type)})` : '';
-  status.textContent = `Loaded: ${detail?.name ?? 'game'}${type}`;
+  status.textContent = `Loaded: ${detail?.name ?? 'game'}`;
   status.style.color = '#9ecbff';
 });
 
