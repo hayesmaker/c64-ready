@@ -73,6 +73,31 @@ describe('UltimatePanel', () => {
     expect(window.localStorage.getItem('c64-ultimate-ip')).toBe('192.168.1.64');
   });
 
+  it('saves the IP to localStorage as it is typed and restores it on reload', () => {
+    stubFetchJson();
+    const { el } = makePanel();
+    const ip = el<HTMLInputElement>('c64-ultimate-ip');
+
+    ip.value = ' 10.0.0.42 ';
+    ip.dispatchEvent(new Event('input'));
+    expect(window.localStorage.getItem('c64-ultimate-ip')).toBe('10.0.0.42');
+
+    document.body.innerHTML = '';
+    const reloaded = makePanel();
+    expect(reloaded.el<HTMLInputElement>('c64-ultimate-ip').value).toBe('10.0.0.42');
+  });
+
+  it('saves the IP when Connect is clicked without a change event', async () => {
+    stubFetchJson();
+    const { el } = makePanel();
+    el<HTMLInputElement>('c64-ultimate-ip').value = '192.168.1.99';
+
+    el('c64-ultimate-connect').click();
+    await flush();
+
+    expect(window.localStorage.getItem('c64-ultimate-ip')).toBe('192.168.1.99');
+  });
+
   it('auto-connects on init when an IP is saved', async () => {
     window.localStorage.setItem('c64-ultimate-ip', '192.168.1.64');
     const fetchMock = stubFetchJson();
