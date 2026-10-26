@@ -128,19 +128,15 @@ export default class UltimatePanel {
   }
 
   private bind(): void {
-    const saveBridgeFields = () =>
-      saveUltimateSettings({
-        bridgeUrl: this.els.bridgeUrl.value.trim(),
-        ip: this.els.ip.value.trim(),
-        password: this.els.password.value,
-      });
-    [this.els.bridgeUrl, this.els.ip, this.els.password].forEach((input) =>
+    [this.els.bridgeUrl, this.els.ip, this.els.password].forEach((input) => {
+      // Save as the user types so a reload or closed tab never loses the IP
+      input.addEventListener('input', () => this.saveFields());
       input.addEventListener('change', () => {
-        saveBridgeFields();
+        this.saveFields();
         this.deviceInfo = null;
         this.updateControls();
-      }),
-    );
+      });
+    });
 
     this.els.connectBtn.addEventListener('click', () => void this.connect());
     this.els.sendCurrentBtn.addEventListener('click', () => void this.sendCurrentGame());
@@ -170,10 +166,19 @@ export default class UltimatePanel {
     };
   }
 
+  private saveFields(): void {
+    saveUltimateSettings({
+      bridgeUrl: this.els.bridgeUrl.value.trim(),
+      ip: this.els.ip.value.trim(),
+      password: this.els.password.value,
+    });
+  }
+
   private async connect({ silent = false } = {}): Promise<void> {
     await this.run(
       silent ? '' : 'Connecting to Ultimate…',
       async () => {
+        this.saveFields();
         const settings = this.settings();
         if (!isValidUltimateIp(settings.ip)) {
           throw new Error("Enter your Ultimate's IPv4 address, e.g. 192.168.0.10.");
