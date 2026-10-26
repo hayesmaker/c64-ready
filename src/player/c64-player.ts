@@ -38,6 +38,12 @@ export interface C64PlayerOptions {
   audio?: AudioEngineOptions;
 }
 
+export interface LoadedGame {
+  name: string;
+  type: GameLoadOptions['type'];
+  data: Uint8Array<ArrayBufferLike>;
+}
+
 export class C64Player {
   private emulator: C64Emulator | null = null;
   private inputHandler: InputHandler | null = null;
@@ -49,6 +55,7 @@ export class C64Player {
   private startupLoadInProgress: boolean = false;
   private startupDiskAutoloadPending: boolean = false;
   private debugSpeed: number = NORMAL_DEBUG_SPEED;
+  private currentGame: LoadedGame | null = null;
   readonly audio: AudioEngine;
   private readonly options: Required<Pick<C64PlayerOptions, 'wasmUrl' | 'gameUrl' | 'gameType'>> &
     C64PlayerOptions;
@@ -227,6 +234,11 @@ export class C64Player {
     await this.loadGame(url, resolvedType, onProgress);
   }
 
+  /** The most recently loaded game, or null after a detach/reboot. */
+  getCurrentGame(): LoadedGame | null {
+    return this.currentGame;
+  }
+
   // Expose cartridge / reset controls for UI
   detachCartridge(): void {
     if (!this.emulator) return;
@@ -234,6 +246,7 @@ export class C64Player {
       this.emulator.removeCartridge();
       this.diskSessionActive = false;
       this.startupDiskAutoloadPending = false;
+      this.currentGame = null;
       window.dispatchEvent(new CustomEvent('c64-detach', { detail: {} }));
       window.dispatchEvent(new CustomEvent('c64-close-menu'));
     } catch (e) {
@@ -262,6 +275,7 @@ export class C64Player {
       this.emulator.start();
       this.diskSessionActive = false;
       this.startupDiskAutoloadPending = false;
+      this.currentGame = null;
       this.emulator.setSampleRate(this.audio.sampleRate);
       this.applyDebugSpeed();
       this.audio.setSidBufferReader(() => this.emulator?.getSidBuffer() ?? null);
@@ -488,9 +502,11 @@ export class C64Player {
       } else {
         this.diskSessionActive = false;
       }
+      const name = getSourceName(source);
+      this.currentGame = { name, type, data };
       onProgress?.(100, 'READY!');
       window.dispatchEvent(
-        new CustomEvent('c64-load-success', { detail: { ...eventDetail, type } }),
+        new CustomEvent('c64-load-success', { detail: { ...eventDetail, name, type } }),
       );
     } catch (err) {
       onProgress?.(0, 'FAILED');
@@ -693,4 +709,9 @@ function hasViceSnapshotMagic(data: Uint8Array<ArrayBufferLike>): boolean {
     if (data[i] !== magic.charCodeAt(i)) return false;
   }
   return true;
+}
+
+function getSourceName(source: string): string {
+  const path = source.split(/[?#]/)[0];
+  return path.split('/').filter(Boolean).pop() || source;
 }
