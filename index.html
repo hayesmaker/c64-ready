@@ -3,9 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/led-on.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>C64 Ready</title>
     <style>
+      html {
+        background: #111;
+      }
       body {
         margin: 0;
         background: #111;
@@ -14,19 +17,31 @@
         align-items: center;
         justify-content: center;
         min-height: 100vh;
+        min-height: 100dvh;
         font-family: monospace;
         color: #aaa;
       }
+      /* Standard (desktop) size: 2x the C64 frame, scaled down to fit smaller
+         windows. Other modes are applied by UIController (html[data-c64-display]). */
       #c64-screen {
         image-rendering: unset;
         border: 4px solid #333;
+        box-sizing: content-box;
         display: block;
-        width: 768px;
-        height: 544px;
+        aspect-ratio: 384 / 272;
+        width: min(768px, calc(100vw - 8px), calc((100vh - 80px) * 384 / 272));
+        width: min(768px, calc(100vw - 8px), calc((100dvh - 80px) * 384 / 272));
+        height: auto;
+        touch-action: manipulation;
       }
       #status {
         margin-top: 10px;
         font-size: 13px;
+        max-width: calc(100vw - 24px);
+        text-align: center;
+      }
+      html[data-c64-fill] #status {
+        display: none;
       }
     </style>
   </head>

@@ -56,6 +56,21 @@ import { chooseAndStoreCheevosRom, storeCheevosRomFile } from './local-rom-store
 import { toViteFsUrl } from './startup-params';
 import UltimatePanel from './ultimate-panel';
 import {
+  DISPLAY_MODE_STORAGE_KEY,
+  FULLSCREEN_ENTER_ICON,
+  FULLSCREEN_EXIT_ICON,
+  PORTRAIT_QUERY,
+  TOUCH_DEVICE_QUERY,
+  displayLayoutCss,
+  isDisplayMode,
+  isFillLayout,
+  isFullscreenActive,
+  isFullscreenSupported,
+  resolveDisplayLayout,
+  toggleFullscreen,
+} from './display-layout';
+import type { DisplayMode } from './display-layout';
+import {
   LOAD_FORMAT_OPTIONS,
   getAcceptForLoadTypeSelection,
   getLoadTypeLabel,
@@ -238,8 +253,10 @@ export default class UIController {
     this.applyCheatAction(cheat);
   };
   // Save previous overflow styles so we can restore them when exiting full/stretch
-  private savedHtmlOverflow: string | null = null;
-  private savedBodyOverflow: string | null = null;
+  private displayMode: DisplayMode = 'standard';
+  private fullscreenBtn: HTMLButtonElement | null = null;
+  private touchQuery: MediaQueryList | null = null;
+  private portraitQuery: MediaQueryList | null = null;
   private connectedGamepads = new Map<number, ConnectedGamepad>();
   private readonly handleControllerConnected = (event: Event): void => {
     const detail = (event as CustomEvent<{ name?: string; index?: number }>).detail;
@@ -271,6 +288,8 @@ export default class UIController {
     this.createHamburger();
     this.createMenu();
     this.createUnmuteButton();
+    this.createFullscreenButton();
+    this.initDisplayLayout();
     window.addEventListener('keydown', this.handleCheatKeyDown, true);
     window.addEventListener('c64-controller-connected', this.handleControllerConnected);
     window.addEventListener('c64-controller-disconnected', this.handleControllerDisconnected);
@@ -701,7 +720,7 @@ export default class UIController {
     if (document.querySelector('style[data-c64-help]')) return;
     const style = document.createElement('style');
     style.setAttribute('data-c64-help', '');
-    style.textContent = css;
+    style.textContent = css + displayLayoutCss;
     document.head.appendChild(style);
   }
 
@@ -811,6 +830,96 @@ export default class UIController {
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = '<p>No changelog found.</p>';
     }
+  }
+
+  // ── Display layout & fullscreen ─────────────────────────────────────────
+
+  private initDisplayLayout(): void {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
+    } catch {
+      // storage unavailable (private mode / blocked) — use the default
+    }
+    this.displayMode = isDisplayMode(stored) ? stored : 'standard';
+
+    if (typeof window.matchMedia === 'function') {
+      this.touchQuery = window.matchMedia(TOUCH_DEVICE_QUERY);
+      this.portraitQuery = window.matchMedia(PORTRAIT_QUERY);
+      this.touchQuery.addEventListener?.('change', this.applyDisplayLayout);
+      this.portraitQuery.addEventListener?.('change', this.applyDisplayLayout);
+    }
+    document.addEventListener('fullscreenchange', this.applyDisplayLayout);
+    document.addEventListener('webkitfullscreenchange', this.applyDisplayLayout);
+
+    this.setDisplayMode(this.displayMode, { persist: false });
+  }
+
+  /** Change the user-selected display mode (Settings → Display). */
+  setDisplayMode(mode: DisplayMode, { persist = true }: { persist?: boolean } = {}): void {
+    this.displayMode = mode;
+    if (persist) {
+      try {
+        window.localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, mode);
+      } catch {
+        // ignore — preference just won't survive a reload
+      }
+    }
+    const radio = document.querySelector<HTMLInputElement>(
+      `input[name="c64-display-mode"][value="${mode}"]`,
+    );
+    if (radio) radio.checked = true;
+
+    const canvas = document.getElementById('c64-screen');
+    canvas?.setAttribute('data-display-mode', mode);
+    this.applyDisplayLayout();
+    window.dispatchEvent(new CustomEvent('c64-display-mode-changed', { detail: { mode } }));
+  }
+
+  getDisplayMode(): DisplayMode {
+    return this.displayMode;
+  }
+
+  private readonly applyDisplayLayout = (): void => {
+    const fullscreen = isFullscreenActive();
+    const layout = resolveDisplayLayout(this.displayMode, {
+      fullscreen,
+      touch: this.touchQuery?.matches ?? false,
+      portrait: this.portraitQuery?.matches ?? false,
+    });
+    const root = document.documentElement;
+    root.setAttribute('data-c64-layout', layout);
+    root.toggleAttribute('data-c64-fill', isFillLayout(layout));
+    root.toggleAttribute('data-c64-fullscreen', fullscreen);
+    if (this.fullscreenBtn) {
+      this.fullscreenBtn.innerHTML = fullscreen ? FULLSCREEN_EXIT_ICON : FULLSCREEN_ENTER_ICON;
+      this.fullscreenBtn.title = fullscreen ? 'Exit fullscreen' : 'Fullscreen';
+      this.fullscreenBtn.setAttribute('aria-label', this.fullscreenBtn.title);
+    }
+  };
+
+  async toggleFullscreen(): Promise<void> {
+    try {
+      await toggleFullscreen();
+    } catch (error) {
+      console.warn('[c64-ready] fullscreen request failed:', error);
+    }
+  }
+
+  private createFullscreenButton(): void {
+    if (!isFullscreenSupported()) return;
+    const btn = document.createElement('button');
+    btn.className = 'c64-fullscreen-btn';
+    btn.type = 'button';
+    btn.innerHTML = FULLSCREEN_ENTER_ICON;
+    btn.title = 'Fullscreen';
+    btn.setAttribute('aria-label', 'Fullscreen');
+    btn.addEventListener('click', () => {
+      btn.blur(); // keep keyboard focus off the button so Space etc. reach the C64
+      void this.toggleFullscreen();
+    });
+    document.body.appendChild(btn);
+    this.fullscreenBtn = btn;
   }
 
   private createHamburger(): void {
@@ -927,6 +1036,10 @@ export default class UIController {
               <label><input type="radio" name="c64-display-mode" value="standard" checked /> Standard</label>
               <label><input type="radio" name="c64-display-mode" value="full" /> Full</label>
               <label><input type="radio" name="c64-display-mode" value="stretch" /> Stretch</label>
+            </div>
+            <div class="c64-section-hint">Standard: 2x size on desktop; fills the screen width on phones in portrait and the screen height in landscape. Full: as large as the window allows. Stretch: fills the window, ignoring the aspect ratio.</div>
+            <div class="c64-menu-actions">
+              <button class="c64-btn" id="c64-fullscreen-toggle" type="button">Toggle Fullscreen</button>
             </div>
           </section>
 
@@ -1498,70 +1611,20 @@ export default class UIController {
     const displayRadios = panel.querySelectorAll(
       'input[name="c64-display-mode"]',
     ) as NodeListOf<HTMLInputElement>;
-    const canvas = document.getElementById('c64-screen') as HTMLCanvasElement | null;
-    const applyDisplayMode = (mode: string) => {
-      if (!canvas) return;
-      // Reset to defaults first
-      canvas.style.width = '';
-      canvas.style.height = '';
-      canvas.style.objectFit = '';
-      canvas.removeAttribute('data-display-mode');
-
-      if (mode === 'standard') {
-        // Use the default CSS size (no change)
-        canvas.style.width = '';
-        canvas.style.height = '';
-        // Restore the default border from CSS
-        canvas.style.border = '';
-        // Restore any previously-saved page overflow styles so scrollbars reappear
-        if (this.savedHtmlOverflow !== null) {
-          document.documentElement.style.overflow = this.savedHtmlOverflow;
-          this.savedHtmlOverflow = null;
-        } else {
-          document.documentElement.style.overflow = '';
-        }
-        if (this.savedBodyOverflow !== null) {
-          document.body.style.overflow = this.savedBodyOverflow;
-          this.savedBodyOverflow = null;
-        } else {
-          document.body.style.overflow = '';
-        }
-      } else if (mode === 'full') {
-        // Maintain aspect ratio, make canvas fill the full height of the browser
-        canvas.style.height = '100vh';
-        canvas.style.width = 'auto';
-        canvas.style.objectFit = 'contain';
-        // Remove canvas border in full-screen-like modes
-        canvas.style.border = 'none';
-        // Hide page scrollbars (prevent overflow when canvas touches edges)
-        if (this.savedHtmlOverflow === null)
-          this.savedHtmlOverflow = document.documentElement.style.overflow;
-        if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-      } else if (mode === 'stretch') {
-        // Stretch to full width and height (may alter aspect ratio)
-        canvas.style.width = '100vw';
-        canvas.style.height = '100vh';
-        canvas.style.objectFit = 'fill';
-        // Remove canvas border in full-screen-like modes
-        canvas.style.border = 'none';
-        // Hide page scrollbars (prevent overflow when canvas touches edges)
-        if (this.savedHtmlOverflow === null)
-          this.savedHtmlOverflow = document.documentElement.style.overflow;
-        if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-      }
-      canvas.setAttribute('data-display-mode', mode);
-      window.dispatchEvent(new CustomEvent('c64-display-mode-changed', { detail: { mode } }));
-    };
-
     displayRadios.forEach((r) => {
       r.addEventListener('change', () => {
-        if (r.checked) applyDisplayMode(r.value);
+        if (r.checked && isDisplayMode(r.value)) this.setDisplayMode(r.value);
       });
     });
+    const fullscreenToggle = panel.querySelector('#c64-fullscreen-toggle') as HTMLButtonElement;
+    if (isFullscreenSupported()) {
+      fullscreenToggle.addEventListener('click', () => {
+        this.closeMenu();
+        void this.toggleFullscreen();
+      });
+    } else {
+      fullscreenToggle.hidden = true;
+    }
 
     window.addEventListener('c64-close-dialog', () => {
       this.closeMenu();
