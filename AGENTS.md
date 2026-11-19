@@ -43,6 +43,25 @@ Follow these rules on every task, no exceptions:
    git show HEAD | cat
    ```
 
+7. **Releases — `master` is protected.** Never run `./tools/release.sh` on `master`.
+   Its `git push origin <branch>` is rejected, and its tag push (`git push --force origin vX.Y.Z`)
+   would publish a tag for a commit that never reaches `master`. Instead, bump the version on the
+   release PR branch before merging it:
+   ```zsh
+   # on the release branch (e.g. feat/release-3.3.0), clean tree, tests passing
+   ./tools/release.sh minor --no-push   # npm version → "chore(release): X.Y.Z" commit + vX.Y.Z tag + CHANGELOG.md
+   git push origin HEAD                  # updates the PR; do NOT push the tag yet
+   # → merge the PR on GitHub with "Create a merge commit" (squash/rebase would orphan the tagged commit)
+   git checkout master && git pull
+   git merge-base --is-ancestor vX.Y.Z master && git push origin vX.Y.Z
+   ```
+   - Pushing the tag triggers `create_release_from_tag.yml` (GitHub release). The merge to
+     `master` triggers `deploy.yml` (GitHub Pages), which then shows the new version.
+   - If the release commit has to change after tagging, move the tag (`git tag -f vX.Y.Z`) before
+     pushing it.
+   - Nothing in CI runs `npm publish`. The maintainer publishes to npm by hand after the tag is
+     pushed. Agents must not run `npm publish`, and must not push tags unless asked.
+
 ---
 
 Quick start
