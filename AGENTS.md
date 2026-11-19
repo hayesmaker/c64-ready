@@ -53,6 +53,9 @@ Quick start
 node bin/headless.mjs --wasm public/c64.wasm --no-game --frames 50
 ```
 
+Agent CLI (verify C64 programs yourself)
+- `node bin/agent.mjs <file.prg|.crt|.d64> --frames <n> --screen --screenshot out.png` runs deterministically (emulated frames, no wall clock) and prints registers, screen text and dumps. Full reference: `docs/AGENT_CLI.md`. Source: `src/headless/agent-cli.mjs`, PNG encoder `src/headless/png.mjs`.
+
 Big-picture architecture (what to read first)
 - WASM loader / low-level: `src/emulator/c64-wasm.ts` — memory, imports, DYNAMICTOP_PTR/DYNAMIC_BASE, `allocAndWrite`, `updateHeapViews()`
 - High-level emulator API: `src/emulator/c64-emulator.ts` — uses WASM exports, exposes `tick`/`start`/`loadGame`, frame/audio hooks
