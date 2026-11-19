@@ -101,7 +101,9 @@ describe('UIController', () => {
     const ui = new UIController();
     ui.init();
 
-    const items = Array.from(document.querySelectorAll('.c64-help-controls li'));
+    const items = Array.from(
+      document.querySelectorAll('.c64-help-overlay:not(.c64-keymap-overlay) .c64-help-controls li'),
+    );
     expect(items.length).toBe(12);
 
     const keysFor = (label: string) => {
