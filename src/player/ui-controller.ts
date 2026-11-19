@@ -11,7 +11,7 @@ const css = `
 .c64-text-input,.c64-textarea{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-text-input{min-width:180px}.c64-textarea{box-sizing:border-box;width:100%;min-height:120px;resize:vertical}.c64-cheevos-json-file{display:none}.c64-inline-status{color:#888;font-size:12px}
 .c64-cheat-list{display:grid;gap:12px;margin:0 0 12px}.c64-cheat-card{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px}.c64-cheat-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;color:#ddd;font-size:13px}.c64-cheat-remove{background:none;border:0;color:#ff9a9a;cursor:pointer;font:inherit;font-size:12px}.c64-cheat-grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 10px;align-items:center}.c64-cheat-input{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;min-width:0;padding:5px 8px}.c64-cheat-error{color:#ff9a9a;font-size:12px;margin:8px 0 0}.c64-cheat-status{color:#aaa;font-size:12px;line-height:1.4;margin:8px 0 0}.c64-cheat-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}@media (max-width:600px){.c64-cheat-grid{grid-template-columns:1fr}.c64-cheat-grid label{margin-top:4px}}
 .c64-help-dialog,.c64-menu-panel{box-sizing:border-box;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.c64-menu-panel{max-height:min(82vh,calc(100dvh - 32px))}.c64-changelog-dialog{max-height:min(70vh,calc(100dvh - 32px))}
-.c64-help-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;margin:0 0 8px}.c64-help-controls li{align-items:center;gap:8px;padding:3px 0}.c64-help-keys{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}.c64-help-key{font-family:inherit;white-space:nowrap}.c64-help-dialog p.c64-help-note{margin:4px 0 0;font-size:12px;color:#888}.c64-help-dialog .c64-version{margin-top:16px}
+.c64-help-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;margin:0 0 8px}.c64-help-controls li{align-items:center;gap:8px;padding:3px 0}.c64-help-keys{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}.c64-help-key{font-family:inherit;white-space:nowrap}.c64-help-dialog p.c64-help-note{margin:4px 0 0;font-size:12px;color:#888}.c64-help-dialog .c64-version{margin-top:16px}.c64-help-dialog h3{margin:16px 0 6px;font-size:13px;color:#a8a8ff;letter-spacing:1px;text-transform:uppercase}.c64-help-key-note{font-size:12px;color:#888;font-style:italic}.c64-keymap-dialog .c64-help-close{position:sticky;top:0;float:right;margin:-12px -18px 0 0}
 @media (max-width:560px){.c64-help-controls{grid-template-columns:1fr}.c64-help-dialog,.c64-menu-panel{padding:20px 16px;width:calc(100% - 24px)}}
 .c64-cheat-status[data-mode=ok]{color:#8fd694}.c64-cheat-status[data-mode=error]{color:#f77}#c64-ultimate-device[data-connected]{color:#8fd694}.c64-settings-section .c64-section-hint a{color:#a8a8ff;text-decoration:none}
 `;
@@ -43,6 +43,55 @@ const CONTROLS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['← / ↑ glyphs', ['`', '^']],
   ['F1–F8', ['F1–F8']],
 ];
+
+type KeymapEntry = readonly [label: string, keys: readonly string[], note?: string];
+
+/** Full keyboard map, linked from the help dialog: [section title, entries]. */
+const FULL_KEYMAP: ReadonlyArray<readonly [string, readonly KeymapEntry[]]> = [
+  [
+    'Joystick',
+    [
+      ['Up / Down', ['↑', '↓']],
+      ['Left / Right', ['←', '→']],
+      ['Fire', ['Z', 'Left Ctrl']],
+    ],
+  ],
+  [
+    'Emulator',
+    [
+      ['Faster', ['Alt +']],
+      ['Slower', ['Alt −']],
+      ['Normal speed', ['Alt ⌫']],
+    ],
+  ],
+  [
+    'C64 keyboard',
+    [
+      ['Run/Stop', ['Esc']],
+      ['Restore', [], 'not supported yet'],
+      ['Return', ['Enter']],
+      ['Shift', ['Shift']],
+      ['Inst/Del', ['⌫', 'Del']],
+      ['Clr/Home', ['Home']],
+      ['Commodore', ['Ctrl', 'Caps Lock']],
+      ['Control', ['Tab']],
+      ['F1–F8', ['F1–F8']],
+      ['← (arrow left)', ['`']],
+      ['↑ (arrow up)', ['^', '~']],
+      ['£ (pound)', ['\\']],
+      ['Colon / Semicolon', [':', ';', '[', ']']],
+      ['Slash', ['/', '?']],
+      ['Comma / Period', [',', '.', '<', '>']],
+      ['Letters, numbers, + − * = @', [], 'as typed'],
+    ],
+  ],
+];
+
+function renderKeymapItem([label, keys, note]: KeymapEntry): string {
+  const chips = keys.map((key) => `<kbd class="c64-help-key">${key}</kbd>`).join('');
+  const extra = note ? `<span class="c64-help-key-note">${note}</span>` : '';
+  return `<li><span>${label}</span><span class="c64-help-keys">${chips}${extra}</span></li>`;
+}
 
 import type { C64Player } from './c64-player';
 import type { JoystickPort } from '../emulator/constants';
@@ -249,6 +298,7 @@ export default class UIController {
   // Save previous overflow styles so we can restore them when exiting full/stretch
   private displayMode: DisplayMode = 'standard';
   private fullscreenBtn: HTMLButtonElement | null = null;
+  private keymapOverlay: HTMLElement | null = null;
   private touchQuery: MediaQueryList | null = null;
   private portraitQuery: MediaQueryList | null = null;
   private connectedGamepads = new Map<number, ConnectedGamepad>();
@@ -740,12 +790,9 @@ export default class UIController {
       if (e.target === overlay) this.close();
     });
 
-    const controlItems = CONTROLS.map(
-      ([action, keys]) =>
-        `<li><span>${action}</span><span class="c64-help-keys">${keys
-          .map((key) => `<kbd class="c64-help-key">${key}</kbd>`)
-          .join('')}</span></li>`,
-    ).join('');
+    const controlItems = CONTROLS.map(([action, keys]) => renderKeymapItem([action, keys])).join(
+      '',
+    );
 
     overlay.innerHTML = `
       <div class="c64-help-dialog">
@@ -755,7 +802,7 @@ export default class UIController {
         <p><a href="https://github.com/hayesmaker/c64-ready" target="_blank" rel="noopener">Source code on GitHub</a> · <a href="#" id="c64-view-changelog">View changelog</a></p>
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
-        <p class="c64-help-note">Other keys type as on your keyboard. RESTORE is not supported yet.</p>
+        <p class="c64-help-note">Other keys type as on your keyboard. <a href="#" id="c64-view-keymap">Full keyboard map &rarr;</a></p>
         <div class="c64-version">${this.getVersionLabel()}</div>
       </div>
     `;
@@ -788,6 +835,36 @@ export default class UIController {
         this.loadAndShowChangelog(changelogOverlay);
       });
     }
+
+    // Full keyboard map modal (hidden by default)
+    const keymapSections = FULL_KEYMAP.map(
+      ([title, entries]) =>
+        `<h3>${title}</h3><ul class="c64-help-controls">${entries.map(renderKeymapItem).join('')}</ul>`,
+    ).join('');
+    const keymapOverlay = document.createElement('div');
+    keymapOverlay.className = 'c64-help-overlay c64-keymap-overlay';
+    keymapOverlay.style.zIndex = '1003';
+    keymapOverlay.innerHTML = `
+      <div class="c64-help-dialog c64-keymap-dialog">
+        <button class="c64-help-close" aria-label="Close">&times;</button>
+        <h2>KEYBOARD MAP</h2>
+        <p class="c64-help-note">Mixed input mode (the default): arrows and Z / Left Ctrl drive the joystick, every other key goes to the C64 keyboard. Change it under Settings &rarr; Input.</p>
+        ${keymapSections}
+      </div>
+    `;
+    const closeKeymap = () => keymapOverlay.classList.remove('visible');
+    keymapOverlay.addEventListener('click', (e) => {
+      if (e.target === keymapOverlay) closeKeymap();
+    });
+    keymapOverlay.querySelector('.c64-help-close')!.addEventListener('click', closeKeymap);
+    document.body.appendChild(keymapOverlay);
+    this.keymapOverlay = keymapOverlay;
+    overlay.querySelector('#c64-view-keymap')!.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const dialog = keymapOverlay.querySelector('.c64-help-dialog');
+      if (dialog) dialog.scrollTop = 0;
+      keymapOverlay.classList.add('visible');
+    });
   }
 
   private async loadAndShowChangelog(container: HTMLElement) {
@@ -1734,5 +1811,6 @@ export default class UIController {
 
   close(): void {
     this.helpOverlay?.classList.remove('visible');
+    this.keymapOverlay?.classList.remove('visible');
   }
 }
