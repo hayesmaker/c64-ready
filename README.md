@@ -58,6 +58,24 @@ Run tests in watch mode:
 npm run test:watch
 ```
 
+## Agent CLI — screenshots, memory and breakpoints for AI-assisted development
+
+`c64-agent` runs a program for a fixed number of emulated frames, feeds it scripted
+keyboard and joystick input, and reports back: CPU registers, the text screen, memory
+dumps, PNG screenshots and optional video. Runs are deterministic, which makes it the
+tool to hand to an LLM coding agent or a CI job.
+
+```zsh
+# Run a KickAssembler build for 5 seconds, then screenshot it and print the screen
+npx -p c64-ready c64-agent game.prg --frames 250 --screenshot shot.png --screen
+
+# Press fire at frame 100 and stop when the code reaches a label
+npx -p c64-ready c64-agent game.prg --symbols game.sym --at 100:joy2=fire --break on_fire
+```
+
+See [Agent CLI](docs/AGENT_CLI.md) for every option. For ready-made Claude Code /
+Agent Skills, see [c64-skills](https://github.com/hayesmaker/c64-skills).
+
 ## Cheevos development
 
 c64-ready can load local `c64-cheevos` game detectors while running games in the browser. This is useful for developing score tracking and achievements with live emulator memory reads.
@@ -618,6 +636,7 @@ Extended documentation lives in the [`docs/`](docs/) folder:
 
 | File                                                  | Description                                                        |
 | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| [`AGENT_CLI.md`](docs/AGENT_CLI.md)                   | `c64-agent`: deterministic run, screenshot, dump and breakpoint CLI |
 | [`AUDIO_ENGINE.md`](docs/AUDIO_ENGINE.md)             | SID audio pipeline, worklet pull-model, timing rules               |
 | [`HEADLESS_INPUT.md`](docs/HEADLESS_INPUT.md)         | Headless WebSocket input API reference                             |
 | [`HEADLESS_RUNNING.md`](docs/HEADLESS_RUNNING.md)     | Headless CLI usage, frame/timing rules, ffmpeg integration         |
