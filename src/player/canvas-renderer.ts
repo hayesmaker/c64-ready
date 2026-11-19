@@ -4,7 +4,7 @@ import type { C64Emulator } from '../emulator/c64-emulator';
 const loaderCss = `
 .c64-loader {
   position: relative;
-  width: 768px;
+  width: min(768px, calc(100vw - 24px));
   margin-top: 12px;
   transition: opacity 0.6s ease, transform 0.6s ease;
 }

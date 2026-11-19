@@ -10,6 +10,9 @@ const css = `
 .c64-dragarea{border:1px dashed #555;border-radius:6px;background:#111827;color:#aaa;padding:18px;margin:0 0 12px;text-align:center}.c64-dragarea.dragover{border-color:#7b71d5;background:#1f1b38;color:#fff}.c64-cart-preview,.c64-tools-section{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px;margin:12px 0}.c64-section-hint{color:#888;font-size:12px;line-height:1.4;margin:4px 0 12px}.c64-checkbox-row{display:flex;align-items:center;gap:8px;color:#ccc;font-size:13px;margin:14px 0 4px}
 .c64-text-input,.c64-textarea{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-text-input{min-width:180px}.c64-textarea{box-sizing:border-box;width:100%;min-height:120px;resize:vertical}.c64-cheevos-json-file{display:none}.c64-inline-status{color:#888;font-size:12px}
 .c64-cheat-list{display:grid;gap:12px;margin:0 0 12px}.c64-cheat-card{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px}.c64-cheat-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;color:#ddd;font-size:13px}.c64-cheat-remove{background:none;border:0;color:#ff9a9a;cursor:pointer;font:inherit;font-size:12px}.c64-cheat-grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 10px;align-items:center}.c64-cheat-input{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;min-width:0;padding:5px 8px}.c64-cheat-error{color:#ff9a9a;font-size:12px;margin:8px 0 0}.c64-cheat-status{color:#aaa;font-size:12px;line-height:1.4;margin:8px 0 0}.c64-cheat-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}@media (max-width:600px){.c64-cheat-grid{grid-template-columns:1fr}.c64-cheat-grid label{margin-top:4px}}
+.c64-help-dialog,.c64-menu-panel{box-sizing:border-box;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.c64-menu-panel{max-height:min(82vh,calc(100dvh - 32px))}.c64-changelog-dialog{max-height:min(70vh,calc(100dvh - 32px))}
+.c64-help-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;margin:0 0 8px}.c64-help-controls li{align-items:center;gap:8px;padding:3px 0}.c64-help-keys{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}.c64-help-key{font-family:inherit;white-space:nowrap}.c64-help-dialog p.c64-help-note{margin:4px 0 0;font-size:12px;color:#888}.c64-help-dialog .c64-version{margin-top:16px}.c64-help-dialog h3{margin:16px 0 6px;font-size:13px;color:#a8a8ff;letter-spacing:1px;text-transform:uppercase}.c64-help-key-note{font-size:12px;color:#888;font-style:italic}.c64-keymap-dialog .c64-help-close{position:sticky;top:0;float:right;margin:-12px -18px 0 0}
+@media (max-width:560px){.c64-help-controls{grid-template-columns:1fr}.c64-help-dialog,.c64-menu-panel{padding:20px 16px;width:calc(100% - 24px)}}
 .c64-cheat-status[data-mode=ok]{color:#8fd694}.c64-cheat-status[data-mode=error]{color:#f77}#c64-ultimate-device[data-connected]{color:#8fd694}.c64-settings-section .c64-section-hint a{color:#a8a8ff;text-decoration:none}
 `;
 
@@ -25,36 +28,91 @@ function resolveAssetUrl(baseUrl: string | undefined, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
-const CONTROLS = [
-  ['Move Up', '↑'],
-  ['Move Down', '↓'],
-  ['Move Left', '←'],
-  ['Move Right', '→'],
-  ['Fire', 'Z or Left Ctrl'],
+/** Help dialog controls guide: [label, keys]. Rendered as a compact two-column grid. */
+const CONTROLS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['Joystick', ['↑', '↓', '←', '→']],
+  ['Fire', ['Z', 'Left Ctrl']],
+  ['Fast-forward', ['Alt +', 'Alt −']],
+  ['Normal speed', ['Alt ⌫']],
+  ['Run/Stop', ['Esc']],
+  ['Inst/Del', ['⌫', 'Del']],
+  ['Clr/Home', ['Home']],
+  ['Commodore', ['Ctrl', 'Caps Lock']],
+  ['Control', ['Tab']],
+  ['£', ['\\']],
+  ['← / ↑ glyphs', ['`', '^']],
+  ['F1–F8', ['F1–F8']],
 ];
 
-const SPECIAL_KEYS = [
-  ['Fast-forward speed', 'Alt + / Alt - / Alt Backspace'],
-  ['Run/Stop', 'Esc'],
-  ['Restore', '(currently unsupported)'],
-  ['Insert/Delete', 'Backspace or Delete'],
-  ['Clear/Home', 'Home'],
-  ['Commodore', 'Ctrl or Caps Lock'],
-  ['Control', 'Tab'],
-  ['Arrow Left glyph', '`'],
-  ['Arrow Up glyph', '^ or ~'],
-  ['Pound', '\\'],
-  ['Colon / Semicolon', ': ; [ ]'],
-  ['Slash', '/ ?'],
-  ['Comma / Period', ', . < >'],
-  ['C64 function keys', 'F1-F8'],
+type KeymapEntry = readonly [label: string, keys: readonly string[], note?: string];
+
+/** Full keyboard map, linked from the help dialog: [section title, entries]. */
+const FULL_KEYMAP: ReadonlyArray<readonly [string, readonly KeymapEntry[]]> = [
+  [
+    'Joystick',
+    [
+      ['Up / Down', ['↑', '↓']],
+      ['Left / Right', ['←', '→']],
+      ['Fire', ['Z', 'Left Ctrl']],
+    ],
+  ],
+  [
+    'Emulator',
+    [
+      ['Faster', ['Alt +']],
+      ['Slower', ['Alt −']],
+      ['Normal speed', ['Alt ⌫']],
+    ],
+  ],
+  [
+    'C64 keyboard',
+    [
+      ['Run/Stop', ['Esc']],
+      ['Restore', [], 'not supported yet'],
+      ['Return', ['Enter']],
+      ['Shift', ['Shift']],
+      ['Inst/Del', ['⌫', 'Del']],
+      ['Clr/Home', ['Home']],
+      ['Commodore', ['Ctrl', 'Caps Lock']],
+      ['Control', ['Tab']],
+      ['F1–F8', ['F1–F8']],
+      ['← (arrow left)', ['`']],
+      ['↑ (arrow up)', ['^', '~']],
+      ['£ (pound)', ['\\']],
+      ['Colon / Semicolon', [':', ';', '[', ']']],
+      ['Slash', ['/', '?']],
+      ['Comma / Period', [',', '.', '<', '>']],
+      ['Letters, numbers, + − * = @', [], 'as typed'],
+    ],
+  ],
 ];
+
+function renderKeymapItem([label, keys, note]: KeymapEntry): string {
+  const chips = keys.map((key) => `<kbd class="c64-help-key">${key}</kbd>`).join('');
+  const extra = note ? `<span class="c64-help-key-note">${note}</span>` : '';
+  return `<li><span>${label}</span><span class="c64-help-keys">${chips}${extra}</span></li>`;
+}
 
 import type { C64Player } from './c64-player';
 import type { JoystickPort } from '../emulator/constants';
 import { chooseAndStoreCheevosRom, storeCheevosRomFile } from './local-rom-store';
 import { toViteFsUrl } from './startup-params';
 import UltimatePanel from './ultimate-panel';
+import {
+  DISPLAY_MODE_STORAGE_KEY,
+  FULLSCREEN_ENTER_ICON,
+  FULLSCREEN_EXIT_ICON,
+  PORTRAIT_QUERY,
+  TOUCH_DEVICE_QUERY,
+  displayLayoutCss,
+  isDisplayMode,
+  isFillLayout,
+  isFullscreenActive,
+  isFullscreenSupported,
+  resolveDisplayLayout,
+  toggleFullscreen,
+} from './display-layout';
+import type { DisplayMode } from './display-layout';
 import {
   LOAD_FORMAT_OPTIONS,
   getAcceptForLoadTypeSelection,
@@ -238,8 +296,11 @@ export default class UIController {
     this.applyCheatAction(cheat);
   };
   // Save previous overflow styles so we can restore them when exiting full/stretch
-  private savedHtmlOverflow: string | null = null;
-  private savedBodyOverflow: string | null = null;
+  private displayMode: DisplayMode = 'standard';
+  private fullscreenBtn: HTMLButtonElement | null = null;
+  private keymapOverlay: HTMLElement | null = null;
+  private touchQuery: MediaQueryList | null = null;
+  private portraitQuery: MediaQueryList | null = null;
   private connectedGamepads = new Map<number, ConnectedGamepad>();
   private readonly handleControllerConnected = (event: Event): void => {
     const detail = (event as CustomEvent<{ name?: string; index?: number }>).detail;
@@ -271,6 +332,8 @@ export default class UIController {
     this.createHamburger();
     this.createMenu();
     this.createUnmuteButton();
+    this.createFullscreenButton();
+    this.initDisplayLayout();
     window.addEventListener('keydown', this.handleCheatKeyDown, true);
     window.addEventListener('c64-controller-connected', this.handleControllerConnected);
     window.addEventListener('c64-controller-disconnected', this.handleControllerDisconnected);
@@ -701,7 +764,7 @@ export default class UIController {
     if (document.querySelector('style[data-c64-help]')) return;
     const style = document.createElement('style');
     style.setAttribute('data-c64-help', '');
-    style.textContent = css;
+    style.textContent = css + displayLayoutCss;
     document.head.appendChild(style);
   }
 
@@ -727,13 +790,9 @@ export default class UIController {
       if (e.target === overlay) this.close();
     });
 
-    const controlItems = CONTROLS.map(
-      ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
-    ).join('');
-
-    const specialItems = SPECIAL_KEYS.map(
-      ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
-    ).join('');
+    const controlItems = CONTROLS.map(([action, keys]) => renderKeymapItem([action, keys])).join(
+      '',
+    );
 
     overlay.innerHTML = `
       <div class="c64-help-dialog">
@@ -743,8 +802,7 @@ export default class UIController {
         <p><a href="https://github.com/hayesmaker/c64-ready" target="_blank" rel="noopener">Source code on GitHub</a> · <a href="#" id="c64-view-changelog">View changelog</a></p>
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
-        <h2>SPECIAL KEYS</h2>
-        <ul class="c64-help-special">${specialItems}</ul>
+        <p class="c64-help-note">Other keys type as on your keyboard. <a href="#" id="c64-view-keymap">Full keyboard map &rarr;</a></p>
         <div class="c64-version">${this.getVersionLabel()}</div>
       </div>
     `;
@@ -777,6 +835,36 @@ export default class UIController {
         this.loadAndShowChangelog(changelogOverlay);
       });
     }
+
+    // Full keyboard map modal (hidden by default)
+    const keymapSections = FULL_KEYMAP.map(
+      ([title, entries]) =>
+        `<h3>${title}</h3><ul class="c64-help-controls">${entries.map(renderKeymapItem).join('')}</ul>`,
+    ).join('');
+    const keymapOverlay = document.createElement('div');
+    keymapOverlay.className = 'c64-help-overlay c64-keymap-overlay';
+    keymapOverlay.style.zIndex = '1003';
+    keymapOverlay.innerHTML = `
+      <div class="c64-help-dialog c64-keymap-dialog">
+        <button class="c64-help-close" aria-label="Close">&times;</button>
+        <h2>KEYBOARD MAP</h2>
+        <p class="c64-help-note">Mixed input mode (the default): arrows and Z / Left Ctrl drive the joystick, every other key goes to the C64 keyboard. Change it under Settings &rarr; Input.</p>
+        ${keymapSections}
+      </div>
+    `;
+    const closeKeymap = () => keymapOverlay.classList.remove('visible');
+    keymapOverlay.addEventListener('click', (e) => {
+      if (e.target === keymapOverlay) closeKeymap();
+    });
+    keymapOverlay.querySelector('.c64-help-close')!.addEventListener('click', closeKeymap);
+    document.body.appendChild(keymapOverlay);
+    this.keymapOverlay = keymapOverlay;
+    overlay.querySelector('#c64-view-keymap')!.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const dialog = keymapOverlay.querySelector('.c64-help-dialog');
+      if (dialog) dialog.scrollTop = 0;
+      keymapOverlay.classList.add('visible');
+    });
   }
 
   private async loadAndShowChangelog(container: HTMLElement) {
@@ -811,6 +899,96 @@ export default class UIController {
       const el = container.querySelector('#c64-changelog-content')!;
       el.innerHTML = '<p>No changelog found.</p>';
     }
+  }
+
+  // ── Display layout & fullscreen ─────────────────────────────────────────
+
+  private initDisplayLayout(): void {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
+    } catch {
+      // storage unavailable (private mode / blocked) — use the default
+    }
+    this.displayMode = isDisplayMode(stored) ? stored : 'standard';
+
+    if (typeof window.matchMedia === 'function') {
+      this.touchQuery = window.matchMedia(TOUCH_DEVICE_QUERY);
+      this.portraitQuery = window.matchMedia(PORTRAIT_QUERY);
+      this.touchQuery.addEventListener?.('change', this.applyDisplayLayout);
+      this.portraitQuery.addEventListener?.('change', this.applyDisplayLayout);
+    }
+    document.addEventListener('fullscreenchange', this.applyDisplayLayout);
+    document.addEventListener('webkitfullscreenchange', this.applyDisplayLayout);
+
+    this.setDisplayMode(this.displayMode, { persist: false });
+  }
+
+  /** Change the user-selected display mode (Settings → Display). */
+  setDisplayMode(mode: DisplayMode, { persist = true }: { persist?: boolean } = {}): void {
+    this.displayMode = mode;
+    if (persist) {
+      try {
+        window.localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, mode);
+      } catch {
+        // ignore — preference just won't survive a reload
+      }
+    }
+    const radio = document.querySelector<HTMLInputElement>(
+      `input[name="c64-display-mode"][value="${mode}"]`,
+    );
+    if (radio) radio.checked = true;
+
+    const canvas = document.getElementById('c64-screen');
+    canvas?.setAttribute('data-display-mode', mode);
+    this.applyDisplayLayout();
+    window.dispatchEvent(new CustomEvent('c64-display-mode-changed', { detail: { mode } }));
+  }
+
+  getDisplayMode(): DisplayMode {
+    return this.displayMode;
+  }
+
+  private readonly applyDisplayLayout = (): void => {
+    const fullscreen = isFullscreenActive();
+    const layout = resolveDisplayLayout(this.displayMode, {
+      fullscreen,
+      touch: this.touchQuery?.matches ?? false,
+      portrait: this.portraitQuery?.matches ?? false,
+    });
+    const root = document.documentElement;
+    root.setAttribute('data-c64-layout', layout);
+    root.toggleAttribute('data-c64-fill', isFillLayout(layout));
+    root.toggleAttribute('data-c64-fullscreen', fullscreen);
+    if (this.fullscreenBtn) {
+      this.fullscreenBtn.innerHTML = fullscreen ? FULLSCREEN_EXIT_ICON : FULLSCREEN_ENTER_ICON;
+      this.fullscreenBtn.title = fullscreen ? 'Exit fullscreen' : 'Fullscreen';
+      this.fullscreenBtn.setAttribute('aria-label', this.fullscreenBtn.title);
+    }
+  };
+
+  async toggleFullscreen(): Promise<void> {
+    try {
+      await toggleFullscreen();
+    } catch (error) {
+      console.warn('[c64-ready] fullscreen request failed:', error);
+    }
+  }
+
+  private createFullscreenButton(): void {
+    if (!isFullscreenSupported()) return;
+    const btn = document.createElement('button');
+    btn.className = 'c64-fullscreen-btn';
+    btn.type = 'button';
+    btn.innerHTML = FULLSCREEN_ENTER_ICON;
+    btn.title = 'Fullscreen';
+    btn.setAttribute('aria-label', 'Fullscreen');
+    btn.addEventListener('click', () => {
+      btn.blur(); // keep keyboard focus off the button so Space etc. reach the C64
+      void this.toggleFullscreen();
+    });
+    document.body.appendChild(btn);
+    this.fullscreenBtn = btn;
   }
 
   private createHamburger(): void {
@@ -927,6 +1105,10 @@ export default class UIController {
               <label><input type="radio" name="c64-display-mode" value="standard" checked /> Standard</label>
               <label><input type="radio" name="c64-display-mode" value="full" /> Full</label>
               <label><input type="radio" name="c64-display-mode" value="stretch" /> Stretch</label>
+            </div>
+            <div class="c64-section-hint">Standard: 2x size on desktop; fills the screen width on phones in portrait and the screen height in landscape. Full: as large as the window allows. Stretch: fills the window, ignoring the aspect ratio.</div>
+            <div class="c64-menu-actions">
+              <button class="c64-btn" id="c64-fullscreen-toggle" type="button">Toggle Fullscreen</button>
             </div>
           </section>
 
@@ -1498,70 +1680,20 @@ export default class UIController {
     const displayRadios = panel.querySelectorAll(
       'input[name="c64-display-mode"]',
     ) as NodeListOf<HTMLInputElement>;
-    const canvas = document.getElementById('c64-screen') as HTMLCanvasElement | null;
-    const applyDisplayMode = (mode: string) => {
-      if (!canvas) return;
-      // Reset to defaults first
-      canvas.style.width = '';
-      canvas.style.height = '';
-      canvas.style.objectFit = '';
-      canvas.removeAttribute('data-display-mode');
-
-      if (mode === 'standard') {
-        // Use the default CSS size (no change)
-        canvas.style.width = '';
-        canvas.style.height = '';
-        // Restore the default border from CSS
-        canvas.style.border = '';
-        // Restore any previously-saved page overflow styles so scrollbars reappear
-        if (this.savedHtmlOverflow !== null) {
-          document.documentElement.style.overflow = this.savedHtmlOverflow;
-          this.savedHtmlOverflow = null;
-        } else {
-          document.documentElement.style.overflow = '';
-        }
-        if (this.savedBodyOverflow !== null) {
-          document.body.style.overflow = this.savedBodyOverflow;
-          this.savedBodyOverflow = null;
-        } else {
-          document.body.style.overflow = '';
-        }
-      } else if (mode === 'full') {
-        // Maintain aspect ratio, make canvas fill the full height of the browser
-        canvas.style.height = '100vh';
-        canvas.style.width = 'auto';
-        canvas.style.objectFit = 'contain';
-        // Remove canvas border in full-screen-like modes
-        canvas.style.border = 'none';
-        // Hide page scrollbars (prevent overflow when canvas touches edges)
-        if (this.savedHtmlOverflow === null)
-          this.savedHtmlOverflow = document.documentElement.style.overflow;
-        if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-      } else if (mode === 'stretch') {
-        // Stretch to full width and height (may alter aspect ratio)
-        canvas.style.width = '100vw';
-        canvas.style.height = '100vh';
-        canvas.style.objectFit = 'fill';
-        // Remove canvas border in full-screen-like modes
-        canvas.style.border = 'none';
-        // Hide page scrollbars (prevent overflow when canvas touches edges)
-        if (this.savedHtmlOverflow === null)
-          this.savedHtmlOverflow = document.documentElement.style.overflow;
-        if (this.savedBodyOverflow === null) this.savedBodyOverflow = document.body.style.overflow;
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-      }
-      canvas.setAttribute('data-display-mode', mode);
-      window.dispatchEvent(new CustomEvent('c64-display-mode-changed', { detail: { mode } }));
-    };
-
     displayRadios.forEach((r) => {
       r.addEventListener('change', () => {
-        if (r.checked) applyDisplayMode(r.value);
+        if (r.checked && isDisplayMode(r.value)) this.setDisplayMode(r.value);
       });
     });
+    const fullscreenToggle = panel.querySelector('#c64-fullscreen-toggle') as HTMLButtonElement;
+    if (isFullscreenSupported()) {
+      fullscreenToggle.addEventListener('click', () => {
+        this.closeMenu();
+        void this.toggleFullscreen();
+      });
+    } else {
+      fullscreenToggle.hidden = true;
+    }
 
     window.addEventListener('c64-close-dialog', () => {
       this.closeMenu();
@@ -1679,5 +1811,6 @@ export default class UIController {
 
   close(): void {
     this.helpOverlay?.classList.remove('visible');
+    this.keymapOverlay?.classList.remove('visible');
   }
 }
