@@ -40,7 +40,11 @@ const cheevosTrackerPanel = new CheevosTrackerPanel();
 cheevosTrackerPanel.init();
 
 // Initialise UI with reference to the player (for audio controls)
-new UIController({ assetBaseUrl: base }).init(player);
+new UIController({
+  assetBaseUrl: base,
+  appVersion: import.meta.env.VITE_APP_VERSION,
+  gitHash: import.meta.env.VITE_GIT_HASH,
+}).init(player);
 
 player
   .start()
