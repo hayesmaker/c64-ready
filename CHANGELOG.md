@@ -6,6 +6,29 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v3.3.0 - 2026-11-19T15:06:47+00:00
+
+- Merge branch 'chore/agents-release-process' into feat/release-3.3.0 (570e8de)
+- docs(agents): document release flow for protected master (5157b3f)
+- Merge branch 'feat/responsive-display' into feat/release-3.3.0 (d80ffb0)
+- Merge branch 'fix/app-version' into feat/release-3.3.0 (0268e48)
+- Merge branch 'feat/serve-file' into feat/release-3.3.0 (68a4601)
+- test(player): cover responsive display layout, fullscreen and keyboard map (07149ff)
+- feat(player): full keyboard map dialog linked from help (66369de)
+- fix(player): scrollable dialogs and concise controls guide (2074720)
+- feat(player): responsive display layout and fullscreen button (4dc4c90)
+- chore(test): restore jsdom Web Storage under Node >= 25 (4b67ec0)
+- fix(player): pass app version and git hash to UIController (f812b88)
+- feat(serve): boot the browser player straight into a local game file (ee61677)
+- Merge pull request #215 from hayesmaker/feat/agent-cli (11e1b82)
+- chore: upgrade node version (1be34dc)
+- feat(agent): add c64-agent CLI with PNG screenshots, dumps and breakpoints (d55ef4a)
+- Merge pull request #214 from hayesmaker/hayesmaker-patch-4 (99f6346)
+- Update README.md (f2d2a06)
+- Merge pull request #213 from hayesmaker/chore/ghcr-github-token (6beb49c)
+- fix(ci): log in to GHCR with GITHUB_TOKEN instead of a PAT (4c794f1)
+- Merge pull request #212 from hayesmaker/release/3.2.0 (0344506)
+
 ## v3.2.0 - 2026-10-26T12:48:28+00:00
 
 - test(player): cover Ultimate IP persistence (b3dab20)
