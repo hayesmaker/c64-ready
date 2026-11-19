@@ -119,6 +119,17 @@ Hex by default, following monitor convention: `$c000`, `0xc000` and `c000` all m
 | 1    | Bad arguments or load error        |
 | 3    | `--until-text` was never reached   |
 
+## Handing a program to a person
+
+`c64-agent` is for checking a program. When a person should play it, hand them the
+browser player with the file preloaded:
+
+```zsh
+npx c64-ready build/main.prg --open
+```
+
+The page boots straight into the program, and reloading it picks up a fresh build.
+
 ## Programmatic use
 
 ```js
