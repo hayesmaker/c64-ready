@@ -101,13 +101,16 @@ describe('UIController', () => {
     const ui = new UIController();
     ui.init();
 
-    const items = document.querySelectorAll('.c64-help-controls li');
-    expect(items.length).toBe(5);
+    const items = Array.from(document.querySelectorAll('.c64-help-controls li'));
+    expect(items.length).toBe(12);
 
-    const keys = Array.from(document.querySelectorAll('.c64-help-controls .c64-help-key')).map(
-      (el) => el.textContent,
-    );
-    expect(keys).toEqual(['↑', '↓', '←', '→', 'Z or Left Ctrl']);
+    const keysFor = (label: string) => {
+      const item = items.find((li) => li.firstElementChild?.textContent === label);
+      return Array.from(item?.querySelectorAll('.c64-help-key') ?? []).map((el) => el.textContent);
+    };
+    expect(keysFor('Joystick')).toEqual(['↑', '↓', '←', '→']);
+    expect(keysFor('Fire')).toEqual(['Z', 'Left Ctrl']);
+    expect(keysFor('Run/Stop')).toEqual(['Esc']);
   });
 
   it('contains a link to the GitHub repo', () => {

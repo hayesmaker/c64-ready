@@ -10,6 +10,9 @@ const css = `
 .c64-dragarea{border:1px dashed #555;border-radius:6px;background:#111827;color:#aaa;padding:18px;margin:0 0 12px;text-align:center}.c64-dragarea.dragover{border-color:#7b71d5;background:#1f1b38;color:#fff}.c64-cart-preview,.c64-tools-section{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px;margin:12px 0}.c64-section-hint{color:#888;font-size:12px;line-height:1.4;margin:4px 0 12px}.c64-checkbox-row{display:flex;align-items:center;gap:8px;color:#ccc;font-size:13px;margin:14px 0 4px}
 .c64-text-input,.c64-textarea{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;padding:5px 8px}.c64-text-input{min-width:180px}.c64-textarea{box-sizing:border-box;width:100%;min-height:120px;resize:vertical}.c64-cheevos-json-file{display:none}.c64-inline-status{color:#888;font-size:12px}
 .c64-cheat-list{display:grid;gap:12px;margin:0 0 12px}.c64-cheat-card{background:#151527;border:1px solid #2a2a3e;border-radius:6px;padding:12px}.c64-cheat-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;color:#ddd;font-size:13px}.c64-cheat-remove{background:none;border:0;color:#ff9a9a;cursor:pointer;font:inherit;font-size:12px}.c64-cheat-grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 10px;align-items:center}.c64-cheat-input{background:#111827;border:1px solid #444;border-radius:3px;color:#ddd;font:inherit;font-size:13px;min-width:0;padding:5px 8px}.c64-cheat-error{color:#ff9a9a;font-size:12px;margin:8px 0 0}.c64-cheat-status{color:#aaa;font-size:12px;line-height:1.4;margin:8px 0 0}.c64-cheat-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}@media (max-width:600px){.c64-cheat-grid{grid-template-columns:1fr}.c64-cheat-grid label{margin-top:4px}}
+.c64-help-dialog,.c64-menu-panel{box-sizing:border-box;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.c64-menu-panel{max-height:min(82vh,calc(100dvh - 32px))}.c64-changelog-dialog{max-height:min(70vh,calc(100dvh - 32px))}
+.c64-help-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;margin:0 0 8px}.c64-help-controls li{align-items:center;gap:8px;padding:3px 0}.c64-help-keys{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}.c64-help-key{font-family:inherit;white-space:nowrap}.c64-help-dialog p.c64-help-note{margin:4px 0 0;font-size:12px;color:#888}.c64-help-dialog .c64-version{margin-top:16px}
+@media (max-width:560px){.c64-help-controls{grid-template-columns:1fr}.c64-help-dialog,.c64-menu-panel{padding:20px 16px;width:calc(100% - 24px)}}
 .c64-cheat-status[data-mode=ok]{color:#8fd694}.c64-cheat-status[data-mode=error]{color:#f77}#c64-ultimate-device[data-connected]{color:#8fd694}.c64-settings-section .c64-section-hint a{color:#a8a8ff;text-decoration:none}
 `;
 
@@ -25,29 +28,20 @@ function resolveAssetUrl(baseUrl: string | undefined, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
-const CONTROLS = [
-  ['Move Up', '↑'],
-  ['Move Down', '↓'],
-  ['Move Left', '←'],
-  ['Move Right', '→'],
-  ['Fire', 'Z or Left Ctrl'],
-];
-
-const SPECIAL_KEYS = [
-  ['Fast-forward speed', 'Alt + / Alt - / Alt Backspace'],
-  ['Run/Stop', 'Esc'],
-  ['Restore', '(currently unsupported)'],
-  ['Insert/Delete', 'Backspace or Delete'],
-  ['Clear/Home', 'Home'],
-  ['Commodore', 'Ctrl or Caps Lock'],
-  ['Control', 'Tab'],
-  ['Arrow Left glyph', '`'],
-  ['Arrow Up glyph', '^ or ~'],
-  ['Pound', '\\'],
-  ['Colon / Semicolon', ': ; [ ]'],
-  ['Slash', '/ ?'],
-  ['Comma / Period', ', . < >'],
-  ['C64 function keys', 'F1-F8'],
+/** Help dialog controls guide: [label, keys]. Rendered as a compact two-column grid. */
+const CONTROLS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['Joystick', ['↑', '↓', '←', '→']],
+  ['Fire', ['Z', 'Left Ctrl']],
+  ['Fast-forward', ['Alt +', 'Alt −']],
+  ['Normal speed', ['Alt ⌫']],
+  ['Run/Stop', ['Esc']],
+  ['Inst/Del', ['⌫', 'Del']],
+  ['Clr/Home', ['Home']],
+  ['Commodore', ['Ctrl', 'Caps Lock']],
+  ['Control', ['Tab']],
+  ['£', ['\\']],
+  ['← / ↑ glyphs', ['`', '^']],
+  ['F1–F8', ['F1–F8']],
 ];
 
 import type { C64Player } from './c64-player';
@@ -747,11 +741,10 @@ export default class UIController {
     });
 
     const controlItems = CONTROLS.map(
-      ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
-    ).join('');
-
-    const specialItems = SPECIAL_KEYS.map(
-      ([action, key]) => `<li><span>${action}</span><span class="c64-help-key">${key}</span></li>`,
+      ([action, keys]) =>
+        `<li><span>${action}</span><span class="c64-help-keys">${keys
+          .map((key) => `<kbd class="c64-help-key">${key}</kbd>`)
+          .join('')}</span></li>`,
     ).join('');
 
     overlay.innerHTML = `
@@ -762,8 +755,7 @@ export default class UIController {
         <p><a href="https://github.com/hayesmaker/c64-ready" target="_blank" rel="noopener">Source code on GitHub</a> · <a href="#" id="c64-view-changelog">View changelog</a></p>
         <h2>CONTROLS</h2>
         <ul class="c64-help-controls">${controlItems}</ul>
-        <h2>SPECIAL KEYS</h2>
-        <ul class="c64-help-special">${specialItems}</ul>
+        <p class="c64-help-note">Other keys type as on your keyboard. RESTORE is not supported yet.</p>
         <div class="c64-version">${this.getVersionLabel()}</div>
       </div>
     `;
