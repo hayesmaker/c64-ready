@@ -73,6 +73,9 @@ npx -p c64-ready c64-agent game.prg --frames 250 --screenshot shot.png --screen
 npx -p c64-ready c64-agent game.prg --symbols game.sym --at 100:joy2=fire --break on_fire
 ```
 
+To hand the result to a person, `npx c64-ready game.prg --open` boots the browser
+player straight into it.
+
 See [Agent CLI](docs/AGENT_CLI.md) for every option. For ready-made Claude Code /
 Agent Skills, see [c64-skills](https://github.com/hayesmaker/c64-skills).
 
@@ -410,11 +413,31 @@ Open the URL printed to the terminal in any modern browser:
   ➜  Local:   http://localhost:5173/c64-ready/
 ```
 
+#### Play your own build
+
+Pass a `.prg`, `.d64`, `.crt` or `.c64` snapshot and the player boots straight into it.
+No drag and drop is needed:
+
+```zsh
+npx c64-ready build/main.prg --open
+```
+
+```
+  Game:      /home/you/mygame/build/main.prg  (reload the page after rebuilding)
+  ➜  Local:   http://localhost:5173/c64-ready/?game=/c64-ready/local/main.prg
+```
+
+The file is read from disk on every page load, so the dev loop is: rebuild, then refresh
+the browser. Only that one file is served. Controls: the arrow keys are the joystick,
+Z or left Ctrl fires, and gamepads work too.
+
 **Options:**
 
 | Flag         | Default   | Description                                                       |
 | ------------ | --------- | ----------------------------------------------------------------- |
-| `--port <n>` | `5173`    | HTTP port to listen on                                            |
+| `[file]`     |           | Game file to boot into (`.prg`, `.d64`, `.crt`, `.c64`)            |
+| `--open`     | off       | Open the player in your default browser                           |
+| `--port <n>` | `5173`    | HTTP port to listen on (`0` picks any free port)                  |
 | `--host`     | localhost | Bind to `0.0.0.0` so the player is reachable on the local network |
 | `--help`     |           | Print usage                                                       |
 
