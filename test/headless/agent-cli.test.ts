@@ -210,6 +210,32 @@ describe('agent CLI — end to end with the real WASM core', () => {
     expect(miss.exitCode).toBe(3);
   });
 
+  it('keeps the core watermark out of screenshots, even on the first frame', async () => {
+    // The core draws grey `lvllvl` text just right of centre for the first 40
+    // c64_getPixelBuffer() reads; runAgent reads past that at start-up.
+    const shot = path.join(dir, 'wm.png');
+    await run(['--frames', '1', '--no-run', '--screenshot', shot]);
+    const png = await fs.readFile(shot);
+    const width = png.readUInt32BE(16);
+    const idat: Buffer[] = [];
+    for (let o = 8; o < png.length; ) {
+      const len = png.readUInt32BE(o);
+      if (png.toString('ascii', o + 4, o + 8) === 'IDAT')
+        idat.push(png.subarray(o + 8, o + 8 + len));
+      o += 12 + len;
+    }
+    const raw = inflateSync(Buffer.concat(idat)); // filter 0, RGB rows
+    let grey = 0;
+    for (let y = 128; y < 142; y++) {
+      for (let x = 180; x < 208; x++) {
+        const i = y * (width * 3 + 1) + 1 + x * 3;
+        const [r, g, b] = [raw[i], raw[i + 1], raw[i + 2]];
+        if (r === g && g === b && r > 60 && r < 230) grey++;
+      }
+    }
+    expect(grey).toBe(0);
+  });
+
   it('writes screenshots at scheduled frames and at the end', async () => {
     const mid = path.join(dir, 'mid.png');
     const end = path.join(dir, 'end.png');

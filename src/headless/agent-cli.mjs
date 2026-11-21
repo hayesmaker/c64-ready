@@ -25,6 +25,12 @@ export const FRAME_MS = 20; // one PAL frame
 const BOOT_MAX_FRAMES = 300;
 const DRIVE_BOOT_FRAMES = 100; // 2 s for the 1541 to boot after being enabled
 const DEFAULT_TAP_FRAMES = 3;
+// The core draws its `lvllvl` watermark into the frame for the first 40 calls to
+// c64_getPixelBuffer(), then stops for good. The browser player reads the buffer every
+// frame, so the watermark shows only for its first ~0.7 s. The agent reads it only for
+// screenshots, so without this every screenshot would carry it. Reading past the
+// threshold once at start-up makes agent frames match what the player shows.
+export const WATERMARK_FRAME_READS = 40;
 const KBD_BUF_LEN = 0x00c6;
 const KBD_BUF = 0x0277;
 const KBD_BUF_MAX = 10;
@@ -524,6 +530,7 @@ async function loadWasm(wasmPath) {
   await w.instantiate(ab);
   const x = w.exports;
   x.c64_init();
+  for (let i = 0; i < WATERMARK_FRAME_READS; i++) x.c64_getPixelBuffer();
   x.sid_setSampleRate(44100);
   x.debugger_set_speed(100);
   x.debugger_play();
