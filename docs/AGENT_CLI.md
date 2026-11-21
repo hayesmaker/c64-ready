@@ -145,7 +145,5 @@ console.log(report.dumps[0].bytes, report.regs.pc);
 ## Known limitations
 
 - PAL timing only.
-- The core draws a small `lvllvl` watermark in the middle of the frame. It shows up in
-  screenshots and video, but not in screen RAM.
 - `--break` covers PC breakpoints only. The core also has memory and raster
   breakpoints, which are not exposed here yet.
