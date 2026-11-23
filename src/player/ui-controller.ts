@@ -68,7 +68,7 @@ const FULL_KEYMAP: ReadonlyArray<readonly [string, readonly KeymapEntry[]]> = [
     'C64 keyboard',
     [
       ['Run/Stop', ['Esc']],
-      ['Restore', [], 'not supported yet'],
+      ['Restore', ['Page Up']],
       ['Return', ['Enter']],
       ['Shift', ['Shift']],
       ['Inst/Del', ['⌫', 'Del']],

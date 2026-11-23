@@ -267,6 +267,11 @@ export class C64Player {
     }
   }
 
+  /** Press the C64 RESTORE key (an NMI pulse). Returns false if the core lacks support. */
+  restore(): boolean {
+    return this.emulator?.restore() ?? false;
+  }
+
   async reboot(): Promise<void> {
     if (!this.emulator) return;
     try {

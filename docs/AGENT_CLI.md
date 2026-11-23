@@ -61,6 +61,8 @@ c64-agent game.prg --frames 400 \
 - `press=` / `hold=` / `release=` drive the **keyboard matrix** directly, so they work in
   games that scan CIA1. Names match `C64_KEY` (`SPACE`, `RETURN`, `F1`, `RUN_STOP`,
   `SHIFT_LEFT`, `A`–`Z`, `0`–`9`, …). Combine keys with `+`.
+  `RESTORE` isn't in the matrix: it pulses the NMI line once on press, so
+  `--at 100:hold=run_stop --at 103:press=restore` is RUN/STOP+RESTORE.
 - `joy1=` / `joy2=` set the whole joystick state: any of `up down left right fire` joined
   with `+`, or `none`.
 - `poke=<addr>=<v>[,v…]` writes memory mid-run; `--poke` does the same before frame 0.

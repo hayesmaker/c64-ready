@@ -15,6 +15,7 @@ import { C64WASM } from './c64-wasm';
 import { getUnsupportedCrtReason, parseCrtInfo } from './crt-info';
 import type { C64Config, FrameBuffer, AudioBuffer, GameLoadOptions, InputEvent } from '../types';
 import type { JoystickPort, JoystickInput } from './constants';
+import { C64_KEY } from './c64-keys';
 
 const FRAME_WIDTH = 384;
 const FRAME_HEIGHT = 272;
@@ -27,6 +28,7 @@ export class C64Emulator {
   private running: boolean = false;
   private frameCount: number = 0;
   private crtPreloadChecksEnabled: boolean = true;
+  private restoreHeld: boolean = false;
 
   /** Called every tick with the latest video frame */
   onFrame?: (frame: FrameBuffer) => void;
@@ -218,7 +220,10 @@ export class C64Emulator {
     if (!x) return;
 
     if (event.type === 'key' && event.key !== undefined) {
-      x.keyboard_keyPressed(Number(event.key));
+      const key = Number(event.key);
+      // A one-shot press event with no matching release: RESTORE is a single pulse.
+      if (key === C64_KEY.RESTORE) this.restore();
+      else x.keyboard_keyPressed(key);
     } else if (event.type === 'joystick') {
       const port = (event.joystickPort ?? 1) - 1; // callers use 1/2, WASM uses 0/1
       const dirMap: Record<string, number> = { up: 1, down: 2, left: 4, right: 8 };
@@ -228,10 +233,36 @@ export class C64Emulator {
   }
 
   keyDown(keyCode: number): void {
+    if (keyCode === C64_KEY.RESTORE) {
+      // Holding RESTORE (or OS key auto-repeat) must not fire repeated NMIs.
+      if (!this.restoreHeld) this.restore();
+      this.restoreHeld = true;
+      return;
+    }
     this.wasm.exports?.keyboard_keyPressed(keyCode);
   }
   keyUp(keyCode: number): void {
+    if (keyCode === C64_KEY.RESTORE) {
+      this.restoreHeld = false;
+      return;
+    }
     this.wasm.exports?.keyboard_keyReleased(keyCode);
+  }
+
+  /**
+   * Press RESTORE. It isn't part of the keyboard matrix: on a real C64 it fires a
+   * one-shot pulse into the CPU's NMI line, which CIA2 shares. The NMI is edge
+   * triggered, so it does nothing while CIA2 holds the line (an unacknowledged
+   * CIA2 NMI), exactly as on hardware. Hold RUN/STOP for the classic warm reset.
+   *
+   * @returns false if the loaded c64.wasm lacks the `c64_nmiLine` export.
+   */
+  restore(): boolean {
+    const x = this.wasm.exports;
+    if (!x?.c64_nmiLine) return false;
+    x.c64_nmiLine(1);
+    x.c64_nmiLine(0);
+    return true;
   }
 
   /**

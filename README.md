@@ -137,12 +137,20 @@ and native snapshots (`.c64`, `.snapshot`, `.s64`).
 
 Note: VICE `.vsf` snapshots are currently disabled in the browser runtime.
 
-### Keyboard limitations (current WASM build)
+### RESTORE key
 
-- The C64 `RESTORE` key is currently not functional in this build.
-- We verified browser key mapping for `Page Up` is received, but the underlying
-  WASM core does not appear to trigger restore behavior from key input.
-- Treat this as a runtime limitation of the shipped binary for now.
+`Page Up` is the C64 `RESTORE` key. On real hardware RESTORE is not part of the
+keyboard matrix: it fires a one-shot pulse into the CPU's NMI line, which CIA2 shares.
+The original lvllvl core emulates that line but doesn't export it, so `public/c64.wasm`
+is patched by `tools/patch-wasm-exports.mjs` to export it as `c64_nmiLine`. This adds an
+export entry and changes no code.
+
+- `RUN/STOP` + `RESTORE` gives the usual warm reset (default colours, `READY.`).
+- Programs that hook the NMI vector (`$0318`/`$FFFA`) receive it, even with IRQs disabled.
+- Holding RESTORE fires once. It does nothing while an unacknowledged CIA2 NMI holds the
+  line, which is how some games disable it on real hardware.
+- API: `player.restore()` / `emulator.restore()`. In the agent CLI, use `press=restore`
+  (for example `--at 100:hold=run_stop --at 103:press=restore`).
 
 ### Environment variables
 

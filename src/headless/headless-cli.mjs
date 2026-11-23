@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { timingSafeEqual } from 'crypto';
 import FFmpegRunner from './ffmpeg-runner.mjs';
-import { domKeyToC64Actions } from './c64-key-map.mjs';
+import { domKeyToC64Actions, pressC64Key, releaseC64Key } from './c64-key-map.mjs';
 
 const nowMonoMs = () => {
   if (
@@ -211,16 +211,16 @@ async function typeCommandText(exports, text, opts = {}) {
     const key = ch === '\n' ? 'Enter' : ch;
     const down = domKeyToC64Actions(key, false, 'keydown');
     for (const act of down) {
-      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-      else exports.keyboard_keyReleased(act.key);
+      if (act.action === 'press') pressC64Key(exports, act.key);
+      else releaseC64Key(exports, act.key);
     }
     if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
     if (keyDelayMs > 0) await sleepMs(keyDelayMs);
 
     const up = domKeyToC64Actions(key, false, 'keyup');
     for (const act of up) {
-      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-      else exports.keyboard_keyReleased(act.key);
+      if (act.action === 'press') pressC64Key(exports, act.key);
+      else releaseC64Key(exports, act.key);
     }
     if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
     if (keyDelayMs > 0) await sleepMs(keyDelayMs);
@@ -754,8 +754,8 @@ export async function runHeadless(options = {}) {
           const evType = event.action === 'up' ? 'keyup' : 'keydown';
           const c64acts = domKeyToC64Actions(domKey, shiftKey, evType);
           for (const act of c64acts) {
-            if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-            else exports.keyboard_keyReleased(act.key);
+            if (act.action === 'press') pressC64Key(exports, act.key);
+            else releaseC64Key(exports, act.key);
           }
           if (verbose && c64acts.length > 0) {
             const role = event._role ?? 'unknown';
