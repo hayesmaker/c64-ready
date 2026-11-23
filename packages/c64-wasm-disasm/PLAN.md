@@ -8,7 +8,10 @@ separate from the emulator glue code in `src/`.
 The companion investigation into where the source came from is in
 [PROVENANCE.md](PROVENANCE.md).
 
-Status: **planning**. Nothing below is built yet.
+Status: **planning**. Nothing below is built yet. PROVENANCE.md B1–B3 are done. Their main
+result is that most of the core is a build of the author's own GPL-2.0 code base, published
+in reduced form as [`nopsta/minimal64`](https://github.com/nopsta/minimal64). That changes
+phases 1–3 (see [Using minimal64](#using-minimal64)).
 
 ## Goals
 
@@ -26,14 +29,14 @@ summaries; the detail goes where it pays off.
 
 ## The binary
 
-| Fact         | Value                                                                                                                               |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Original     | lvllvl `dist/c64/wasm/c64.wasm`, sha1 `229ab90229a1bcced7bce040ee5e60c4cb8b3e34`, 185,394 bytes                                     |
-| In c64-ready | Same, plus one export (`c64_nmiLine` → func 396) added by `tools/patch-wasm-exports.mjs`. Code is unchanged.                        |
-| Functions    | 607 defined + 5 imported; 130 exports; function table of 218 entries                                                                |
-| Debug info   | None: no name section, no source paths                                                                                              |
-| Toolchain    | Emscripten, LLVM wasm backend era (`__growWasmMemory`, `dynCall_*`, `emscripten_asm_const_iii`); exact version TBD in PROVENANCE.md |
-| Data         | Commodore KERNAL, BASIC, character and 1541 DOS ROMs are embedded in the data section                                               |
+| Fact         | Value                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| Original     | lvllvl `dist/c64/wasm/c64.wasm`, sha1 `229ab90229a1bcced7bce040ee5e60c4cb8b3e34`, 185,394 bytes              |
+| In c64-ready | Same, plus one export (`c64_nmiLine` → func 396) added by `tools/patch-wasm-exports.mjs`. Code is unchanged. |
+| Functions    | 607 defined + 5 imported; 130 exports; function table of 218 entries                                         |
+| Debug info   | None: no name section, no source paths                                                                       |
+| Toolchain    | Emscripten 1.39.7 (upstream LLVM backend), dlmalloc, musl; see PROVENANCE.md B1                              |
+| Data         | Commodore KERNAL, BASIC, character and 1541 DOS ROMs are embedded in the data section                        |
 
 ### Already identified (from the RESTORE work, PR #221)
 
@@ -53,6 +56,23 @@ summaries; the detail goes where it pays off.
 | VIC `$D019` IRQ update                                                                                   | func 180                                                                                                    |
 | System block snapshot save / load                                                                        | func 374 / 375                                                                                              |
 | `keyboard_keyPressed` / `keyboard_keyReleased` / matrix scan                                             | func 153 / 154 / 155–156                                                                                    |
+
+## Using minimal64
+
+minimal64 is a reduced public release of the same C code base (PROVENANCE.md F10–F16).
+
+- **Names and structs come from its source.** Function names, struct layouts and comments
+  for the CPU, VIC, CIA, SID, clock/scheduler and cartridges are taken from minimal64
+  where a match is verified. Each entry records the minimal64 file and function it maps to.
+- **Exact mapping first.** Building minimal64 with Emscripten 1.39.7 (Docker
+  `emscripten/emsdk:1.39.7`) should give near-identical function bodies. That turns the
+  name map into a mechanical, checkable step. The fallback is the similarity matcher in
+  `tools/provenance/funcmatch.mjs`, with every match checked by hand.
+- **Reverse engineering only where needed.** Full reverse engineering is left for the
+  parts minimal64 doesn't have: the 1541, EasyFlash, GMod2, the debugger, snapshots and
+  the mouse.
+- **License.** Annotations quoting minimal64 source are GPL-2.0 material. This package
+  should be GPL-2.0 (or at least mark those parts), not MIT.
 
 ## Package layout
 
@@ -174,8 +194,8 @@ Recommendations in **bold**.
    line-by-line commentary.
 2. **Package scope.** **Docs and tooling only, never published.** Later, possibly publish
    `c64.named.wasm` as a drop-in debug build.
-3. **Order.** **Run PROVENANCE.md phases B1–B3 first.** They're cheap, and finding the
-   original source would make much of phases 3–4 unnecessary.
+3. **Order.** Done: B1–B3 ran first and found minimal64. Next, the exact-mapping build
+   (Emscripten 1.39.7), then phase 1 driven by that map.
 4. **Outreach.** Public sources only, or contact people (see PROVENANCE.md)? The
    maintainer decides; any contact with people who knew the author is theirs to make.
 
