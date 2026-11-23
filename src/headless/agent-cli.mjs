@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { C64WASM } from './c64-wasm.mjs';
-import { C64_KEY } from './c64-key-map.mjs';
+import { C64_KEY, pressC64Key, releaseC64Key } from './c64-key-map.mjs';
 import { encodePng } from './png.mjs';
 
 export const FRAME_WIDTH = 384;
@@ -80,7 +80,7 @@ Output:
 Addresses are hex ($c000, 0xc000, c000), #49152 for decimal, or a label with --symbols.
 Quote "$…" in shells.
 Key names: A-Z, 0-9, SPACE, RETURN, F1 F3 F5 F7, RUN_STOP, SHIFT_LEFT, CTRL, COMMODORE,
-  CURSOR_UP_DOWN, CURSOR_LEFT_RIGHT, CLEAR_HOME, INS_DEL, … (see C64_KEY).
+  CURSOR_UP_DOWN, CURSOR_LEFT_RIGHT, CLEAR_HOME, INS_DEL, RESTORE (NMI pulse), … (see C64_KEY).
 
 Exit codes: 0 ok · 1 error · 3 --until-text not reached.
 
@@ -700,17 +700,17 @@ export async function runAgent(options = {}) {
       for (const act of schedule.get(frame) ?? []) {
         if (act.kind === 'type') typeQueue.push(...act.bytes);
         else if (act.kind === 'press' || act.kind === 'hold') {
-          act.keys.forEach((k) => x.keyboard_keyPressed(k));
+          act.keys.forEach((k) => pressC64Key(x, k));
           if (act.kind === 'press') {
             const at = frame + DEFAULT_TAP_FRAMES;
             releases.set(at, [...(releases.get(at) ?? []), ...act.keys]);
           }
-        } else if (act.kind === 'release') act.keys.forEach((k) => x.keyboard_keyReleased(k));
+        } else if (act.kind === 'release') act.keys.forEach((k) => releaseC64Key(x, k));
         else if (act.kind === 'joy') setJoy(act.port, act.bits);
         else if (act.kind === 'poke') act.values.forEach((v, i) => x.c64_cpuWrite(act.addr + i, v));
         else if (act.kind === 'screenshot') await saveShot(act.path);
       }
-      for (const k of releases.get(frame) ?? []) x.keyboard_keyReleased(k);
+      for (const k of releases.get(frame) ?? []) releaseC64Key(x, k);
       releases.delete(frame);
 
       // Feed the KERNAL keyboard buffer whenever it has drained.

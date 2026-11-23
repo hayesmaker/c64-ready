@@ -82,6 +82,42 @@ export const C64_KEY = {
 };
 
 /**
+ * RESTORE is not in the keyboard matrix: on real hardware it fires a 556 one-shot
+ * into the CPU's NMI line (shared with CIA2). The core ignores key index 64, so it
+ * is routed to the `c64_nmiLine` export (added by tools/patch-wasm-exports.mjs)
+ * as a single pulse on the press edge. Holding or auto-repeating it does not
+ * fire again, just like the hardware.
+ */
+const restoreHeld = new WeakMap();
+
+/** Pulse the NMI line once, as the RESTORE key does. Returns false if unsupported. */
+export function pulseRestore(exports) {
+  if (typeof exports?.c64_nmiLine !== 'function') return false;
+  exports.c64_nmiLine(1);
+  exports.c64_nmiLine(0);
+  return true;
+}
+
+/** Press a C64 key by matrix index; RESTORE becomes an NMI pulse. */
+export function pressC64Key(exports, key) {
+  if (key === C64_KEY.RESTORE) {
+    if (!restoreHeld.get(exports)) pulseRestore(exports);
+    restoreHeld.set(exports, true);
+    return;
+  }
+  exports.keyboard_keyPressed(key);
+}
+
+/** Release a C64 key by matrix index. */
+export function releaseC64Key(exports, key) {
+  if (key === C64_KEY.RESTORE) {
+    restoreHeld.set(exports, false);
+    return;
+  }
+  exports.keyboard_keyReleased(key);
+}
+
+/**
  * Translate a browser key event into C64 matrix actions.
  *
  * Returns an array of { key: C64_KEY_INDEX, action: 'press'|'release' }

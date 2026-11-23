@@ -1989,7 +1989,7 @@ function buildBrowserHtml(
       z: { fire: true }, Z: { fire: true }, x: { fire: true }, X: { fire: true },
     };
     const MIXED_JOY_KEYS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','z','Z','x','X']);
-    const PREVENT_DEFAULTS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Tab']);
+    const PREVENT_DEFAULTS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Tab','PageUp']);
     document.addEventListener('keydown', (e) => {
       if (!isHost) return;
       if (PREVENT_DEFAULTS.has(e.key)) e.preventDefault();

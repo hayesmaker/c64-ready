@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { timingSafeEqual } from 'crypto';
 import FFmpegRunner from './ffmpeg-runner.mjs';
-import { domKeyToC64Actions } from './c64-key-map.mjs';
+import { domKeyToC64Actions, pressC64Key, releaseC64Key } from './c64-key-map.mjs';
 
 const nowMonoMs = () => {
   if (
@@ -211,16 +211,16 @@ async function typeCommandText(exports, text, opts = {}) {
     const key = ch === '\n' ? 'Enter' : ch;
     const down = domKeyToC64Actions(key, false, 'keydown');
     for (const act of down) {
-      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-      else exports.keyboard_keyReleased(act.key);
+      if (act.action === 'press') pressC64Key(exports, act.key);
+      else releaseC64Key(exports, act.key);
     }
     if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
     if (keyDelayMs > 0) await sleepMs(keyDelayMs);
 
     const up = domKeyToC64Actions(key, false, 'keyup');
     for (const act of up) {
-      if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-      else exports.keyboard_keyReleased(act.key);
+      if (act.action === 'press') pressC64Key(exports, act.key);
+      else releaseC64Key(exports, act.key);
     }
     if (typeof exports.debugger_update === 'function') exports.debugger_update(12);
     if (keyDelayMs > 0) await sleepMs(keyDelayMs);
@@ -338,6 +338,9 @@ export async function runHeadless(options = {}) {
   let webrtcMaxBitrateKbps = 600;
   let webrtcOutputFps = 40;
   let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
+  // Local dev only: let any browser claim host without the admin token.
+  // Deliberately CLI-only (no env var), so docker/.env can't switch it on by accident.
+  let hostAuth = true;
   let logFile = false;
   let logRetainDays = 7;
   let hostTimeoutMs = Number(process.env.HOST_TIMEOUT_MS ?? '');
@@ -373,6 +376,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
     else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
     else if (a === '--admin-token') adminToken = argv[++i] ?? '';
+    else if (a === '--no-host-auth') hostAuth = false;
     else if (a === '--attract-mode') attractModeEnabled = true;
     else if (a === '--attract-mode-autostart') attractModeAutostart = true;
     else if (a === '--attract-mode-base-url') attractModeBaseUrl = argv[++i] ?? '';
@@ -754,8 +758,8 @@ export async function runHeadless(options = {}) {
           const evType = event.action === 'up' ? 'keyup' : 'keydown';
           const c64acts = domKeyToC64Actions(domKey, shiftKey, evType);
           for (const act of c64acts) {
-            if (act.action === 'press') exports.keyboard_keyPressed(act.key);
-            else exports.keyboard_keyReleased(act.key);
+            if (act.action === 'press') pressC64Key(exports, act.key);
+            else releaseC64Key(exports, act.key);
           }
           if (verbose && c64acts.length > 0) {
             const role = event._role ?? 'unknown';
@@ -766,13 +770,18 @@ export async function runHeadless(options = {}) {
         }
       }
 
+      if (!hostAuth) {
+        console.error(
+          '[input] WARNING: --no-host-auth — any browser that can reach this server can take host controls. Local dev only.',
+        );
+      }
       inputServer = createInputServer({
         port: wsPort,
         verbose,
         logEvents,
         hostTimeoutMs,
         validateKickToken,
-        hostAuthRequired: true,
+        hostAuthRequired: hostAuth,
         validateHostToken: validateAdminToken,
         validateAdminToken,
         initialCartFilename: gamePath ? path.basename(gamePath) : null,

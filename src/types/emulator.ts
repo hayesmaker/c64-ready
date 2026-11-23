@@ -37,6 +37,12 @@ export interface WASMExports {
   keyboard_keyPressed(key: number): void;
   keyboard_keyReleased(key: number): void;
 
+  /**
+   * NMI line (shared with CIA2), reference-counted; NMI fires on the 0→1 edge.
+   * Not in the original lvllvl build: added by tools/patch-wasm-exports.mjs.
+   */
+  c64_nmiLine?(assert: number): void;
+
   // Joystick
   c64_joystick_push(port: number, dir: number): void;
   c64_joystick_release(port: number, dir: number): void;
