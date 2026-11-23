@@ -338,6 +338,9 @@ export async function runHeadless(options = {}) {
   let webrtcMaxBitrateKbps = 600;
   let webrtcOutputFps = 40;
   let adminToken = process.env.C64_ADMIN_TOKEN ?? '';
+  // Local dev only: let any browser claim host without the admin token.
+  // Deliberately CLI-only (no env var), so docker/.env can't switch it on by accident.
+  let hostAuth = true;
   let logFile = false;
   let logRetainDays = 7;
   let hostTimeoutMs = Number(process.env.HOST_TIMEOUT_MS ?? '');
@@ -373,6 +376,7 @@ export async function runHeadless(options = {}) {
     else if (a === '--webrtc-max-bitrate-kbps') webrtcMaxBitrateKbps = Number(argv[++i]);
     else if (a === '--webrtc-output-fps') webrtcOutputFps = Number(argv[++i]);
     else if (a === '--admin-token') adminToken = argv[++i] ?? '';
+    else if (a === '--no-host-auth') hostAuth = false;
     else if (a === '--attract-mode') attractModeEnabled = true;
     else if (a === '--attract-mode-autostart') attractModeAutostart = true;
     else if (a === '--attract-mode-base-url') attractModeBaseUrl = argv[++i] ?? '';
@@ -766,13 +770,18 @@ export async function runHeadless(options = {}) {
         }
       }
 
+      if (!hostAuth) {
+        console.error(
+          '[input] WARNING: --no-host-auth — any browser that can reach this server can take host controls. Local dev only.',
+        );
+      }
       inputServer = createInputServer({
         port: wsPort,
         verbose,
         logEvents,
         hostTimeoutMs,
         validateKickToken,
-        hostAuthRequired: true,
+        hostAuthRequired: hostAuth,
         validateHostToken: validateAdminToken,
         validateAdminToken,
         initialCartFilename: gamePath ? path.basename(gamePath) : null,

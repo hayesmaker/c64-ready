@@ -177,6 +177,20 @@ the full annotated list.
 | `WS_PORT`                 | `9001`                 | WebSocket input server port inside the container                       |
 | `WS_HOST_PORT`            | `9001`                 | Host-side port mapping for the input WebSocket                         |
 
+### Host controls in local dev
+
+Taking host controls in the WebRTC player page needs `C64_ADMIN_TOKEN`. With no token
+set, nobody can take host. For a local run, `--no-host-auth` drops the token check, so the
+page shows a single "Take host controls" button:
+
+```zsh
+node bin/headless.mjs --wasm public/c64.wasm --no-game \
+  --webrtc --webrtc-port 9002 --input --ws-port 9001 --fps 50 --no-host-auth
+```
+
+This is a CLI flag only, with no env var, so `docker/.env` can't turn it on. Never use it on
+a server other people can reach. `c64-admin` still requires the token.
+
 ### Admin CLI
 
 Use `c64-admin` to inspect active players/spectators and run admin actions over the input WebSocket:
