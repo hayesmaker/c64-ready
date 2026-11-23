@@ -70,6 +70,9 @@ describe('C64Emulator', () => {
       c64_getSnapshotSize: vi.fn(() => 4),
       malloc: vi.fn(() => 8),
       free: vi.fn(),
+      keyboard_keyPressed: vi.fn(),
+      keyboard_keyReleased: vi.fn(),
+      c64_nmiLine: vi.fn() as ((assert: number) => void) | undefined,
     };
 
     const wasm = {
@@ -314,5 +317,72 @@ describe('C64Emulator', () => {
 
     emulator.tick(20);
     expect(second.exports.debugger_update).toHaveBeenCalledWith(20);
+  });
+
+  describe('RESTORE key', () => {
+    const RESTORE = 64;
+
+    it('keyDown(RESTORE) pulses the NMI line instead of the keyboard matrix', async () => {
+      const { wasm, exports } = makeFakeWasm();
+      vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+      const emulator = await C64Emulator.load();
+
+      emulator.keyDown(RESTORE);
+
+      expect(exports.c64_nmiLine).toHaveBeenNthCalledWith(1, 1);
+      expect(exports.c64_nmiLine).toHaveBeenNthCalledWith(2, 0);
+      expect(exports.keyboard_keyPressed).not.toHaveBeenCalled();
+    });
+
+    it('fires once per press: holding or auto-repeat does not re-trigger', async () => {
+      const { wasm, exports } = makeFakeWasm();
+      vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+      const emulator = await C64Emulator.load();
+
+      emulator.keyDown(RESTORE);
+      emulator.keyDown(RESTORE);
+      emulator.keyDown(RESTORE);
+      expect(exports.c64_nmiLine).toHaveBeenCalledTimes(2);
+
+      emulator.keyUp(RESTORE);
+      expect(exports.keyboard_keyReleased).not.toHaveBeenCalled();
+      emulator.keyDown(RESTORE);
+      expect(exports.c64_nmiLine).toHaveBeenCalledTimes(4);
+    });
+
+    it('leaves other keys on the keyboard matrix', async () => {
+      const { wasm, exports } = makeFakeWasm();
+      vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+      const emulator = await C64Emulator.load();
+
+      emulator.keyDown(30);
+      emulator.keyUp(30);
+
+      expect(exports.keyboard_keyPressed).toHaveBeenCalledWith(30);
+      expect(exports.keyboard_keyReleased).toHaveBeenCalledWith(30);
+      expect(exports.c64_nmiLine).not.toHaveBeenCalled();
+    });
+
+    it('handleInput key event for RESTORE pulses once', async () => {
+      const { wasm, exports } = makeFakeWasm();
+      vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+      const emulator = await C64Emulator.load();
+
+      emulator.handleInput({ type: 'key', key: RESTORE });
+
+      expect(exports.c64_nmiLine).toHaveBeenCalledTimes(2);
+      expect(exports.keyboard_keyPressed).not.toHaveBeenCalled();
+    });
+
+    it('restore() returns false when the core lacks c64_nmiLine', async () => {
+      const { wasm, exports } = makeFakeWasm();
+      exports.c64_nmiLine = undefined;
+      vi.spyOn(C64WASM, 'load').mockResolvedValue(wasm);
+      const emulator = await C64Emulator.load();
+
+      expect(emulator.restore()).toBe(false);
+      expect(() => emulator.keyDown(RESTORE)).not.toThrow();
+      expect(exports.keyboard_keyPressed).not.toHaveBeenCalled();
+    });
   });
 });
