@@ -6,9 +6,20 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## v3.4.0 - 2026-11-23T11:34:19+00:00
+
+- chore(release): 3.4.0 (6093702)
+- Merge pull request #221 from hayesmaker/feat/restore-key (133e2eb)
+- test(restore): cover RESTORE NMI pulse, wasm export patch and --no-host-auth (7277706)
+- feat(headless): add --no-host-auth for local dev runs (6c8ce2d)
+- fix(webrtc): stop Page Up (RESTORE) from scrolling the player page (7b4da6f)
+- feat(input): support the RESTORE key via an NMI pulse (e66d6ee)
+- feat(wasm): export the core's NMI line as c64_nmiLine (0f0531a)
+- Merge pull request #220 from hayesmaker/chore/3.3.1-release (3e2352e)
+
 ## v3.3.1 - 2026-11-21T09:18:14+00:00
 
-- chore(release): 3.3.1 (5b856cf)
+- chore(release): 3.3.1 (a1ec909)
 - Merge pull request #219 from hayesmaker/fix/agent-watermark (8a1044f)
 - fix(agent): keep the core watermark out of c64-agent screenshots (20aa588)
 - Merge pull request #218 from hayesmaker/feat/release-3.3.0 (b5c2077)
